@@ -1,64 +1,169 @@
-Layout:
+# CodeCortex (FTR10 OpenMemory)
 
-```text
-[ MACHINE A: LINUX SERVER ]                  [ MACHINE B: MSI RAIDER (10.10.10.41) ]
-┌──────────────────────────────┐             ┌──────────────────────────────────────┐
-│ • OpenMemory Proxy (Port 8080)│             │ • llama-swap (Port 8080)               │
-│ • Internal Ollama (Port 11434)│             │ • RTX 4090 (16GB VRAM)                 │
-│ • PostgreSQL / Vector DB      │             │ • Massive Chat Models (e.g., Qwopus3.6)│
-│ • Tiny Embed/Extract Models   │             │ • Tiny Extract Models (Fallback)       │
-└──────────────────────────────┘             └──────────────────────────────────────┘
-        ▲                                                ▲
-        │                                                │
-        └────────────── [ MACHINE C: USER WORKSPACE ] ───┘
-                        (IDE, Cline, Continue, CLI)
+A cognitive memory proxy that gives AI models persistent, project-aware context across sessions. It intercepts LLM API calls, injects relevant memories from a local PostgreSQL vector store, and automatically extracts new facts from conversations for future recall.
+
+## Architecture
+
+```
+[ User IDE / CLI ]                    [ Linux Server ]              [ MSI Raider (10.10.10.41) ]
+─────────────────────    ────────────────────────    ───────────────────────────────────
+                         ┌────────────────────────┐
+                         │  Ollama (:11434)       │  ← qwen2.5:3b (extraction)
+                         │  PostgreSQL (:5432)    │  ← pgvector memory store
+                         │  Redis (:6379)         │  ← optional cache
+                         └────────────────────────┘
+                                 ▲ ▼
+                         CodeCortex Proxy (:8080)
+                                 ▲ ▼
+                         http://10.10.10.41:8080/v1
+                                 ▼
+                    llama-swap → Qwopus3.6 (RTX 4090 VRAM)
 ```
 
----
+### How It Works
 
-### 🔄 The Step-by-Step Data Flow
+1. **Intercept** — User sends a prompt to `http://<server>:8098/v1/chat/completions`
+2. **Embed & Recall** — CodeCortex uses local Ollama (`bge-m3`) to embed the query, then searches PostgreSQL for relevant memories (Genome = immutable facts, Phenotype = decaying context)
+3. **Weave Context** — Relevant memories are silently injected into the system prompt with instructions to use them naturally
+4. **Forward** — The enriched request is forwarded to llama-swap on your GPU machine (`10.10.10.41:8080/v1`) for generation
+5. **Stream** — Tokens stream back transparently to the client in real-time
+6. **Extract** — After the response completes, a tiny local model (`qwen2.5:3b`) extracts new facts from the conversation and saves them to PostgreSQL
+7. **Notify** — SSE status messages inform the user of injected memories and stored facts
 
-#### Phase 1: Initiation & Interception
-**1. The User** types a prompt in their IDE (e.g., *"How do I fix this JWT auth error?"*).
-**2. The IDE** sends the request to `http://<Linux-Server-IP>:8080/v1/chat/completions`.
-   * *Payload:* `{ model: "Qwopus3.6-MTP-no-thinking", messages: [...] }`
-**3. OpenMemory Proxy (Linux Server)** intercepts the request. It pauses the request to the LLM and extracts the `userPrompt` and the `requestedModel`.
+## Quick Start (Docker)
 
-#### Phase 2: Internal Memory Retrieval (Local Linux Server)
-*Goal: Find relevant memories without touching the MSI Raider's VRAM.*
-**4. OpenMemory** sends the `userPrompt` to **Internal Ollama (`localhost:11434`)** using the `bge-m3:latest` model to generate a vector embedding.
-**5. OpenMemory** queries the local **PostgreSQL/Vector DB** for matching memories.
-**6. OpenMemory** separates the results into:
-   * **Genome:** Immutable facts (e.g., "User prefers async/await").
-   * **Phenotype:** Decaying context (e.g., "User was debugging JWT yesterday").
+```bash
+# Pull models, build, and start everything
+docker compose up --build -d
 
-#### Phase 3: Context Weaving & Initial Status
-**7. OpenMemory** silently weaves these memories into the `system` message of the prompt with strict instructions: *"Use this knowledge naturally. Never mention 'memory' or 'context'."*
-**8. OpenMemory** sends the first SSE (Server-Sent Event) chunk directly to the **User's IDE**:
-   > `🧠 *CodeCortex: Injected 2 Genome and 1 Phenotype memory(ies).*`
+# Check status
+docker compose ps
 
-#### Phase 4: Forwarding to Upstream LLM (Remote MSI Raider)
-*Goal: Send the enriched prompt to the heavy-lifting GPU.*
-**9. OpenMemory** forwards the fully enriched payload to **llama-swap (`http://10.10.10.41:8080/v1`)**.
-   * *Crucial Detail:* It passes the exact model the user requested: `model: "Qwopus3.6-MTP-no-thinking"`.
-**10. llama-swap (MSI Raider)** receives the request. It checks its VRAM, loads `Qwopus3.6` into the RTX 4090, and prepares to generate.
+# View logs
+docker compose logs -f openmemory
+```
 
-#### Phase 5: Generation & Streaming
-**11. Qwopus3.6 (MSI Raider)** generates the response. Because the context was "baked in" invisibly, it naturally replies: *"Here is the async/await fix for your JWT refresh token issue..."*
-**12. llama-swap** streams the response token-by-token back to **OpenMemory (Linux Server)**.
-**13. OpenMemory** acts as a transparent pipe, instantly streaming those raw tokens directly to the **User's IDE**.
-   * *Note: OpenMemory is simultaneously accumulating these tokens in memory for Phase 6.*
+### Services
 
-#### Phase 6: Background Extraction (Local Linux Server)
-*Goal: Learn from the conversation without interrupting the user or thrashing VRAM.*
-**14. Once the stream finishes**, OpenMemory takes the full transcript (User Prompt + LLM Response).
-**15. OpenMemory** sends this transcript to **Internal Ollama (`localhost:11434`)** using a tiny, fast model (e.g., `qwen2.5:3b` or `qwen-cpu-minimal`).
-   * *Prompt:* "You are a data extraction API. Output ONLY a JSON array of new facts..."
-**16. Internal Ollama** outputs a clean JSON array of new facts (e.g., `{"content": "User fixed JWT refresh token bug", "sector": "episodic"}`).
-**17. OpenMemory** saves these new facts into the local **PostgreSQL DB**.
+| Service | Port | Description |
+|---------|------|-------------|
+| **postgres** | 5432 | PostgreSQL with pgvector extension — memory storage |
+| **redis** | 6379 | Redis — optional cache / valkey storage |
+| **ollama** | 11434 | Ollama LLM server (qwen2.5:3b + bge-m3, auto-pinned) |
+| **openmemory** | 8098 | CodeCortex proxy — the main API endpoint |
+| **ui** | 8099 | Web GUI (Vite preview) |
 
-#### Phase 7: Final Status & Closure
-**18. OpenMemory** sends the final SSE chunk to the **User's IDE**:
-   > `🧠 *CodeCortex: Extraction complete. Stored 1 new memory(ies).*`
-   
-**19. OpenMemory** sends the `[DONE]` signal, closing the stream. The IDE renders the final UI state.
+### Stop & Clean
+
+```bash
+# Stop all services
+docker compose down
+
+# Stop and remove all data volumes (fresh start)
+docker compose down -v
+```
+
+## Client Configuration
+
+Point your IDE / CLI to the CodeCortex proxy:
+
+```
+http://<your-server-ip>:8098/v1
+```
+
+The proxy forwards requests to llama-swap at `http://10.10.10.41:8080/v1` for actual model generation.
+
+## Configuration
+
+Copy `.env.example` to `.env` and adjust as needed. Key variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OM_PORT` | `8080` | Server HTTP port (container) |
+| `OM_STORAGE` | `postgres` | Storage backend (`postgres`, `memory`, `sqlite`) |
+| `OM_EMBEDDINGS` | `ollama` | Embedding provider |
+| `OM_OLLAMA_MODEL` | `bge-m3` | Ollama embedding model |
+| `CONSOLIDATION_MODEL` | `qwen2.5:3b` | LLM for memory consolidation |
+| `EXTRACTION_MODEL` | `qwen2.5:3b` | LLM for async fact extraction |
+| `LLAMA_URL` | `http://10.10.10.41:8080/v1` | Upstream llama-swap endpoint |
+| `OM_VECTOR_STORE` | `postgres` | Vector store backend |
+| `OM_API_KEY` | _(empty)_ | API key for auth (leave empty to disable) |
+
+## Local Development (No Docker)
+
+```bash
+# 1. Start PostgreSQL locally and create the database
+sudo systemctl start postgresql
+psql -U postgres -c "CREATE DATABASE openmemory;"
+
+# 2. Install dependencies
+npm install
+
+# 3. Run migrations
+npx tsx packages/openmemory-js/src/database/migrate.ts
+
+# 4. Start Ollama locally and pull models
+ollama serve &
+ollama pull bge-m3
+ollama pull qwen2.5:3b
+
+# 5. Set environment variables (at minimum)
+export OLLAMA_URL=http://localhost:11434
+export LLAMA_URL=http://10.10.10.41:8080/v1
+export OM_STORAGE=postgres
+export OM_PG_HOST=localhost
+export OM_PG_DB=openmemory
+
+# 6. Start the server
+cd packages/openmemory-js && OM_PORT=8080 npx nodemon src/server.ts
+```
+
+## Web GUI
+
+The web interface is at `http://localhost:8099` (Docker) or `http://localhost:5173` (dev mode).
+
+### Dev Mode
+
+```bash
+cd apps/web && npm run dev
+```
+
+### Production Build
+
+```bash
+cd apps/web && npm run build
+```
+
+## Project Structure
+
+```
+OpenMemory/
+├── packages/openmemory-js/   # CodeCortex proxy server
+│   ├── src/
+│   │   ├── api/routes/       # HTTP routes (chat completions, health, etc.)
+│   │   ├── configuration/    # Environment parsing & config loading
+│   │   ├── durable/          # PostgreSQL memory repository
+│   │   ├── embeddings/       # Embedding providers (Ollama, OpenAI, etc.)
+│   │   └── services/         # Memory logger, consolidation engine
+│   ├── Dockerfile
+│   └── tsconfig.json
+├── apps/web/                 # Web GUI (Vite + React)
+│   ├── src/
+│   └── Dockerfile
+├── docker-compose.yml        # Full stack orchestration
+├── preload-models.sh         # Model preloading script (auto-run on startup)
+├── .env.example              # Environment variable reference
+├── build.md                  # Detailed build & run guide
+└── readme.md                 # This file
+```
+
+## Troubleshooting
+
+- **Models not loading** — Check Ollama health: `curl http://localhost:11434`. Models are auto-pulled on startup via the server entrypoint.
+- **Server won't start** — Verify PostgreSQL is running and port 8098 is free (`lsof -i :8098`).
+- **Cannot reach llama-swap** — Confirm `LLAMA_URL` points to your GPU machine (default: `http://10.10.10.41:8080/v1`).
+- **Migration fails** — Ensure PostgreSQL is running and the database exists before starting the server.
+
+## Naming
+
+The project was previously called "OpenMemory" / "CodeCortex". The official name is **FTR10 CodeCortex**. The server binary/package is **CodeCortex**, and the VS Code extension (when ready) will be **CodeCortexVS**.

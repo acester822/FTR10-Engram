@@ -76,7 +76,8 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
 
   return [
     `create schema if not exists ${ident(schema)}`,
-    `create extension if not exists vector`,
+    // Try pgvector first, fall back to halfvec (built into PG 16+)
+    `DO $$ BEGIN CREATE EXTENSION IF NOT EXISTS vector; EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'pgvector not available'; END $$`,
     `create table if not exists ${memories} (
       id uuid primary key,
       user_id text not null default 'anonymous',
@@ -85,7 +86,7 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
       facets jsonb not null default '{}'::jsonb,
       contracts jsonb not null default '{}'::jsonb,
       metadata jsonb not null default '{}'::jsonb,
-      embedding vector(${vectorDim}),
+      embedding halfvec(${vectorDim}),
       confidence double precision not null default 1 check(confidence >= 0 and confidence <= 1),
       salience double precision not null default 0.5 check(salience >= 0 and salience <= 1),
       memory_tier text not null default 'active',
@@ -291,7 +292,7 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
     `create index if not exists durable_memories_tenant_project_current_idx on ${memories}(user_id, project_id, recorded_at desc) where superseded_at is null`,
     `create index if not exists durable_memories_global_current_idx on ${memories}(user_id, recorded_at desc) where project_id is null and superseded_at is null`,
     `drop index if exists ${ident(schema)}.durable_memories_embedding_idx`,
-    `create index if not exists durable_memories_embedding_idx on ${memories} using hnsw (embedding vector_cosine_ops) where embedding is not null`,
+    `create index if not exists durable_memories_embedding_idx on ${memories} using hnsw (embedding halfvec_cosine_ops) where embedding is not null`,
     `create index if not exists durable_edges_type_idx on ${edges}(edge_type)`,
     `create index if not exists durable_edges_source_memory_idx on ${edges}(source_memory_id)`,
     `create index if not exists durable_edges_target_memory_idx on ${edges}(target_memory_id)`,

@@ -22,6 +22,7 @@ import {
 import { send_telemetry } from "../configuration/telemetry";
 import { createHttpApp } from "./httpApp";
 import { consolidationEngine } from "../services/consolidationEngine";
+import { run_migrations } from "../database/migrate";
 
 export function createApp() {
   const app = createHttpApp({ max_payload_size: env.max_payload_size });
@@ -54,7 +55,14 @@ export function createApp() {
   return app;
 }
 
-export function startServer() {
+export async function startServer() {
+  // Run database migrations before starting the server
+  try {
+    await run_migrations();
+  } catch (err) {
+    console.error("[SERVER] Migration failed, but continuing:", err);
+  }
+
   const app = createApp();
 
   // 🧠 START THE HIPPOCAMPUS — background consolidation cron (deferred to avoid startup crash)

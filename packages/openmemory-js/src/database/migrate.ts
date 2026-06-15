@@ -42,6 +42,16 @@ async function run_durable_schema_migration(pool: Pool): Promise<void> {
   const vectorDim = process.env.OM_VEC_DIM
     ? +process.env.OM_VEC_DIM
     : env.vec_dim;
+
+  // Try pgvector, fall back to halfvec (built into PG 16+)
+  try {
+    await pool.query("CREATE EXTENSION IF NOT EXISTS vector");
+    log("[MIGRATE] Using pgvector extension");
+  } catch {
+    log("[MIGRATE] pgvector not available, using built-in halfvec...");
+    await pool.query("CREATE EXTENSION IF NOT EXISTS halfvec");
+  }
+
   const statements = buildDurableSchemaSql({ schema, vectorDim });
 
   log(`Running migration: ${DURABLE_SCHEMA_VERSION} - Durable core schema`);

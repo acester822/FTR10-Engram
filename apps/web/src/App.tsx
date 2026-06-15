@@ -30,12 +30,9 @@ interface Stats {
 type Tab = "dashboard" | "memories" | "logs";
 
 export default function App() {
-  const activeTab = useState<Tab>("dashboard")[0];
-  const setActiveTab = useState<Tab>("dashboard")[1];
-  const stats = useState<Stats | null>(null)[0];
-  const setStats = useState<Stats | null>(null)[1];
-  const loading = useState<boolean>(true)[0];
-  const setLoading = useState<boolean>(true)[1];
+  const [activeTab, setActiveTab] = useState("dashboard" as Tab);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -141,8 +138,8 @@ function DashboardView({
   stats: Stats | null;
   onRefresh: () => void;
 }) {
-  const [consolidating, setConsolidating] = useState<boolean>(false);
-  const [consolidateMsg, setConsolidateMsg] = useState<string>("");
+  const [consolidating, setConsolidating] = useState(false);
+  const [consolidateMsg, setConsolidateMsg] = useState("");
 
   const triggerConsolidation = async () => {
     setConsolidating(true);
@@ -255,12 +252,12 @@ function StatCard({ title, value, icon }: StatCardProps) {
 }
 
 function MemoriesView() {
-  const [memories, setMemories] = useState<Memory[]>([]);
-  const [search, setSearch] = useState<string>("");
-  const [sectorFilter, setSectorFilter] = useState<string>("all");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<{ content: string; sector: string; is_genome: number }>({ content: "", sector: "semantic", is_genome: 0 });
-  const [saving, setSaving] = useState<boolean>(false);
+  const [memories, setMemories] = useState([]);
+  const [search, setSearch] = useState("");
+  const [sectorFilter, setSectorFilter] = useState("all");
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ content: "", sector: "semantic", is_genome: 0 });
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchMemories();
@@ -450,8 +447,8 @@ function MemoriesView() {
 }
 
 function LogsView() {
-  const [logs, setLogs] = useState<Memory[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch(`${API_BASE}/logs`)

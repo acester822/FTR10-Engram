@@ -14,9 +14,10 @@
 */
 
 import { env } from "../configuration";
-import { make_db as kit_make_db, run_async, all_async } from "../api/_kit";
+import { make_db as kit_make_db, run_async, all_async } from "../api/routes/_kit";
 import { rememberDurableMemory } from "../durable/repository";
 import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
+
 
 /**
  * Async log interaction - extract new memories from conversation
@@ -35,6 +36,8 @@ You are a background data-extraction API. You are NOT a chat assistant.
 You do not answer questions. You do not write code. You do not converse.
 Your ONLY function is to analyze the provided text and output a strict JSON array of extracted facts.
 
+CRITICAL RULE: If the user explicitly asks to "remember", "save", "store", or "add to memory" something, you MUST extract that exact information as a high-priority fact, regardless of whether it looks like documentation, a rule, or a preference. Treat explicit save requests as permanent (is_genome: true).
+
 ### INPUT DATA ###
 User Prompt: ${userPrompt}
 AI Response: ${llmResponseText}
@@ -43,9 +46,9 @@ AI Response: ${llmResponseText}
 Return ONLY a valid JSON array. No markdown, no explanations, no conversational text.
 [
   {
-    "content": "The extracted fact",
-    "sector": "semantic", // Options: semantic, procedural, episodic, emotional, reflective
-    "is_genome": false // true ONLY if it is a permanent, unchangeable rule
+    "content": "The extracted fact or rule",
+    "sector": "procedural", // Options: semantic, procedural, episodic, emotional, reflective
+    "is_genome": true // Set to true if the user explicitly asked to remember it as a permanent rule
   }
 ]
 If no facts are worth saving, return exactly: []

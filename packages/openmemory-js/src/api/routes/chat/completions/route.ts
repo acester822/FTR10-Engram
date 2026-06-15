@@ -18,6 +18,7 @@ import { consolidationEngine } from "../../../../services/consolidationEngine";
 import { classifyMemory, DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, computeDecaySalience, MemoryInjector } from "../../../../services/memoryInjector";
 import { recallDurableMemories, rememberDurableMemory } from "../../../../durable/repository";
 import { make_db as kit_make_db, run_async, all_async } from "../../_kit";
+import { logInteractionAsync } from "../../../../services/memoryLogger";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -118,106 +119,21 @@ function createSSEChunk(content: string, model: string = 'codecortex-proxy') {
 // Dedup guard: prevent multiple in-flight extractions for the same prompt
 const _logInFlight = new Set<string>();
 
-/** Async log interaction — extract new memories from conversation */
-async function logInteractionAsync(
-  userPrompt: string,
-  llmResponseText: string,
-): Promise<{ storedCount: number }> {
-  const dedupKey = userPrompt.slice(0, 80);
-  if (_logInFlight.has(dedupKey)) return { storedCount: 0 }; // already extracting for this prompt
-  _logInFlight.add(dedupKey);
-  setTimeout(() => _logInFlight.delete(dedupKey), 120_000); // release after 2 min
+// ── llama-swap lock (serialize requests per model group) ───────────────
 
-  try {
-    console.log("[CodeCortex] 🧠 Analyzing conversation for new memories...");
+let _swapLock = Promise.resolve();
+const swapQueue = new Map<string, Promise<void>>();
 
-    const extractionPrompt = `### SYSTEM DIRECTIVE ###
-You are a background data-extraction API. You are NOT a chat assistant. 
-You do not answer questions. You do not write code. You do not converse.
-Your ONLY function is to analyze the provided text and output a strict JSON array of extracted facts.
-
-### INPUT DATA ###
-User Prompt: ${userPrompt}
-AI Response: ${llmResponseText}
-
-### OUTPUT SCHEMA ###
-Return ONLY a valid JSON array. No markdown, no explanations, no conversational text.
-[
-  {
-    "content": "The extracted fact",
-    "sector": "semantic", // Options: semantic, procedural, episodic, emotional, reflective
-    "is_genome": false // true ONLY if it is a permanent, unchangeable rule
+function acquireSwap(modelKey?: string): () => void {
+  const key = modelKey || "default";
+  if (!swapQueue.has(key)) {
+    swapQueue.set(key, Promise.resolve());
   }
-]
-If no facts are worth saving, return exactly: []
-
-### EXECUTE EXTRACTION NOW ###
-`.trim();
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000); // 30s timeout for extraction
-    try {
-      const response = await fetch(`${env.ollama_url}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: process.env.EXTRACTION_MODEL || "qwen2.5:3b", // Use a small model to avoid VRAM issues on upstream GPUs
-          prompt: extractionPrompt,
-          stream: false,
-          format: { type: "array", items: { type: "object", properties: { content: { type: "string" }, sector: { type: "string", enum: ["semantic","procedural","episodic","emotional","reflective"] }, is_genome: { type: "boolean" } }, required: ["content","sector","is_genome"] } },
-        }),
-        signal: controller.signal,
-      });
-
-    if (!response.ok) { console.warn("[CodeCortex] Extraction LLM returned status", response.status); return { storedCount: 0 }; }
-
-    const data = await response.json();
-    let extractedMemories: any[] = [];
-    try {
-      const cleanJson = (data.response || "").replace(/^```json\s*|\s*```$/g, "").trim();
-      extractedMemories = JSON.parse(cleanJson);
-    } catch { console.error("[CodeCortex] Failed to parse extraction JSON:", data.response); return { storedCount: 0 }; }
-
-    if (!Array.isArray(extractedMemories) || extractedMemories.length === 0) {
-      console.log("[CodeCortex] No new significant memories extracted.");
-      return { storedCount: 0 };
-    }
-
-    // Store each extracted memory via the durable repository
-    for (const mem of extractedMemories) {
-      let decayRate = DEFAULT_PHENOTYPE_DECAY_RATE;
-      if (mem.is_genome) decayRate = DEFAULT_GENOME_DECAY_RATE;
-      else if (mem.sector === "episodic") decayRate = 0.15;
-      else if (["semantic", "procedural"].includes(mem.sector)) decayRate = 0.05;
-
-      // Use real DB connection (not mock) so INSERT operations work properly
-      await rememberDurableMemory(kit_make_db(run_async, all_async), {
-        content: mem.content,
-        user_id: "system",
-        project_id: undefined,
-        metadata: { sector: mem.sector, decay_rate: decayRate },
-      });
-
-      console.log(`[CodeCortex] 💾 Saved [${mem.sector}] memory: "${mem.content.substring(0, 60)}..."`);
-    }
-    
-    console.log(`[CodeCortex] 💾 Saved ${extractedMemories.length} new memories.`);
-    return { storedCount: extractedMemories.length };
-    } finally { clearTimeout(timeoutId); }
-  } catch (err) {
-    console.error("[CodeCortex] ❌ Async logging failed:", err);
-    return { storedCount: 0 };
-  }
-}
-
-// ── Request queue for llama-swap (exclusive model group — one at a time) ──
-
-let _swapLock: Promise<void> = Promise.resolve();
-
-function acquireSwap(): () => void {
-  const prev = _swapLock;
   let release: () => void;
-  _swapLock = new Promise<void>((resolve) => { release = resolve; });
+  swapQueue.set(
+    key,
+    swapQueue.get(key)!.then(() => new Promise<void>((r) => (release = r))),
+  );
   return () => release!();
 }
 

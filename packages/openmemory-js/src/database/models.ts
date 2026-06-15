@@ -22,27 +22,40 @@ let cfg: model_cfg | null = null;
 
 export const load_models = (): model_cfg => {
   if (cfg) return cfg;
+
+  // Try loading from models.yml first (for backwards compat)
   const p = [
     join(__dirname, "../../../../models.yml"),
     join(__dirname, "../../../models.yml"),
     join(process.cwd(), "models.yml"),
     join(process.cwd(), "../../models.yml"),
   ].find((candidate) => existsSync(candidate));
-  if (!p) {
-    console.error("[MODELS] models.yml not found, using defaults");
-    return get_defaults();
+
+  if (p) {
+    try {
+      const yml = readFileSync(p, "utf-8");
+      cfg = parse_yaml(yml);
+      console.error(
+        `[MODELS] Loaded models.yml (${Object.keys(cfg).length} facets)`,
+      );
+      return cfg;
+    } catch (e) {
+      console.error("[MODELS] Failed to parse models.yml:", e);
+    }
   }
-  try {
-    const yml = readFileSync(p, "utf-8");
-    cfg = parse_yaml(yml);
-    console.error(
-      `[MODELS] Loaded models.yml (${Object.keys(cfg).length} facets)`,
-    );
+
+  // Fall back to env-based config: OM_EMBEDDING_<FACET>_<PROVIDER>
+  const env = process.env;
+  if (env.OM_EMBEDDINGS) {
+    console.error("[MODELS] Using env-based model configuration");
+    cfg = {};
     return cfg;
-  } catch (e) {
-    console.error("[MODELS] Failed to parse models.yml:", e);
-    return get_defaults();
   }
+
+  // Final fallback to hardcoded defaults
+  console.error("[MODELS] No config found, using defaults");
+  cfg = get_defaults();
+  return cfg;
 };
 
 const parse_yaml = (yml: string): model_cfg => {
