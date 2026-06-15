@@ -1,0 +1,43 @@
+# Logs
+logs/
+*.log
+npm-debug.log
+npm-error.log
+
+# Build artifacts
+dist/
+build/
+.out/
+
+# VSIX files
+*.vsix
+
+# Node
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbnails.db
+.DS_Store?
+._*
+
+# OpenMemory specific
+data/
+storage/
+tmp/
+.cache/

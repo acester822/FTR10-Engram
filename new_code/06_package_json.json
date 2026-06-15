@@ -1,0 +1,39 @@
+{
+  "name": "codecortex-vscode",
+  "displayName": "CodeCortex",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.89.0"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onChatParticipant:openmemory.cortex"
+  ],
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "openmemory.cortex",
+        "name": "cortex",
+        "fullName": "CodeCortex",
+        "description": "Chat with full cognitive memory context (Genome + Phenotype)",
+        "isSticky": true,
+        "commands": [
+          {
+            "name": "explain",
+            "description": "Explain the current file using long-term memory context"
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.89.0",
+    "@types/node": "20.x",
+    "typescript": "^5.4.0"
+  }
+}
