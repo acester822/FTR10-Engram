@@ -1,5 +1,5 @@
 ### ASSISTANT
-This is the perfect capstone for CodeCortex. A dedicated web dashboard transforms it from a "black box" background service into a fully transparent, manageable cognitive engine. 
+This is the perfect capstone for Engram. A dedicated web dashboard transforms it from a "black box" background service into a fully transparent, manageable cognitive engine. 
 
 We will build a **React + Vite + Tailwind CSS** dashboard that connects to your existing Node.js backend. It will feature a **Dashboard** (stats), a **Memory Explorer** (search, edit, delete), and an **Interaction Logs** view (showing the full Input → Injected Context → Output → Extracted Memory pipeline).
 
@@ -8,7 +8,7 @@ Here is the complete, start-to-finish implementation.
 ---
 
 ### Step 1: Add Dashboard API Endpoints to Your Backend
-Add these routes to your Node.js server (`packages/openmemory-js/src/server/index.ts` or `routes.ts`) to serve the frontend.
+Add these routes to your Node.js server (`packages/engram-js/src/server/index.ts` or `routes.ts`) to serve the frontend.
 
 ```typescript
 import express from 'express';
@@ -179,7 +179,7 @@ export default function App() {
       <div className="fixed left-0 top-0 h-full w-64 bg-slate-900 text-white p-6 flex flex-col">
         <div className="flex items-center gap-3 mb-10">
           <Brain className="w-8 h-8 text-blue-400" />
-          <h1 className="text-xl font-bold tracking-tight">CodeCortex</h1>
+          <h1 className="text-xl font-bold tracking-tight">Engram</h1>
         </div>
         
         <nav className="space-y-2 flex-1">
@@ -349,7 +349,7 @@ function MemoriesView() {
           <option value="reflective">Reflective</option
 </think>
 
-This is the perfect capstone for CodeCortex. A dedicated web dashboard transforms it from a "black box" background service into a fully transparent, manageable cognitive engine. 
+This is the perfect capstone for Engram. A dedicated web dashboard transforms it from a "black box" background service into a fully transparent, manageable cognitive engine. 
 
 We will build a **React + Vite + Tailwind CSS** dashboard that connects to your existing Node.js backend. It will feature a **Dashboard** (stats), a **Memory Explorer** (search, edit, delete), and an **Interaction Logs** view (showing the full Input → Injected Context → Output → Extracted Memory pipeline).
 
@@ -358,7 +358,7 @@ Here is the complete, start-to-finish implementation.
 ---
 
 ### Step 1: Add Dashboard API Endpoints to Your Backend
-Add these routes to your Node.js server (`packages/openmemory-js/src/server/index.ts` or `routes.ts`) to serve the frontend.
+Add these routes to your Node.js server (`packages/engram-js/src/server/index.ts` or `routes.ts`) to serve the frontend.
 
 ```typescript
 import express from 'express';
@@ -513,7 +513,7 @@ export default function App() {
       <div className="fixed left-0 top-0 h-full w-64 bg-slate-900 text-white p-6 flex flex-col">
         <div className="flex items-center gap-3 mb-10">
           <Brain className="w-8 h-8 text-blue-400" />
-          <h1 className="text-xl font-bold tracking-tight">CodeCortex</h1>
+          <h1 className="text-xl font-bold tracking-tight">Engram</h1>
         </div>
         
         <nav className="space-y-2 flex-1">
@@ -784,7 +784,7 @@ function LogsView() {
    ```
 3. **Open the Browser**: Navigate to `http://localhost:5173`.
 
-### Why This UI is a Game-Changer for CodeCortex
+### Why This UI is a Game-Changer for Engram
 1. **Total Transparency**: Users can see *exactly* what the AI knows. No more "black box" anxiety.
 2. **Human-in-the-Loop Curation**: If the LLM extracts a hallucinated or incorrect fact, the user can instantly click the **Edit** pencil icon, correct the text, or toggle it from "Phenotype" to "Genome" (or delete it entirely).
 3. **Process Visualization**: The "Interaction Logs" timeline visually demonstrates the "vice versa" loop in action, showing the user that the system is actively learning and categorizing their workflow.

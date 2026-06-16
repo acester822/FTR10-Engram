@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const { detectBackend } = require('./out/detectors/openmemory');
+const { detectBackend } = require('./out/detectors/engram');
 const { writeMCPConfig } = require('./out/mcp/generator');
 const { writeCursorConfig } = require('./out/writers/cursor');
 const { writeClaudeConfig } = require('./out/writers/claude');
@@ -10,10 +10,10 @@ const { writeCodexConfig } = require('./out/writers/codex');
 const DEFAULT_URL = 'http://localhost:8080';
 
 async function postInstall() {
-  console.log('🧠 OpenMemory IDE Extension - Auto-Setup');
+  console.log('🧠 Engram IDE Extension - Auto-Setup');
   console.log('=========================================\n');
 
-  console.log('Checking for OpenMemory backend...');
+  console.log('Checking for Engram backend...');
   const isRunning = await detectBackend(DEFAULT_URL);
 
   if (isRunning) {
@@ -39,7 +39,7 @@ async function postInstall() {
       const codexPath = await writeCodexConfig(DEFAULT_URL);
       console.log(`  ✓ Codex config: ${codexPath}`);
       console.log(
-        '\n🎉 Setup complete! All AI tools can now access OpenMemory.',
+        '\n🎉 Setup complete! All AI tools can now access Engram.',
       );
       console.log('\nSupported AI tools:');
       console.log('  • GitHub Copilot');
@@ -62,7 +62,7 @@ async function postInstall() {
     );
   }
 
-  console.log('\n📖 For more info: https://github.com/CaviraOSS/OpenMemory');
+  console.log('\n📖 For more info: https://github.com/CaviraOSS/Engram');
 }
 
 postInstall().catch(console.error);

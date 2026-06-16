@@ -40,7 +40,7 @@
 ### 1.2 Trace generation in proxy
 - [ ] Modify the proxy to generate trace data alongside the cognitive context
 - [ ] Include the trace in the response to the standalone app
-  - Option A: Custom HTTP header (`X-CodeCortex-Trace`)
+  - Option A: Custom HTTP header (`X-Engram-Trace`)
   - Option B: Custom sidecar payload at end of stream
   - Option C: Separate endpoint to fetch trace after request
 - [ ] Log the trace for debugging (without exposing to client)

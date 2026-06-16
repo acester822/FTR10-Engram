@@ -1,18 +1,18 @@
 ### USER
-The other part of what I want CodeCortex to do is memory compaction, it should be thinning requests to the llm's to eliminate unneeded fluff as well as compacting conversations on the fly to keep context down no matter the length of the session. Thoughts on how to accomplish this?
+The other part of what I want Engram to do is memory compaction, it should be thinning requests to the llm's to eliminate unneeded fluff as well as compacting conversations on the fly to keep context down no matter the length of the session. Thoughts on how to accomplish this?
 
 ### ASSISTANT
 This is the exact right evolution for an agentic memory system. If you don't compact context, long sessions will inevitably hit token limits, cause "lost in the middle" degradation, and waste massive amounts of VRAM/compute on redundant tool outputs and LLM pleasantries.
 
 To accomplish this, we will implement a **Rolling Summary + Raw Tail** architecture, augmented by **Aggressive Thinning**. 
 
-Here is the blueprint for how CodeCortex will handle this seamlessly.
+Here is the blueprint for how Engram will handle this seamlessly.
 
 ---
 
 ### 🧠 The Compaction Strategy
 
-Instead of sending the entire 50-turn conversation to the upstream LLM, CodeCortex will dynamically restructure the payload *before* forwarding it:
+Instead of sending the entire 50-turn conversation to the upstream LLM, Engram will dynamically restructure the payload *before* forwarding it:
 
 1. **The Raw Tail:** Always keep the last $N$ messages (e.g., 6 messages / 3 turns) completely raw. This ensures the LLM has perfect, detailed context for the *immediate* task.
 2. **The Thinned History:** Take everything *older* than the Raw Tail. Strip out verbose LLM pleasantries ("Sure, I can help with that!"), redundant tool call outputs, and massive file dumps.
@@ -43,7 +43,7 @@ MAX_RAW_TURNS=6
 
 ### Step 2: Create the Compaction Engine
 
-Create a new file: `packages/openmemory-js/src/services/compactionEngine.ts`
+Create a new file: `packages/engram-js/src/services/compactionEngine.ts`
 
 ```typescript
 import { env } from "../configuration";
@@ -72,7 +72,7 @@ export class CompactionEngine {
  (messages.length - MAX_RAW_TURNS);
     const recentMessages = messages.slice(-MAX_RAW_TURNS);
 
-    console.log(`[CodeCortex] ⚙️ Triggering context compaction. Thinning ${oldMessages.length} messages...`);
+    console.log(`[Engram] ⚙️ Triggering context compaction. Thinning ${oldMessages.length} messages...`);
 
     // 3. Aggressive Thinning (Heuristic pre-processing)
     const thinnedHistory = this.thinMessages(oldMessages);
@@ -174,7 +174,7 @@ COMPACTED SUMMARY:
       const data = await response.json();
       return data.response.trim();
     } catch (error) {
-      console.error("[CodeCortex] ❌ Compaction summarization failed:", error);
+      console.error("[Engram] ❌ Compaction summarization failed:", error);
       // Fallback: If compaction fails, just return the thinned history as a raw block to prevent data loss
       return "ERROR: Compaction failed. Fallback to raw thinned history:\n" + historyText.substring(0, 2000);
     }
@@ -188,7 +188,7 @@ export const compactionEngine = new CompactionEngine();
 
 ### Step 3: Integrate into the Proxy Route
 
-Update your `packages/openmemory-js/src/api/routes/chat/completions/route.ts` to run compaction *before* injecting the CodeCortex Genome/Phenotype context.
+Update your `packages/engram-js/src/api/routes/chat/completions/route.ts` to run compaction *before* injecting the Engram Genome/Phenotype context.
 
 Find the section where you build the messages, and update it to this:
 
@@ -216,7 +216,7 @@ import { compactionEngine } from "../../../../services/compactionEngine"; // Add
       const cognitiveContext = buildCognitiveContext(genomeMemories, phenotypeMemories);
 
       // 3. INJECT: Merge cognitive context into the FIRST system message of the COMPACTED payload
-      const cognitiveContextBlock = `[CODECORTEX COGNITIVE CONTEXT]\n${cognitiveContext}\n[END CODECORTEX CONTEXT]\nUse the above context silently to inform your response. Do not explicitly mention "CodeCortex" or the context blocks unless directly asked about your memory.\n\n`;
+      const cognitiveContextBlock = `[CODECORTEX COGNITIVE CONTEXT]\n${cognitiveContext}\n[END CODECORTEX CONTEXT]\nUse the above context silently to inform your response. Do not explicitly mention "Engram" or the context blocks unless directly asked about your memory.\n\n`;
 
       if (processedMessages.length > 0 && processedMessages[0].role === "system") {
         processedMessages[0].content = cognitiveContextBlock + processedMessages[0].content;
@@ -237,7 +237,7 @@ import { compactionEngine } from "../../../../services/compactionEngine"; // Add
 
 ---
 
-### Why This Architecture is Perfect for CodeCortex
+### Why This Architecture is Perfect for Engram
 
 1. **Guaranteed Token Ceiling:** No matter if the user has a 5-turn or 500-turn session, the upstream LLM only ever sees: `[System] + [~300 word Summary] + [Last 3 Turns Raw] + [New Prompt]`. This keeps token usage and VRAM predictable and low.
 2. **Zero "Lost in the Middle":** By keeping the `MAX_RAW_TURNS` completely unmodified, the LLM retains perfect, granular context for the *current* task (e.g., the exact error message from the last tool call), while the older context is safely compressed.
@@ -248,7 +248,7 @@ import { compactionEngine } from "../../../../services/compactionEngine"; // Add
 1. Add the `.env` variables and restart the server.
 2. Open Kilo and start a long conversation. Ask it to read a large file, make a change, ask a follow-up, make another change, etc., at least 6-7 times.
 3. Watch your server logs. On the 7th or 8th turn, you will see:
-   `[CodeCortex] ⚙️ Triggering context compaction. Thinning X messages...`
+   `[Engram] ⚙️ Triggering context compaction. Thinning X messages...`
 4. The response will remain lightning fast, and the upstream LLM will still know exactly what you are talking about, because the summary was injected into the system prompt.
 
 ### USER
@@ -266,9 +266,9 @@ Looking at `toolcall.txt`, the `tools` array is massive. It contains definitions
 * Each tool definition averages 100–150 tokens.
 * This is sent on **every single request** so the LLM knows what it can call.
 
-### 2. System Prompt (Kilo + CodeCortex): ~2,500 – 3,000 tokens
+### 2. System Prompt (Kilo + Engram): ~2,500 – 3,000 tokens
 * **Kilo's Base Prompt:** The extensive personality, rules, security, and operational safety guidelines (~2,000–2,500 tokens).
-* **CodeCortex Context:** The injected `[CODECORTEX COGNITIVE CONTEXT]` block with Genome and Phenotype memories (~200–400 tokens).
+* **Engram Context:** The injected `[CODECORTEX COGNITIVE CONTEXT]` block with Genome and Phenotype memories (~200–400 tokens).
 
 ### 3. Conversation History: ~1,500 – 4,000 tokens
 * **With Compaction (Recommended):** The `compactionEngine` summarizes old turns into a dense ~300-word block (~400 tokens) and keeps only the last 3 turns raw (~1,000–1,500 tokens). Total: **~1,500–2,000 tokens**.
@@ -286,7 +286,7 @@ Your `.env` or request config likely has `"max_tokens": 16384` (as seen in `tool
 * **Total Context Window Usage:** ~15,000 (input) + ~4,000 (average output) = **~19,000 tokens**.
 * This easily fits within the context windows of modern models like Qwen 2.5 (32k/128k), GLM-4, or Claude.
 
-### How CodeCortex Protects You from Token Bloat
+### How Engram Protects You from Token Bloat
 Without the **Compaction Engine** we added, a 20-turn coding session with file reads and tool outputs could easily push the history to **30,000+ tokens**, risking context window limits and "lost in the middle" degradation. 
 
 Because `route.ts` now runs `compactionEngine.compactIfNeeded()` before forwarding, the history portion is strictly capped, ensuring your request size stays predictably in that **10k–15k token range** no matter how long the session lasts.

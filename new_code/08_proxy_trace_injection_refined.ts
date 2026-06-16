@@ -13,7 +13,7 @@ const tracePayload = {
 
 // 2. Send the custom SSE event. Note the \n\n at the end!
 const traceDataString = JSON.stringify(tracePayload);
-res.write(`event: codecortex_trace\ndata: ${traceDataString}\n\n`);
+res.write(`event: engram_trace\ndata: ${traceDataString}\n\n`);
 
 // 3. Close the stream
 res.end();

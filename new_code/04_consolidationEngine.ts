@@ -1,143 +1,222 @@
-import cron from 'node-cron';
-import { v4 as uuidv4 } from 'uuid';
-import { db } from '../database'; // Your DB instance
-import { MemorySector } from './memoryInjector';
+import { env } from "../configuration";
+import { make_db as kit_make_db, run_async, all_async } from "../api/routes/_kit";
+import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
 
-// Configuration
-const CONSOLIDATION_THRESHOLD_DAYS = 2; // Memories older than 2 days are candidates
-const MIN_MEMORIES_TO_CONSOLIDATE = 3;  // Don't consolidate unless we have at least 3 related memories
-const LOCAL_LLM_MODEL = process.env.CONSOLIDATION_MODEL || 'phi3'; // Fast, cheap local model
-const LOCAL_LLM_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
+const CONSOLIDATION_MODEL = process.env.CONSOLIDATION_MODEL || "qwen2.5:14b";
+const CONSOLIDATION_BATCH_SIZE = 15; // Keep batch small to fit in 14B's context window comfortably
+
+interface MemoryCandidate {
+  id: string;
+  content: string;
+  sector: string;
+  is_genome: boolean;
+  access_count: number;
+  recorded_at: string;
+}
+
+interface ConsolidationAction {
+  action: "merge" | "update" | "promote" | "delete";
+  target_ids: string[]; // IDs of memories this action applies to
+  new_content?: string; // Required for merge/update/promote
+  new_sector?: string;  // Optional: change sector if context shifts
+  is_genome?: boolean;  // Optional: promote to permanent rule
+  reason: string;       // Brief explanation for logging/debugging
+}
 
 export class ConsolidationEngine {
-  
   /**
-   * Starts the background cron job. Call this once when your server boots.
+   * Fetches a batch of memories that are candidates for consolidation.
+   * Prioritizes older phenotype memories or those with high access counts.
    */
-  public start() {
-    // Run every 30 minutes: '*/30 * * * *'
-    // For testing, you can change this to '* * * * *' (every minute)
-    cron.schedule('*/30 * * * *', async () => {
-      console.log('[CodeCortex] 🧠 Starting memory consolidation cycle...');
-      await this.runConsolidationCycle();
-    });
-    console.log('[CodeCortex] Consolidation engine scheduled (every 30 mins).');
-  }
+  private async fetchConsolidationCandidates(): Promise<MemoryCandidate[]> {
+    const db = kit_make_db(run_async, all_async);
+    
+    // Fetch older phenotype memories that have been accessed at least once, 
+    // or any memory older than 7 days.
+    const query = `
+      SELECT id, content, 
+             COALESCE((metadata->>'sector')::text, 'semantic') as sector,
+             (metadata->>'is_genome')::boolean as is_genome,
+             COALESCE((metadata->>'access_count')::int, 0) as access_count,
+             recorded_at
+      FROM "public"."memories"
+      WHERE memory_tier != 'archived'
+      ORDER BY recorded_at ASC
+      LIMIT $1
+    `;
 
-  private async runConsolidationCycle() {
     try {
-      // 1. Fetch candidate episodic memories older than X days
-      // (SQLite syntax: datetime('now', '-2 days'). Postgres: NOW() - INTERVAL '2 days')
-      const timeThreshold = this.getTimeThresholdSql();
-      
-      const candidates = await db.query(`
-        SELECT id, content, created_at 
-        FROM memories 
-        WHERE sector = 'episodic' 
-          AND created_at < ${timeThreshold}
-          AND is_genome = FALSE
-        ORDER BY created_at ASC
-        LIMIT 50
-      `);
-
-      if (candidates.length < MIN_MEMORIES_TO_CONSOLIDATE) {
-        console.log(`[CodeCortex] Only ${candidates.length} candidates. Skipping consolidation.`);
-        return;
-      }
-
-      // 2. Group candidates by a simple heuristic (e.g., first 3 words, or just batch them)
-      // For simplicity, we'll batch the oldest 5-10 memories together per cycle.
-      const batch = candidates.slice(0, 10);
-      console.log(`[CodeCortex] Synthesizing ${batch.length} episodic memories...`);
-
-      // 3. Prompt the local LLM to synthesize
-      const synthesizedContent = await this.synthesizeWithLLM(batch);
-
-      if (!synthesizedContent || synthesizedContent.trim().length < 10) {
-        console.warn('[CodeCortex] LLM returned empty synthesis. Aborting.');
-        return;
-      }
-
-      // 4. Insert the new SEMANTIC memory
-      const newMemoryId = uuidv4();
-      await db.execute(`
-        INSERT INTO memories (id, content, sector, is_genome, decay_rate, access_count, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      `, [
-        newMemoryId,
-        synthesizedContent,
-        MemorySector.SEMANTIC,
-        false,
-        0.05, // Semantic memories decay much slower than episodic (0.05 vs 0.1)
-        1
-      ]);
-
-      // 5. Delete the old episodic memories (or mark them as archived)
-      const idsToDelete = batch.map(m => `'${m.id}'`).join(',');
-      await db.execute(`
-        DELETE FROM memories WHERE id IN (${idsToDelete})
-      `);
-
-      console.log(`[CodeCortex] ✅ Consolidation complete. Created semantic memory: ${newMemoryId}`);
-
-    } catch (error) {
-      console.error('[CodeCortex] ❌ Consolidation cycle failed:', error);
+      const result = await db.query(query, [CONSOLIDATION_BATCH_SIZE]);
+      return (result.rows || []).map((r: any) => ({
+        id: r.id,
+        content: r.content,
+        sector: r.sector,
+        is_genome: r.is_genome,
+        access_count: r.access_count,
+        recorded_at: r.recorded_at,
+      }));
+    } catch (err) {
+      console.error("[Engram] Failed to fetch consolidation candidates:", err);
+      return [];
     }
   }
 
   /**
-   * Sends a batch of memories to a local LLM to be compressed into a single fact.
+   * Prompts the 14B model to analyze the batch and return consolidation actions.
    */
-  private async synthesizeWithLLM(memories: { content: string; created_at: string }[]): Promise<string> {
-    const memoryList = memories.map(m => `- [${m.created_at.split('T')[0]}] ${m.content}`).join('\n');
-    
-    const prompt = `
-You are a cognitive memory consolidation engine. 
-Your task is to read the following short-term, fragmented "episodic" memories and synthesize them into ONE concise, timeless "semantic" fact or rule.
-Discard irrelevant details (like specific dates or one-off errors). Focus on the core pattern, preference, or architectural fact.
-Respond ONLY with the synthesized sentence. Do not add quotes or introductory text.
+  private async generateConsolidationActions(candidates: MemoryCandidate[]): Promise<ConsolidationAction[]> {
+    const memoryList = candidates.map((m, i) => 
+      `[${i + 1}] ID: ${m.id} | Sector: ${m.sector} | Genome: ${m.is_genome} | Accesses: ${m.access_count}\n    Content: "${m.content}"`
+    ).join("\n");
 
-Episodic Memories:
+    const prompt = `
+### SYSTEM DIRECTIVE ###
+You are an elite Memory Consolidation Engine. Your job is to analyze a batch of stored memories and output a strict JSON array of consolidation actions to keep the knowledge base clean, dense, and accurate.
+
+### INPUT DATA ###
 ${memoryList}
 
-Synthesized Semantic Memory:
-    `.trim();
+### CONSOLIDATION RULES ###
+1. MERGE: If two or more memories state the same fact or rule, merge them into one concise memory. Set action="merge", provide target_ids, and new_content.
+2. UPDATE: If a memory is partially outdated but still relevant, update it. Set action="update", provide target_ids, and new_content.
+3. PROMOTE: If a phenotype memory has proven to be a permanent, unchangeable rule (high access count, foundational), promote it. Set action="promote", target_ids, new_content (optional), and is_genome=true.
+4. DELETE: If a memory is obsolete, superseded, or trivial noise, delete it. Set action="delete" and target_ids.
+
+### OUTPUT SCHEMA ###
+Return ONLY a valid JSON array of actions. No markdown, no explanations outside the "reason" field.
+[
+  {
+    "action": "merge",
+    "target_ids": ["id1", "id2"],
+    "new_content": "The merged, concise fact.",
+    "new_sector": "procedural",
+    "is_genome": false,
+    "reason": "Merged duplicate JWT auth preferences."
+  }
+]
+If no actions are needed, return exactly: []
+
+### EXECUTE CONSOLIDATION NOW ###
+`.trim();
 
     try {
-      const response = await fetch(`${LOCAL_LLM_URL}/api/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      console.log(`[Engram] 🧠 Sending ${candidates.length} memories to ${CONSOLIDATION_MODEL} for consolidation...`);
+      
+      const response = await fetch(`${env.ollama_url}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: LOCAL_LLM_MODEL,
+          model: CONSOLIDATION_MODEL,
           prompt: prompt,
           stream: false,
+          format: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                action: { type: "string", enum: ["merge", "update", "promote", "delete"] },
+                target_ids: { type: "array", items: { type: "string" } },
+                new_content: { type: "string" },
+                new_sector: { type: "string" },
+                is_genome: { type: "boolean" },
+                reason: { type: "string" }
+              },
+              required: ["action", "target_ids", "reason"]
+            }
+          },
           options: {
-            temperature: 0.1, // Keep it deterministic and factual
-            num_predict: 150  // Keep it short
+            temperature: 0.1, // Highly deterministic for data operations
+            num_predict: 1000
           }
-        })
+        }),
       });
 
+      if (!response.ok) {
+        throw new Error(`Consolidation LLM returned status ${response.status}`);
+      }
+
       const data = await response.json();
-      return data.response.trim();
+      const cleanJson = (data.response || "").replace(/^```json\s*|\s*```$/g, "").trim();
+      
+      return JSON.parse(cleanJson) as ConsolidationAction[];
     } catch (error) {
-      console.error('[CodeCortex] LLM Synthesis failed:', error);
-      return '';
+      console.error("[Engram] ❌ Consolidation LLM failed:", error);
+      return [];
     }
   }
 
   /**
-   * Helper to generate cross-compatible SQL time thresholds.
+   * Executes the consolidation actions against the database.
    */
-  private getTimeThresholdSql(): string {
-    // Detect DB type based on your config, or default to SQLite syntax
-    const isPostgres = process.env.DB_TYPE === 'postgres';
-    if (isPostgres) {
-      return `NOW() - INTERVAL '${CONSOLIDATION_THRESHOLD_DAYS} days'`;
+  private async executeActions(actions: ConsolidationAction[], candidates: MemoryCandidate[]) {
+    const db = kit_make_db(run_async, all_async);
+    const candidateMap = new Map(candidates.map(c => [c.id, c]));
+
+    for (const action of actions) {
+      try {
+        console.log(`[Engram] ⚙️ Executing ${action.action.toUpperCase()}: ${action.reason}`);
+
+        if (action.action === "delete") {
+          const placeholders = action.target_ids.map((_, i) => `$${i + 1}`).join(",");
+          await db.query(`DELETE FROM "public"."memories" WHERE id IN (${placeholders})`, action.target_ids);
+        } 
+        else if (action.action === "merge" || action.action === "update" || action.action === "promote") {
+          if (!action.new_content) {
+            console.warn(`[Engram] Skipping ${action.action} due to missing new_content`);
+            continue;
+          }
+
+          const newSector = action.new_sector || candidateMap.get(action.target_ids[0])?.sector || "semantic";
+          const isGenome = action.is_genome !== undefined ? action.is_genome : candidateMap.get(action.target_ids[0])?.is_genome || false;
+          const decayRate = isGenome ? DEFAULT_GENOME_DECAY_RATE : DEFAULT_PHENOTYPE_DECAY_RATE;
+
+          // For merge/update, we update the first target ID and delete the rest to avoid duplicates
+          const primaryId = action.target_ids[0];
+          const idsToDelete = action.target_ids.slice(1);
+
+          await db.query(
+            `UPDATE "public"."memories" 
+             SET content = $1, 
+                 metadata = jsonb_set(metadata, '{sector}', to_jsonb($2::text)),
+                 metadata = jsonb_set(metadata, '{is_genome}', to_jsonb($3::boolean)),
+                 metadata = jsonb_set(metadata, '{decay_rate}', to_jsonb($4::numeric))
+             WHERE id = $5`,
+            [action.new_content, newSector, isGenome, decayRate, primaryId]
+          );
+
+          if (idsToDelete.length > 0) {
+            const placeholders = idsToDelete.map((_, i) => `$${i + 1}`).join(",");
+            await db.query(`DELETE FROM "public"."memories" WHERE id IN (${placeholders})`, idsToDelete);
+          }
+        }
+      } catch (err) {
+        console.error(`[Engram] Failed to execute action:`, action, err);
+        // Continue to next action even if one fails
+      }
     }
-    return `datetime('now', '-${CONSOLIDATION_THRESHOLD_DAYS} days')`;
+  }
+
+  /**
+   * Main entry point to trigger consolidation.
+   */
+  public async runConsolidation(): Promise<void> {
+    console.log("[Engram] 🔄 Starting memory consolidation cycle...");
+    
+    const candidates = await this.fetchConsolidationCandidates();
+    if (candidates.length === 0) {
+      console.log("[Engram] ✅ No memories require consolidation at this time.");
+      return;
+    }
+
+    const actions = await this.generateConsolidationActions(candidates);
+    if (actions.length === 0) {
+      console.log("[Engram] ✅ LLM determined no consolidation actions are needed.");
+      return;
+    }
+
+    await this.executeActions(actions, candidates);
+    console.log(`[Engram] 🎉 Consolidation cycle complete. Executed ${actions.length} actions.`);
   }
 }
 
-// Export singleton
 export const consolidationEngine = new ConsolidationEngine();

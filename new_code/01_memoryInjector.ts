@@ -1,15 +1,5 @@
 /*
-    ____                   __  __                                 
-   / __ \                 |  \/  |                                
-  | |  | |_ __   ___ _ __ | \  / | ___ _ __ ___   ___  _ __ _   _ 
-  | |  | | '_ \ / _ \ '_ \| |\/| |/ _ \ '_ ` _ \ / _ \| '__| | | |
-  | |__| | |_) |  __/ | | | |  | |  __/ | | | | | (_) | |  | |_| |
-   \____/| .__/ \___|_| |_|_|  |_|\___|_| |_| |_|\___/|_|   \__, |
-         | |                                                 __/ |
-         |_|                                                |___/ 
-  CaviraOSS @ 2026
-
- - filename: packages/openmemory-js/src/services/memoryInjector.ts (plan.md version)
+ - filename: packages/engram-js/src/services/memoryInjector.ts (plan.md version)
  - what is the file used for: Genome vs Phenotype separation and Temporal Decay engine
 */
 
@@ -47,7 +37,7 @@ export class MemoryInjector {
    * Takes a user prompt and returns a fully formatted cognitive context string.
    */
   async buildCognitiveContext(userPrompt: string): Promise<string> {
-    console.log('[CodeCortex] Building cognitive context for prompt...');
+    console.log('[Engram] Building cognitive context for prompt...');
 
     // 1. Fetch Genome (Immutable, fast SQL query, no vector math)
     const genomeMemories = await this.fetchGenome();
@@ -57,7 +47,7 @@ export class MemoryInjector {
 
     // 3. Update access counts in the background (Fire and forget)
     this.updateAccessCounts([...genomeMemories, ...phenotypeMemories]).catch(err => 
-      console.error('[CodeCortex] Failed to update access counts:', err)
+      console.error('[Engram] Failed to update access counts:', err)
     );
 
     // 4. Format into the final System Prompt injection
@@ -148,7 +138,7 @@ export class MemoryInjector {
     }
 
     contextBlock += '[END CODECORTEX CONTEXT]\n';
-    contextBlock += 'Use the above context silently to inform your response. Do not explicitly mention "CodeCortex" or the context blocks unless directly asked about your memory.\n';
+    contextBlock += 'Use the above context silently to inform your response. Do not explicitly mention "Engram" or the context blocks unless directly asked about your memory.\n';
 
     return contextBlock;
   }

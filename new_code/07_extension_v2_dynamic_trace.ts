@@ -11,7 +11,7 @@ interface CognitiveTrace {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-	console.log('🧠 CodeCortex extension is now active!');
+	console.log('🧠 Engram extension is now active!');
 
 	const handler: vscode.ChatRequestHandler = async (
 		request: vscode.ChatRequest, 
@@ -22,11 +22,11 @@ export function activate(context: vscode.ExtensionContext) {
 		const localContext = await gatherLocalContext();
 		
 		const messages = [
-			{ role: 'system', content: `You are CodeCortex. Local Context: ${localContext}` },
+			{ role: 'system', content: `You are Engram. Local Context: ${localContext}` },
 			{ role: 'user', content: request.prompt }
 		];
 
-		stream.progress('🧠 Querying CodeCortex memory engine...');
+		stream.progress('🧠 Querying Engram memory engine...');
 
 		let dynamicTrace: CognitiveTrace | null = null;
 
@@ -89,12 +89,12 @@ export function activate(context: vscode.ExtensionContext) {
 							// Ignore JSON parse errors on partial chunks
 						}
 					} 
-					// Handle Custom CodeCortex Trace Event
-					else if (eventType === 'codecortex_trace') {
+					// Handle Custom Engram Trace Event
+					else if (eventType === 'engram_trace') {
 						try {
 							dynamicTrace = JSON.parse(eventData) as CognitiveTrace;
 						} catch (e) {
-							console.error('[CodeCortex] Failed to parse trace data:', e);
+							console.error('[Engram] Failed to parse trace data:', e);
 						}
 					}
 				}
@@ -109,11 +109,11 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 		} catch (error: any) {
-			stream.markdown(`❌ **CodeCortex Error**: ${error.message}\n\n*Is the CodeCortex proxy running on port 8080?*`);
+			stream.markdown(`❌ **Engram Error**: ${error.message}\n\n*Is the Engram proxy running on port 8080?*`);
 		}
 	};
 
-	const participant = vscode.chat.createChatParticipant('openmemory.cortex', handler);
+	const participant = vscode.chat.createChatParticipant('engram.cortex', handler);
 	participant.iconPath = new vscode.ThemeIcon('brain');
 	
 	context.subscriptions.push(participant);
@@ -150,7 +150,7 @@ async function gatherLocalContext(): Promise<string> {
  * Renders a 100% dynamic, collapsible Explainable Trace based on proxy data.
  */
 function renderDynamicCognitiveTrace(stream: vscode.ChatResponseStream, trace: CognitiveTrace) {
-	let markdown = `\n\n---\n<details>\n<summary>🧠 <b>CodeCortex Memory Trace</b> (Click to expand)</summary>\n<br>\n`;
+	let markdown = `\n\n---\n<details>\n<summary>🧠 <b>Engram Memory Trace</b> (Click to expand)</summary>\n<br>\n`;
 
 	// Render Genome
 	if (trace.genome && trace.genome.length > 0) {

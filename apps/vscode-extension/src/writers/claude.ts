@@ -4,7 +4,7 @@ import * as os from 'os';
 
 export interface ClaudeConfig {
     mcpServers?: {
-        openmemory: {
+        engram: {
             command: string;
             args: string[];
             env?: Record<string, string>;
@@ -20,10 +20,10 @@ export function generateClaudeConfig(backendUrl: string, apiKey?: string, useMCP
         const backendMcpPath = mcpServerPath || path.join(process.cwd(), 'backend', 'dist', 'ai', 'mcp.js');
         return {
             mcpServers: {
-                openmemory: {
+                engram: {
                     command: 'node',
                     args: [backendMcpPath],
-                    env: apiKey ? { OM_API_KEY: apiKey } : undefined
+                    env: apiKey ? { EG_API_KEY: apiKey } : undefined
                 }
             }
         };
@@ -39,7 +39,7 @@ export function generateClaudeConfig(backendUrl: string, apiKey?: string, useMCP
 
 export async function writeClaudeConfig(backendUrl: string, apiKey?: string, useMCP = false, mcpServerPath?: string): Promise<string> {
     const claudeDir = path.join(os.homedir(), '.claude', 'providers');
-    const configFile = path.join(claudeDir, 'openmemory.json');
+    const configFile = path.join(claudeDir, 'engram.json');
 
     if (!fs.existsSync(claudeDir)) {
         fs.mkdirSync(claudeDir, { recursive: true });

@@ -31,7 +31,7 @@ let user_id = '';
 const fileCache = new Map<string, string>();
 
 export function activate(context: vscode.ExtensionContext) {
-    const config = vscode.workspace.getConfiguration('openmemory');
+    const config = vscode.workspace.getConfiguration('engram');
     is_enabled = config.get('enabled') ?? true;
     backend_url = config.get('backendUrl') || 'http://localhost:8080';
     api_key = config.get('apiKey') || undefined;
@@ -40,10 +40,10 @@ export function activate(context: vscode.ExtensionContext) {
     user_id = getUserId(context, config);
 
     status_bar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    status_bar.command = 'openmemory.statusBarClick';
+    status_bar.command = 'engram.statusBarClick';
     context.subscriptions.push(status_bar);
 
-    const status_click = vscode.commands.registerCommand('openmemory.statusBarClick', () => show_menu());
+    const status_click = vscode.commands.registerCommand('engram.statusBarClick', () => show_menu());
 
     if (!is_enabled) {
         update_status_bar('disabled');
@@ -66,7 +66,7 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     // ... commands ...
-    const query_cmd = vscode.commands.registerCommand('openmemory.queryContext', async () => {
+    const query_cmd = vscode.commands.registerCommand('engram.queryContext', async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             vscode.window.showErrorMessage('No active editor');
@@ -75,7 +75,7 @@ export function activate(context: vscode.ExtensionContext) {
 
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: "OpenMemory: Querying Context...",
+            title: "Engram: Querying Context...",
             cancellable: false
         }, async () => {
             try {
@@ -89,7 +89,7 @@ export function activate(context: vscode.ExtensionContext) {
         });
     });
 
-    const add_cmd = vscode.commands.registerCommand('openmemory.addToMemory', async () => {
+    const add_cmd = vscode.commands.registerCommand('engram.addToMemory', async () => {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             vscode.window.showErrorMessage('No active editor');
@@ -103,19 +103,19 @@ export function activate(context: vscode.ExtensionContext) {
 
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: "OpenMemory: Saving Selection...",
+            title: "Engram: Saving Selection...",
             cancellable: false
         }, async () => {
             try {
                 await add_memory(selection, editor.document.uri.fsPath);
-                vscode.window.showInformationMessage('Selection added to OpenMemory');
+                vscode.window.showInformationMessage('Selection added to Engram');
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to add memory: ${error}`);
             }
         });
     });
 
-    const note_cmd = vscode.commands.registerCommand('openmemory.quickNote', async () => {
+    const note_cmd = vscode.commands.registerCommand('engram.quickNote', async () => {
         const input = await vscode.window.showInputBox({ prompt: 'Enter a quick note to remember', placeHolder: 'e.g. Refactored the auth logic to use JWT' });
         if (!input) return;
 
@@ -123,13 +123,13 @@ export function activate(context: vscode.ExtensionContext) {
             const editor = vscode.window.activeTextEditor;
             const file = editor ? editor.document.uri.fsPath : 'manual-note';
             await add_memory(input, file);
-            vscode.window.showInformationMessage('Note added to OpenMemory');
+            vscode.window.showInformationMessage('Note added to Engram');
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to add note: ${error}`);
         }
     });
 
-    const patterns_cmd = vscode.commands.registerCommand('openmemory.viewPatterns', async () => {
+    const patterns_cmd = vscode.commands.registerCommand('engram.viewPatterns', async () => {
         if (!session_id) {
             vscode.window.showErrorMessage('No active session');
             return;
@@ -143,13 +143,13 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    const toggle_cmd = vscode.commands.registerCommand('openmemory.toggleTracking', () => {
+    const toggle_cmd = vscode.commands.registerCommand('engram.toggleTracking', () => {
         is_tracking = !is_tracking;
         update_status_bar(is_tracking ? 'active' : 'paused');
     });
 
-    const setup_cmd = vscode.commands.registerCommand('openmemory.setup', () => show_quick_setup());
-    const dashboard_cmd = vscode.commands.registerCommand('openmemory.dashboard', () => { DashboardPanel.createOrShow(context.extensionUri); });
+    const setup_cmd = vscode.commands.registerCommand('engram.setup', () => show_quick_setup());
+    const dashboard_cmd = vscode.commands.registerCommand('engram.dashboard', () => { DashboardPanel.createOrShow(context.extensionUri); });
 
     // Initialize cache for all currently open documents
     vscode.workspace.textDocuments.forEach(doc => {
@@ -209,7 +209,7 @@ async function auto_link_all() {
         configs.push(await writeCodexConfig(backend_url, api_key, use_mcp, mcp_server_path));
 
         const mode = use_mcp ? 'MCP protocol' : 'Direct HTTP';
-        vscode.window.showInformationMessage(`✅ Auto-linked OpenMemory to AI tools (${mode})`);
+        vscode.window.showInformationMessage(`✅ Auto-linked Engram to AI tools (${mode})`);
         auto_linked = true;
     } catch (error) {
         console.error('Auto-link failed:', error);
@@ -218,14 +218,14 @@ async function auto_link_all() {
 
 function update_status_bar(state: 'active' | 'paused' | 'connecting' | 'disconnected' | 'disabled') {
     const build = 'B';
-    const icons = { active: `$(pulse) OpenMemory [${build}]`, paused: `$(debug-pause) OpenMemory [${build}]`, connecting: `$(sync~spin) OpenMemory [${build}]`, disconnected: `$(error) OpenMemory [${build}]`, disabled: `$(circle-slash) OpenMemory [${build}]` };
+    const icons = { active: `$(pulse) Engram [${build}]`, paused: `$(debug-pause) Engram [${build}]`, connecting: `$(sync~spin) Engram [${build}]`, disconnected: `$(error) Engram [${build}]`, disabled: `$(circle-slash) Engram [${build}]` };
     const mode = use_mcp ? 'MCP' : 'HTTP';
     const tooltips = {
-        active: `OpenMemory [${build}]: Tracking active (${mode}) • Click for options`,
-        paused: `OpenMemory [${build}]: Tracking paused (${mode}) • Click to resume`,
-        connecting: `OpenMemory [${build}]: Connecting (${mode})...`,
-        disconnected: `OpenMemory [${build}]: Disconnected (${mode}) • Click to setup`,
-        disabled: `OpenMemory [${build}]: Disabled • Click to enable`
+        active: `Engram [${build}]: Tracking active (${mode}) • Click for options`,
+        paused: `Engram [${build}]: Tracking paused (${mode}) • Click to resume`,
+        connecting: `Engram [${build}]: Connecting (${mode})...`,
+        disconnected: `Engram [${build}]: Disconnected (${mode}) • Click to setup`,
+        disabled: `Engram [${build}]: Disabled • Click to enable`
     };
     status_bar.text = icons[state];
     status_bar.tooltip = tooltips[state];
@@ -234,15 +234,15 @@ function update_status_bar(state: 'active' | 'paused' | 'connecting' | 'disconne
 async function show_menu() {
     if (!is_enabled) {
         const choice = await vscode.window.showQuickPick([
-            { label: '$(check) Enable OpenMemory', action: 'enable' },
+            { label: '$(check) Enable Engram', action: 'enable' },
             { label: '$(gear) Setup', action: 'setup' }
-        ], { placeHolder: 'OpenMemory is Disabled' });
+        ], { placeHolder: 'Engram is Disabled' });
         if (!choice) return;
         if (choice.action === 'enable') {
-            const config = vscode.workspace.getConfiguration('openmemory');
+            const config = vscode.workspace.getConfiguration('engram');
             await config.update('enabled', true, vscode.ConfigurationTarget.Global);
             is_enabled = true;
-            vscode.window.showInformationMessage('OpenMemory enabled. Reloading window...');
+            vscode.window.showInformationMessage('Engram enabled. Reloading window...');
             vscode.commands.executeCommand('workbench.action.reloadWindow');
         } else if (choice.action === 'setup') {
             show_quick_setup();
@@ -254,30 +254,30 @@ async function show_menu() {
     items.push(is_tracking ? { label: '$(debug-pause) Pause Tracking', action: 'pause' } : { label: '$(play) Resume Tracking', action: 'resume' });
     items.push({ label: '$(dashboard) Open Dashboard', action: 'dashboard' });
     items.push({ label: '$(search) Query Context', action: 'query' }, { label: '$(add) Add Selection', action: 'add' }, { label: '$(pencil) Quick Note', action: 'note' }, { label: '$(graph) View Patterns', action: 'patterns' }, { label: use_mcp ? '$(link) Switch to Direct HTTP' : '$(server-process) Switch to MCP Mode', action: 'toggle_mcp' }, { label: '$(circle-slash) Disable Extension', action: 'disable' }, { label: '$(gear) Setup', action: 'setup' }, { label: '$(refresh) Reconnect', action: 'reconnect' });
-    const choice = await vscode.window.showQuickPick(items, { placeHolder: 'OpenMemory Actions' });
+    const choice = await vscode.window.showQuickPick(items, { placeHolder: 'Engram Actions' });
     if (!choice) return;
     switch (choice.action) {
-        case 'dashboard': vscode.commands.executeCommand('openmemory.dashboard'); break;
+        case 'dashboard': vscode.commands.executeCommand('engram.dashboard'); break;
         case 'pause': is_tracking = false; update_status_bar('paused'); break;
         case 'resume': is_tracking = true; update_status_bar('active'); break;
-        case 'query': vscode.commands.executeCommand('openmemory.queryContext'); break;
-        case 'add': vscode.commands.executeCommand('openmemory.addToMemory'); break;
-        case 'note': vscode.commands.executeCommand('openmemory.quickNote'); break;
-        case 'patterns': vscode.commands.executeCommand('openmemory.viewPatterns'); break;
+        case 'query': vscode.commands.executeCommand('engram.queryContext'); break;
+        case 'add': vscode.commands.executeCommand('engram.addToMemory'); break;
+        case 'note': vscode.commands.executeCommand('engram.quickNote'); break;
+        case 'patterns': vscode.commands.executeCommand('engram.viewPatterns'); break;
         case 'toggle_mcp':
             use_mcp = !use_mcp;
-            const mcpConfig = vscode.workspace.getConfiguration('openmemory');
+            const mcpConfig = vscode.workspace.getConfiguration('engram');
             await mcpConfig.update('useMCP', use_mcp, vscode.ConfigurationTarget.Global);
             vscode.window.showInformationMessage(`Switched to ${use_mcp ? 'MCP' : 'Direct HTTP'} mode. Reconnecting...`);
             await auto_link_all();
             break;
         case 'disable':
-            const config = vscode.workspace.getConfiguration('openmemory');
+            const config = vscode.workspace.getConfiguration('engram');
             await config.update('enabled', false, vscode.ConfigurationTarget.Global);
             is_enabled = false;
             if (session_id) await end_session();
             update_status_bar('disabled');
-            vscode.window.showInformationMessage('OpenMemory disabled');
+            vscode.window.showInformationMessage('Engram disabled');
             break;
         case 'setup': show_quick_setup(); break;
         case 'reconnect':
@@ -295,7 +295,7 @@ async function show_menu() {
 
 async function show_quick_setup() {
     const items = [
-        { label: is_enabled ? '$(circle-slash) Disable Extension' : '$(check) Enable Extension', action: 'toggle_enabled', description: is_enabled ? 'Turn off OpenMemory tracking' : 'Turn on OpenMemory tracking' },
+        { label: is_enabled ? '$(circle-slash) Disable Extension' : '$(check) Enable Extension', action: 'toggle_enabled', description: is_enabled ? 'Turn off Engram tracking' : 'Turn on Engram tracking' },
         { label: '$(server-process) Toggle MCP Mode', action: 'mcp', description: use_mcp ? 'Currently: MCP (switch to Direct HTTP)' : 'Currently: Direct HTTP (switch to MCP)' },
         { label: '$(key) Configure API Key', action: 'apikey' },
         { label: '$(server) Change Backend URL', action: 'url' },
@@ -303,25 +303,25 @@ async function show_quick_setup() {
         { label: '$(link-external) View Documentation', action: 'docs' },
         { label: '$(debug-restart) Test Connection', action: 'test' }
     ];
-    const choice = await vscode.window.showQuickPick(items, { placeHolder: 'OpenMemory Setup' });
+    const choice = await vscode.window.showQuickPick(items, { placeHolder: 'Engram Setup' });
     if (!choice) return;
     switch (choice.action) {
         case 'toggle_enabled':
-            const enabledConfig = vscode.workspace.getConfiguration('openmemory');
+            const enabledConfig = vscode.workspace.getConfiguration('engram');
             is_enabled = !is_enabled;
             await enabledConfig.update('enabled', is_enabled, vscode.ConfigurationTarget.Global);
             if (is_enabled) {
-                vscode.window.showInformationMessage('OpenMemory enabled. Reloading window...');
+                vscode.window.showInformationMessage('Engram enabled. Reloading window...');
                 vscode.commands.executeCommand('workbench.action.reloadWindow');
             } else {
                 if (session_id) await end_session();
                 update_status_bar('disabled');
-                vscode.window.showInformationMessage('OpenMemory disabled');
+                vscode.window.showInformationMessage('Engram disabled');
             }
             break;
         case 'mcp':
             use_mcp = !use_mcp;
-            const mcpConfig = vscode.workspace.getConfiguration('openmemory');
+            const mcpConfig = vscode.workspace.getConfiguration('engram');
             await mcpConfig.update('useMCP', use_mcp, vscode.ConfigurationTarget.Global);
             vscode.window.showInformationMessage(`Switched to ${use_mcp ? 'MCP' : 'Direct HTTP'} mode`);
             await auto_link_all();
@@ -329,7 +329,7 @@ async function show_quick_setup() {
         case 'mcppath':
             const path = await vscode.window.showInputBox({ prompt: 'Enter MCP server executable path (leave empty to use backend MCP)', value: mcp_server_path, placeHolder: '/path/to/mcp-server' });
             if (path !== undefined) {
-                const config = vscode.workspace.getConfiguration('openmemory');
+                const config = vscode.workspace.getConfiguration('engram');
                 await config.update('mcpServerPath', path, vscode.ConfigurationTarget.Global);
                 mcp_server_path = path;
                 vscode.window.showInformationMessage('MCP server path updated');
@@ -338,7 +338,7 @@ async function show_quick_setup() {
         case 'apikey':
             const key = await vscode.window.showInputBox({ prompt: 'Enter API key (leave empty if not required)', password: true, placeHolder: 'your-api-key' });
             if (key !== undefined) {
-                const config = vscode.workspace.getConfiguration('openmemory');
+                const config = vscode.workspace.getConfiguration('engram');
                 await config.update('apiKey', key, vscode.ConfigurationTarget.Global);
                 api_key = key;
                 vscode.window.showInformationMessage('API key saved');
@@ -349,7 +349,7 @@ async function show_quick_setup() {
         case 'url':
             const url = await vscode.window.showInputBox({ prompt: 'Enter backend URL', value: backend_url, placeHolder: 'http://localhost:8080' });
             if (url) {
-                const config = vscode.workspace.getConfiguration('openmemory');
+                const config = vscode.workspace.getConfiguration('engram');
                 await config.update('backendUrl', url, vscode.ConfigurationTarget.Global);
                 backend_url = url;
                 vscode.window.showInformationMessage('Backend URL updated');
@@ -357,7 +357,7 @@ async function show_quick_setup() {
                 if (connected) await start_session();
             }
             break;
-        case 'docs': vscode.env.openExternal(vscode.Uri.parse('https://github.com/CaviraOSS/OpenMemory')); break;
+        case 'docs': vscode.env.openExternal(vscode.Uri.parse('https://github.com/CaviraOSS/Engram')); break;
         case 'test':
             update_status_bar('connecting');
             const connected = await check_connection();
@@ -378,7 +378,7 @@ function getUserId(context: vscode.ExtensionContext, config: vscode.WorkspaceCon
     if (configuredUserId) return configuredUserId;
 
     // 2. Check if we have a persistent userId in global state
-    let persistedUserId = context.globalState.get<string>('openmemory.userId');
+    let persistedUserId = context.globalState.get<string>('engram.userId');
     if (persistedUserId) return persistedUserId;
 
     // 3. Generate a new unique userId based on machine ID
@@ -387,7 +387,7 @@ function getUserId(context: vscode.ExtensionContext, config: vscode.WorkspaceCon
     persistedUserId = `${userName}-${machineId.substring(0, 8)}`;
 
     // 4. Persist it for future sessions
-    context.globalState.update('openmemory.userId', persistedUserId);
+    context.globalState.update('engram.userId', persistedUserId);
 
     return persistedUserId;
 }
@@ -410,7 +410,7 @@ function get_headers(): Record<string, string> {
 
 async function start_session() {
     try {
-        const config = vscode.workspace.getConfiguration('openmemory');
+        const config = vscode.workspace.getConfiguration('engram');
         const configuredProject = config.get<string>('projectName');
         const project = configuredProject || vscode.workspace.workspaceFolders?.[0]?.name || 'unknown';
         const ideName = isCodeServer() ? 'codeserver' : 'vscode';
@@ -420,7 +420,7 @@ async function start_session() {
         session_id = data.session_id;
         is_tracking = true;
         update_status_bar('active');
-        vscode.window.showInformationMessage('OpenMemory connected');
+        vscode.window.showInformationMessage('Engram connected');
     } catch {
         update_status_bar('disconnected');
         show_quick_setup();
@@ -470,7 +470,7 @@ async function get_patterns(sid: string) {
 }
 
 function format_memories(memories: any[]): string {
-    let out = '# OpenMemory Context Results\n\n';
+    let out = '# Engram Context Results\n\n';
     if (memories.length === 0) return out + 'No relevant memories found.\n';
     for (const m of memories) {
         out += `## Memory ID: ${m.id}\n**Score:** ${m.score?.toFixed(3) || 'N/A'}\n**Sector:** ${m.sector}\n**Content:**\n\`\`\`\n${m.content}\n\`\`\`\n\n`;
@@ -523,7 +523,7 @@ async function gatherChatLocalContext(): Promise<string> {
 }
 
 function renderDynamicCognitiveTrace(stream: vscode.ChatResponseStream, trace: CognitiveTrace) {
-	let markdown = '\n\n---\n<details>\n<summary>🧠 <b>OpenMemory Memory Trace</b> (Click to expand)</summary>\n<br>\n';
+	let markdown = '\n\n---\n<details>\n<summary>🧠 <b>Engram Memory Trace</b> (Click to expand)</summary>\n<br>\n';
 	if (trace.genome && trace.genome.length > 0) {
 		markdown += '<b>✅ Genome (Immutable Directives):</b>\n<ul>\n';
 		trace.genome.forEach(fact => { markdown += `  <li>${escapeHtml(fact)}</li>\n`; });
@@ -554,11 +554,11 @@ export function registerChatParticipant(context: vscode.ExtensionContext) {
 	) => {
 		const localContext = await gatherChatLocalContext();
 		const messages = [
-			{ role: 'system', content: `You are OpenMemory Cortex. Local Context: ${localContext}` },
+			{ role: 'system', content: `You are Engram Cortex. Local Context: ${localContext}` },
 			{ role: 'user', content: request.prompt },
 		];
 
-		stream.progress('🧠 Querying OpenMemory cognitive engine...');
+		stream.progress('🧠 Querying Engram cognitive engine...');
 
 		let dynamicTrace: CognitiveTrace | null = null;
 
@@ -601,9 +601,9 @@ export function registerChatParticipant(context: vscode.ExtensionContext) {
 							const content = json.choices?.[0]?.delta?.content || '';
 							if (content) stream.markdown(content);
 						} catch { /* ignore partial chunks */ }
-					} else if (eventType === 'codecortex_trace') {
+					} else if (eventType === 'engram_trace') {
 						try { dynamicTrace = JSON.parse(eventData) as CognitiveTrace; }
-						catch (e) { console.error('[OpenMemory] Failed to parse trace data:', e); }
+						catch (e) { console.error('[Engram] Failed to parse trace data:', e); }
 					}
 				}
 			}
@@ -614,11 +614,11 @@ export function registerChatParticipant(context: vscode.ExtensionContext) {
 				stream.markdown('\n\n---\n<i>💡 No specific long-term memories were triggered for this request.</i>');
 			}
 		} catch (error: any) {
-			stream.markdown(`❌ **OpenMemory Error**: ${error.message}\n\n*Is the OpenMemory proxy running on port 8080?*`);
+			stream.markdown(`❌ **Engram Error**: ${error.message}\n\n*Is the Engram proxy running on port 8080?*`);
 		}
 	};
 
-	const participant = vscode.chat.createChatParticipant('openmemory.cortex', handler);
+	const participant = vscode.chat.createChatParticipant('engram.cortex', handler);
 	const iconUri = vscode.Uri.file(
 			path.join(context.extensionPath, 'icon.png'),
 		);

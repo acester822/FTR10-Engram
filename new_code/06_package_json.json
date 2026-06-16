@@ -1,20 +1,20 @@
 {
-  "name": "codecortex-vscode",
-  "displayName": "CodeCortex",
+  "name": "engram-vscode",
+  "displayName": "Engram",
   "version": "0.1.0",
   "engines": {
     "vscode": "^1.89.0"
   },
   "main": "./out/extension.js",
   "activationEvents": [
-    "onChatParticipant:openmemory.cortex"
+    "onChatParticipant:engram.cortex"
   ],
   "contributes": {
     "chatParticipants": [
       {
-        "id": "openmemory.cortex",
+        "id": "engram.cortex",
         "name": "cortex",
-        "fullName": "CodeCortex",
+        "fullName": "Engram",
         "description": "Chat with full cognitive memory context (Genome + Phenotype)",
         "isSticky": true,
         "commands": [

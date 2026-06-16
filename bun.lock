@@ -3,10 +3,10 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "openmemory",
+      "name": "engram",
     },
-    "packages/openmemory-js": {
-      "name": "openmemory-js",
+    "packages/engram-js": {
+      "name": "engram-js",
       "version": "1.4.0",
       "bin": {
         "opm": "bin/opm.js",
@@ -384,7 +384,7 @@
 
     "once": ["once@1.4.0", "", { "dependencies": { "wrappy": "1" } }, "sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w=="],
 
-    "openmemory-js": ["openmemory-js@workspace:packages/openmemory-js"],
+    "engram-js": ["engram-js@workspace:packages/engram-js"],
 
     "parseurl": ["parseurl@1.3.3", "", {}, "sha512-CiyeOxFT/JZyN5m0z9PfXw4SCBJ6Sygz1Dpl0wqjlhDEGGBP1GnsUVEL0p63hoG1fcj3fHynXi9NYO4nWOL+qQ=="],
 

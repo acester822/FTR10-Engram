@@ -9,6 +9,6 @@ const traceData = {
 
 // 2. Send a custom SSE event that the VS Code extension can parse
 const tracePayload = JSON.stringify(traceData);
-res.write(`event: codecortex_trace\ndata: ${tracePayload}\n\n`);
+res.write(`event: engram_trace\ndata: ${tracePayload}\n\n`);
 
 res.end();
