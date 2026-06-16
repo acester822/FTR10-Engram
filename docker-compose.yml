@@ -86,20 +86,26 @@ services:
       EG_VECTOR_STORE: postgres
       EG_VECTOR_COLLECTION: engram_memories
 
-      # Ollama (local embeddings & LLM)
+     # Ollama (local embeddings & LLM)
       OLLAMA_URL: http://ollama:11434
       EG_OLLAMA_URL: http://ollama:11434
 
-      # Embedding model overrides
+      # Embedding model overrides (per-facet)
       EG_OPENAI_MODEL: ${EG_OPENAI_MODEL:-text-embedding-3-small}
       EG_GEMINI_MODEL: ${EG_GEMINI_MODEL:-models/gemini-embedding-001}
       EG_OLLAMA_MODEL: bge-m3
 
-      # LLM for consolidation / extraction (only qwen2.5:7b)
-      LLAMA_URL: http://10.10.10.41:8080/v1
-      EG_LLM_URL: http://10.10.10.41:8080/v1
-      CONSOLIDATION_MODEL: qwen2.5:7b
-      EXTRACTION_MODEL: qwen2.5:7b
+      # Per-facet Ollama embedding overrides (recommended models)
+      EG_OLLAMA_EPISODIC_MODEL: bge-m3
+      EG_OLLAMA_SEMANTIC_MODEL: bge-m3
+      EG_OLLAMA_PROCEDURAL_MODEL: nomic-embed-text
+      EG_OLLAMA_EMOTIONAL_MODEL: all-MiniLM-L6-v2
+      EG_OLLAMA_REFLECTIVE_MODEL: bge-m3
+
+      # LLM for consolidation / extraction
+      EG_UPSTREAM_LLM_URL: http://10.10.10.41:8080/v1
+      EG_CONSOLIDATION_MODEL: qwen2.5:14b
+      EG_EXTRACTION_MODEL: qwen2.5:7b
 
       # Auth & telemetry
       EG_API_KEY: ${EG_API_KEY:-}
@@ -134,6 +140,12 @@ services:
         node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'qwen2.5:7b',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
         echo 'Pulling bge-m3...' &&
         node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'bge-m3',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
+        echo 'Pulling qwen2.5:14b...' &&
+        node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'qwen2.5:14b',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
+        echo 'Pulling nomic-embed-text...' &&
+        node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'nomic-embed-text',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
+        echo 'Pulling all-MiniLM-L6-v2...' &&
+        node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'all-MiniLM-L6-v2',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
         echo 'Starting Engram proxy...' &&
         npm run start
       "

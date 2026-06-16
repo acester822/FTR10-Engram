@@ -1,14 +1,4 @@
 /*
-   ____                   __  __                                 
-  / __ \                 |  \/  |                                
- | |  | |_ __   ___ _ __ | \  / | ___ _ __ ___   ___  _ __ _   _ 
- | |  | | '_ \ / _ \ '_ \| |\/| |/ _ \ '_ ` _ \ / _ \| '__| | | |
- | |__| | |_) |  __/ | | | |  | |  __/ | | | | | (_) | |  | |_| |
-  \____/| .__/ \___|_| |_|_|  |_|\___|_| |_| |_|\___/|_|   \__, |
-        | |                                                 __/ |
-        |_|                                                |___/ 
-  CaviraOSS @ 2026
-
  - filename
  - what is the file used for
 */
@@ -33,11 +23,11 @@ const loadDriveService = async (config: GoogleDriveSourceConfig) => {
     const auth = new google.auth.GoogleAuth({
       credentials:
         config.credentials_json ||
-        (process.env.GOOGLE_CREDENTIALS_JSON
-          ? JSON.parse(process.env.GOOGLE_CREDENTIALS_JSON)
+        (process.env.EG_GOOGLE_CREDENTIALS_JSON
+          ? JSON.parse(process.env.EG_GOOGLE_CREDENTIALS_JSON)
           : undefined),
       keyFile:
-        config.service_account_file || process.env.GOOGLE_SERVICE_ACCOUNT_FILE,
+        config.service_account_file || process.env.EG_GOOGLE_SERVICE_ACCOUNT_FILE,
       scopes,
     });
     return google.drive({ version: "v3", auth });

@@ -1,14 +1,4 @@
 /*
-    ____                   __  __                                 
-   / __ \                 |  \/  |                                
-  | |  | |_ __   ___ _ __ | \  / | ___ _ __ ___   ___  _ __ _   _ 
-  | |  | | '_ \ / _ \ '_ \| |\/| |/ _ \ '_ ` _ \ / _ \| '__| | | |
-  | |__| | |_) |  __/ | | | |  | | |__| | | | (_) | |  | |_| |
-   \____/| .__/ \___|_| |_|_|  |_|\___|_| |_| |_|\___/|_|   \__, |
-         | |                                                 __/ |
-         |_|                                                |___/ 
-  CaviraOSS @ 2026
-
  - filename: packages/engram-js/src/api/routes/chat/completions/route.ts
  - what is the file used for: POST /v1/chat/completions — OpenAI-compatible smart proxy endpoint that intercepts requests, builds cognitive context via MemoryInjector (genome + phenotype), injects into system prompt, forwards to LLM, streams SSE back, and logs interactions for memory extraction.
 */
@@ -237,7 +227,7 @@ export const chat_completions_route = (app: any) => {
       
       const llmPayload = {
         ...body, // Pass through ALL fields from original request (tools, temperature, etc.)
-        model: body.model || process.env.CHAT_MODEL || env.openai_model,
+        model: body.model || process.env.EG_CHAT_MODEL || env.openai_model,
         messages: enrichedMessages, // Override with our enriched, sanitized messages
       };
 

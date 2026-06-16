@@ -1,14 +1,4 @@
 /*
-   ____                   __  __                                 
-  / __ \                 |  \/  |                                
- | |  | |_ __   ___ _ __ | \  / | ___ _ __ ___   ___  _ __ _   _ 
- | |  | | '_ \ / _ \ '_ \| |\/| |/ _ \ '_ ` _ \ / _ \| '__| | | |
- | |__| | |_) |  __/ | | | |  | |  __/ | | | | | (_) | |  | |_| |
-  \____/| .__/ \___|_| |_|_|  |_|\___|_| |_| |_|\___/|_|   \__, |
-        | |                                                 __/ |
-        |_|                                                |___/ 
-  CaviraOSS @ 2026
-
  - filename: packages/engram-js/src/services/memoryLogger.ts
  - what is the file used for: Async memory extraction and logging service
 */
@@ -65,7 +55,7 @@ If no facts are worth saving, return exactly: []
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: process.env.EXTRACTION_MODEL || "qwen2.5:7b",
+          model: process.env.EG_EXTRACTION_MODEL || "qwen2.5:7b",
           prompt: extractionPrompt,
           stream: false,
           format: {

@@ -1,14 +1,4 @@
 /*
-   ____                   __  __                                 
-  / __ \                 |  \/  |                                
- | |  | |_ __   ___ _ __ | \  / | ___ _ __ ___   ___  _ __ _   _ 
- | |  | | '_ \ / _ \ '_ \| |\/| |/ _ \ '_ ` _ \ / _ \| '__| | | |
- | |__| | |_) |  __/ | | | |  | |  __/ | | | | | (_) | |  | |_| |
-  \____/| .__/ \___|_| |_|_|  |_|\___|_| |_| |_|\___/|_|   \__, |
-        | |                                                 __/ |
-        |_|                                                |___/ 
-  CaviraOSS @ 2026
-
  - filename: packages/engram-js/src/database/localstore.ts
  - what is the file used for: memory, sqlite, and valkey storage for local engram runs
 */

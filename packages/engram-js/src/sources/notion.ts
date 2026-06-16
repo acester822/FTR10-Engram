@@ -1,14 +1,4 @@
 /*
-   ____                   __  __                                 
-  / __ \                 |  \/  |                                
- | |  | |_ __   ___ _ __ | \  / | ___ _ __ ___   ___  _ __ _   _ 
- | |  | | '_ \ / _ \ '_ \| |\/| |/ _ \ '_ ` _ \ / _ \| '__| | | |
- | |__| | |_) |  __/ | | | |  | |  __/ | | | | | (_) | |  | |_| |
-  \____/| .__/ \___|_| |_|_|  |_|\___|_| |_| |_|\___/|_|   \__, |
-        | |                                                 __/ |
-        |_|                                                |___/ 
-  CaviraOSS @ 2026
-
  - filename
  - what is the file used for
 */
@@ -27,7 +17,7 @@ export type NotionSourceConfig = {
 };
 
 const loadNotionClient = async (apiKey?: string) => {
-  if (!apiKey && !process.env.NOTION_API_KEY) {
+  if (!apiKey && !process.env.EG_NOTION_API_KEY) {
     throw new SourceConfigError(
       "api_key or NOTION_API_KEY is required",
       "notion",
@@ -35,7 +25,7 @@ const loadNotionClient = async (apiKey?: string) => {
   }
   try {
     const notion = await dynamicImport("@notionhq/client");
-    return new notion.Client({ auth: apiKey || process.env.NOTION_API_KEY });
+    return new notion.Client({ auth: apiKey || process.env.EG_NOTION_API_KEY });
   } catch {
     throw new SourceConfigError(
       "missing dependency: npm install @notionhq/client",

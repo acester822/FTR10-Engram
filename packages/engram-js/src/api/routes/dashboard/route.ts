@@ -1,14 +1,4 @@
 /*
-   ____                   __  __                                 
-  / __ \                 |  \/  |                                
- | |  | |_ __   ___ _ __ | \  / | ___ _ __ ___   ___  _ __ _   _ 
- | |  | | '_ \ / _ \ '_ \| |\/| |/ _ \ '_ ` _ \ / _ \| '__| | | |
- | |__| | |_) |  __/ | | | |  | |  __/ | | | | | (_) | |  | |_| |
-  \____/| .__/ \___|_| |_|_|  |_|\___|_| |_| |_|\___/|_|   \__, |
-        | |                                                 __/ |
-        |_|                                                |___/ 
-  CaviraOSS @ 2026
-
  - filename: packages/engram-js/src/api/routes/dashboard/route.ts
  - what is the file used for: dashboard API endpoints (stats, memories CRUD, logs, consolidate)
 */
@@ -205,7 +195,7 @@ export const dashboard_route = (app: any) => {
   // POST /api/dashboard/consolidate — manual consolidation trigger
   app.post("/api/dashboard/consolidate", async (_req: any, res: any) => {
     try {
-      await (consolidationEngine as any).runConsolidationCycle();
+      await (consolidationEngine as any).runConsolidation();
       return res.json({ success: true, message: "Consolidation cycle triggered" });
     } catch (e: unknown) {
       fail(res, "dashboard_consolidate_failed", e);

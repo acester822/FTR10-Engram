@@ -1,20 +1,8 @@
 /*
-   ____                   __  __                                 
-  / __ \                 |  \/  |                                
- | |  | |_ __   ___ _ __ | \  / | ___ _ __ ___   ___  _ __ _   _ 
- | |  | | '_ \ / _ \ '_ \| |\/| |/ _ \ '_ ` _ \ / _ \| '__| | | |
- | |__| | |_) |  __/ | | | |  | |  __/ | | | | | (_) | |  | |_| |
-  \____/| .__/ \___|_| |_|_|  |_|\___|_| |_| |_|\___/|_|   \__, |
-        | |                                                 __/ |
-        |_|                                                |___/ 
-  CaviraOSS @ 2026
-
  - filename: packages/engram-js/src/database/models.ts
- - what is the file used for: resolves embedding model names from models.yml and env overrides
+ - what is the file used for: resolves embedding model names from .env vars with hardcoded defaults as fallback
 */
 
-import { readFileSync, existsSync } from "fs";
-import { join } from "path";
 interface model_cfg {
   [facet: string]: Record<string, string>;
 }
@@ -23,100 +11,72 @@ let cfg: model_cfg | null = null;
 export const load_models = (): model_cfg => {
   if (cfg) return cfg;
 
-  // Try loading from models.yml first (for backwards compat)
-  const p = [
-    join(__dirname, "../../../../models.yml"),
-    join(__dirname, "../../../models.yml"),
-    join(process.cwd(), "models.yml"),
-    join(process.cwd(), "../../models.yml"),
-  ].find((candidate) => existsSync(candidate));
+  // Build config from .env vars — starts with hardcoded defaults, then env overrides apply
+  const facets = ["episodic", "semantic", "procedural", "emotional", "reflective"];
+  const providers = ["ollama", "openai", "gemini", "aws", "siray", "local"];
 
-  if (p) {
-    try {
-      const yml = readFileSync(p, "utf-8");
-      cfg = parse_yaml(yml);
-      console.error(
-        `[MODELS] Loaded models.yml (${Object.keys(cfg).length} facets)`,
-      );
-      return cfg;
-    } catch (e) {
-      console.error("[MODELS] Failed to parse models.yml:", e);
+  cfg = {};
+  for (const facet of facets) {
+    cfg[facet] = {};
+    for (const provider of providers) {
+      // Per-facet, per-provider override: EG_<PROVIDER>_<FACET>_MODEL
+      const facetKey = `EG_${provider.toUpperCase()}_${facet.toUpperCase()}_MODEL`;
+      if (process.env[facetKey]) {
+        cfg[facet][provider] = process.env[facetKey];
+        continue;
+      }
+      // Per-provider override: EG_<PROVIDER>_MODEL
+      const providerKey = `EG_${provider.toUpperCase()}_MODEL`;
+      if (process.env[providerKey]) {
+        cfg[facet][provider] = process.env[providerKey];
+        continue;
+      }
+      // Fallback to hardcoded defaults
+      cfg[facet][provider] = get_defaults()[facet]?.[provider] || "bge-m3";
     }
   }
 
-  // Fall back to env-based config: EG_EMBEDDING_<FACET>_<PROVIDER>
-  const env = process.env;
-  if (env.EG_EMBEDDINGS) {
-    console.error("[MODELS] Using env-based model configuration");
-    cfg = {};
-    return cfg;
-  }
-
-  // Final fallback to hardcoded defaults
-  console.error("[MODELS] No config found, using defaults");
-  cfg = get_defaults();
+  console.error("[MODELS] Using env-based model configuration");
   return cfg;
-};
-
-const parse_yaml = (yml: string): model_cfg => {
-  const lines = yml.split("\n");
-  const obj: model_cfg = {};
-  let cur_sec: string | null = null;
-  for (const line of lines) {
-    const trim = line.trim();
-    if (!trim || trim.startsWith("#")) continue;
-    const indent = line.search(/\S/);
-    const [key, ...val_parts] = trim.split(":");
-    const val = val_parts.join(":").trim();
-    if (indent === 0 && val) {
-      continue;
-    } else if (indent === 0) {
-      cur_sec = key;
-      obj[cur_sec] = {};
-    } else if (cur_sec && val) {
-      obj[cur_sec][key] = val;
-    }
-  }
-  return obj;
 };
 
 const get_defaults = (): model_cfg => ({
   episodic: {
-    ollama: "nomic-embed-text",
+    ollama: "bge-m3",
     openai: "text-embedding-3-small",
     gemini: "models/gemini-embedding-001",
     aws: "amazon.titan-embed-text-v2:0",
     siray: "text-embedding-3-small",
-    local: "all-MiniLM-L6-v2",
+    local: "bge-m3",
   },
   semantic: {
-    ollama: "nomic-embed-text",
+    ollama: "bge-m3",
     openai: "text-embedding-3-small",
     gemini: "models/gemini-embedding-001",
     aws: "amazon.titan-embed-text-v2:0",
     siray: "text-embedding-3-small",
-    local: "all-MiniLM-L6-v2",
+    local: "bge-m3",
   },
   procedural: {
     ollama: "nomic-embed-text",
     openai: "text-embedding-3-small",
     gemini: "models/gemini-embedding-001",
     aws: "amazon.titan-embed-text-v2:0",
-    local: "all-MiniLM-L6-v2",
+    local: "bge-m3",
   },
   emotional: {
-    ollama: "nomic-embed-text",
+    ollama: "all-MiniLM-L6-v2",
     openai: "text-embedding-3-small",
     gemini: "models/gemini-embedding-001",
     aws: "amazon.titan-embed-text-v2:0",
-    local: "all-MiniLM-L6-v2",
+    local: "bge-m3",
   },
   reflective: {
-    ollama: "nomic-embed-text",
-    openai: "text-embedding-3-large",
+    ollama: "bge-m3",
+    openai: "text-embedding-3-small",
     gemini: "models/gemini-embedding-001",
     aws: "amazon.titan-embed-text-v2:0",
-    local: "all-mpnet-base-v2",
+    local: "bge-m3",
   },
 });
 
@@ -157,7 +117,7 @@ export function resolveEmbeddingModel(
     cfg[normalizedFacet]?.[normalizedProvider] ||
     cfg.semantic?.[normalizedProvider] ||
     cfg.semantic?.openai ||
-    "nomic-embed-text"
+    "bge-m3"
   );
 }
 

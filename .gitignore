@@ -14,9 +14,11 @@ build/
 
 # Node
 node_modules/
-package-lock.json
 yarn.lock
-pnpm-lock.yaml
+
+# Per-workspace lockfiles (uncomment if needed)
+# package-lock.json
+# pnpm-lock.yaml
 
 # Environment
 .env

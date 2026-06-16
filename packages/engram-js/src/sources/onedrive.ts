@@ -1,14 +1,4 @@
 /*
-   ____                   __  __                                 
-  / __ \                 |  \/  |                                
- | |  | |_ __   ___ _ __ | \  / | ___ _ __ ___   ___  _ __ _   _ 
- | |  | | '_ \ / _ \ '_ \| |\/| |/ _ \ '_ ` _ \ / _ \| '__| | | |
- | |__| | |_) |  __/ | | | |  | |  __/ | | | | | (_) | |  | |_| |
-  \____/| .__/ \___|_| |_|_|  |_|\___|_| |_| |_|\___/|_|   \__, |
-        | |                                                 __/ |
-        |_|                                                |___/ 
-  CaviraOSS @ 2026
-
  - filename
  - what is the file used for
 */
@@ -52,7 +42,7 @@ const responseJson = async <T>(
 export function createOneDriveSource(
   config: OneDriveSourceConfig,
 ): SourceConnector {
-  const token = config.access_token || process.env.ONEDRIVE_ACCESS_TOKEN;
+  const token = config.access_token || process.env.EG_ONEDRIVE_ACCESS_TOKEN;
   if (!token)
     throw new SourceConfigError(
       "access_token or ONEDRIVE_ACCESS_TOKEN is required",

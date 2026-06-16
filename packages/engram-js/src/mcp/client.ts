@@ -1,14 +1,4 @@
 /*
-   ____                   __  __                                 
-  / __ \                 |  \/  |                                
- | |  | |_ __   ___ _ __ | \  / | ___ _ __ ___   ___  _ __ _   _ 
- | |  | | '_ \ / _ \ '_ \| |\/| |/ _ \ '_ ` _ \ / _ \| '__| | | |
- | |__| | |_) |  __/ | | | |  | |  __/ | | | | | (_) | |  | |_| |
-  \____/| .__/ \___|_| |_|_|  |_|\___|_| |_| |_|\___/|_|   \__, |
-        | |                                                 __/ |
-        |_|                                                |___/ 
-  CaviraOSS @ 2026
-
  - filename
  - what is the file used for
 */
@@ -27,12 +17,12 @@ export class DurableMcpClient {
   constructor(config: DurableMcpClientConfig = {}) {
     this.baseUrl = (
       config.base_url ||
-      process.env.OPENMEMORY_URL ||
+      process.env.EG_OPENMEMORY_URL ||
       "http://localhost:8080"
     ).replace(/\/$/, "");
     this.apiKey =
       config.api_key ||
-      process.env.OPENMEMORY_API_KEY ||
+      process.env.EG_OPENMEMORY_API_KEY ||
       process.env.EG_API_KEY;
     this.fetcher = config.fetcher || fetch;
   }
