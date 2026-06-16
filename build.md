@@ -44,6 +44,11 @@ docker compose down
 docker compose down -v   # removes postgres_data, redis_data, server_data, ollama_data volumes
 ```
 
+### Rebuild when changes to source are made:
+```bash
+cd /home/ftr/Documents/openWeb.searxng/OpenMemory && docker compose up -d --build openmemory 2>&1
+```
+
 ---
 
 ## Quick Start (Local Dev — No Docker)
