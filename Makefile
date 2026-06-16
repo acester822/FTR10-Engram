@@ -1,7 +1,7 @@
 .PHONY: help install dev build start clean
 
 help:
-	@echo "OpenMemory JS cleanup commands"
+	@echo "Engram JS cleanup commands"
 	@echo "  make install  - install workspace dependencies"
 	@echo "  make dev      - start JS server in development mode"
 	@echo "  make build    - build JS package"
@@ -21,5 +21,5 @@ start:
 	npm run start
 
 clean:
-	cd packages/openmemory-js && rm -rf dist
+	cd packages/engram-js && rm -rf dist
 

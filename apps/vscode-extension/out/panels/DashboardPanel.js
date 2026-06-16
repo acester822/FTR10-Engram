@@ -45,7 +45,7 @@ class DashboardPanel {
             DashboardPanel.currentPanel._panel.reveal(column);
             return;
         }
-        const panel = vscode.window.createWebviewPanel('openMemoryDashboard', 'OpenMemory Dashboard', column || vscode.ViewColumn.One, {
+        const panel = vscode.window.createWebviewPanel('openMemoryDashboard', 'Engram Dashboard', column || vscode.ViewColumn.One, {
             enableScripts: true,
             localResourceRoots: [vscode.Uri.file(path.join(extensionUri.fsPath, 'media'))]
         });
@@ -60,16 +60,16 @@ class DashboardPanel {
         this._panel.webview.onDidReceiveMessage(message => {
             switch (message.command) {
                 case 'quickNote':
-                    vscode.commands.executeCommand('openmemory.quickNote');
+                    vscode.commands.executeCommand('engram.quickNote');
                     return;
                 case 'query':
-                    vscode.commands.executeCommand('openmemory.queryContext');
+                    vscode.commands.executeCommand('engram.queryContext');
                     return;
                 case 'patterns':
-                    vscode.commands.executeCommand('openmemory.viewPatterns');
+                    vscode.commands.executeCommand('engram.viewPatterns');
                     return;
                 case 'settings':
-                    vscode.commands.executeCommand('openmemory.setup');
+                    vscode.commands.executeCommand('engram.setup');
                     return;
             }
         }, null, this._disposables);
@@ -97,7 +97,7 @@ class DashboardPanel {
                 <meta charset="UTF-8">
                 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>OpenMemory Dashboard</title>
+                <title>Engram Dashboard</title>
                 <style>
                     body {
                         font-family: var(--vscode-font-family);
@@ -141,7 +141,7 @@ class DashboardPanel {
                 </style>
             </head>
             <body>
-                <h1>OpenMemory Dashboard</h1>
+                <h1>Engram Dashboard</h1>
                 
                 <div class="card">
                     <h2>Status</h2>

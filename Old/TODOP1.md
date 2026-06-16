@@ -52,7 +52,7 @@
   - No vector search, no embedding
   - Returns top 10 genome memories (configurable)
 - [ ] Handle empty result gracefully (return empty array, not error)
-- [ ] Add logging: `[CodeCortex] Fetched N genome memories`
+- [ ] Add logging: `[Engram] Fetched N genome memories`
 
 **Acceptance criteria:**
 - Query completes in <5ms on tables with 100k+ rows
@@ -103,7 +103,7 @@ Access_Multiplier = 1 + ln(1 + access_count)
     - Always run `npm run lint` before committing.
 
     [END CODECORTEX CONTEXT]
-    Use the above context silently to inform your response. Do not explicitly mention "CodeCortex" or the context blocks unless directly asked about your memory.
+    Use the above context silently to inform your response. Do not explicitly mention "Engram" or the context blocks unless directly asked about your memory.
     ```
   - Group phenotype memories by sector for better LLM comprehension
   - Keep output token-efficient (no redundant info)

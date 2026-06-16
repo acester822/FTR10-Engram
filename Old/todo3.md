@@ -6,7 +6,7 @@ We will use a fast, local LLM (like `phi3` or `llama3:8b` via Ollama) with **str
 
 ### Step 1: The Memory Logger Service
 
-Create this file at: `packages/openmemory-js/src/services/memoryLogger.ts`
+Create this file at: `packages/engram-js/src/services/memoryLogger.ts`
 
 ```typescript
 import { v4 as uuidv4 } from 'uuid';
@@ -23,7 +23,7 @@ const LOCAL_LLM_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 export async function logInteractionAsync(userPrompt: string, llmResponseText: string): Promise<void> {
   // Wrap in try/catch so it never crashes the main proxy request
   try {
-    console.log('[CodeCortex] 🧠 Analyzing conversation for new memories...');
+    console.log('[Engram] 🧠 Analyzing conversation for new memories...');
 
     const extractionPrompt = `
 You are a cognitive memory extraction engine. 
@@ -90,12 +90,12 @@ If no significant memories are found, output an empty array: []
       const cleanJson = data.response.replace(/^```json\s*|\s*```$/g, '').trim();
       extractedMemories = JSON.parse(cleanJson);
     } catch (e) {
-      console.error('[CodeCortex] Failed to parse LLM extraction JSON. Raw output:', data.response);
+      console.error('[Engram] Failed to parse LLM extraction JSON. Raw output:', data.response);
       return; // Exit gracefully
     }
 
     if (!Array.isArray(extractedMemories) || extractedMemories.length === 0) {
-      console.log('[CodeCortex] No new significant memories extracted.');
+      console.log('[Engram] No new significant memories extracted.');
       return;
     }
 
@@ -120,11 +120,11 @@ If no significant memories are found, output an empty array: []
         decayRate
       ]);
       
-      console.log(`[CodeCortex] 💾 Saved new [${mem.sector}] memory: "${mem.content.substring(0, 60)}${mem.content.length > 60 ? '...' : ''}"`);
+      console.log(`[Engram] 💾 Saved new [${mem.sector}] memory: "${mem.content.substring(0, 60)}${mem.content.length > 60 ? '...' : ''}"`);
     }
 
   } catch (error) {
-    console.error('[CodeCortex] ❌ Async memory logging failed:', error);
+    console.error('[Engram] ❌ Async memory logging failed:', error);
   }
 }
 ```
@@ -197,7 +197,7 @@ app.post('/v1/chat/completions', async (req, res) => {
       genome: genomeMemories.map(m => m.content),
       phenotype: phenotypeMemories.map(m => ({ sector: m.sector, content: m.content, score: m.finalScore }))
     });
-    res.write(`event: codecortex_trace\ndata: ${tracePayload}\n\n`);
+    res.write(`event: engram_trace\ndata: ${tracePayload}\n\n`);
     res.end();
 
     // 3. CLEANUP & LOG: Parse the accumulated text to get the clean string, then log
@@ -205,12 +205,12 @@ app.post('/v1/chat/completions', async (req, res) => {
     
     // Fire and forget
     logInteractionAsync(userPrompt, cleanResponse).catch(err => 
-      console.error('[CodeCortex] Background logging failed:', err)
+      console.error('[Engram] Background logging failed:', err)
     );
 
   } catch (error) {
-    console.error('[CodeCortex] Proxy Error:', error);
-    res.status(500).json({ error: 'Internal CodeCortex Proxy Error' });
+    console.error('[Engram] Proxy Error:', error);
+    res.status(500).json({ error: 'Internal Engram Proxy Error' });
   }
 });
 

@@ -4,9 +4,9 @@ services:
     image: pgvector/pgvector:0.8.2-pg16-trixie
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${OM_PG_DB:-openmemory}
-      POSTGRES_USER: ${OM_PG_USER:-postgres}
-      POSTGRES_PASSWORD: ${OM_PG_PASSWORD:-postgres}
+      POSTGRES_DB: ${EG_PG_DB:-engram}
+      POSTGRES_USER: ${EG_PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${EG_PG_PASSWORD:-postgres}
     ports:
       - "5432:5432"
     volumes:
@@ -20,7 +20,7 @@ services:
       timeout: 5s
       retries: 10
     networks:
-      - ftr10-codecortex
+      - ftr10-engram
 
   # ── Redis (optional cache / valkey storage) ──────────────────────────
   redis:
@@ -31,12 +31,12 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - ftr10-codecortex
+      - ftr10-engram
 
   # ── Ollama (local LLM engine) ────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
-    container_name: codecortex-ollama
+    container_name: engram-ollama
     restart: unless-stopped
     ports:
       - "11434:11434"
@@ -47,76 +47,76 @@ services:
       # Pin all models indefinitely — never unload from RAM/VRAM
       - OLLAMA_KEEP_ALIVE=-1
     networks:
-      - ftr10-codecortex
+      - ftr10-engram
     healthcheck:
       test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # ── CodeCortex Server ────────────────────────────────────────────────
-  openmemory:
+  # ── Engram Server ────────────────────────────────────────────────
+  engram:
     build:
-      context: ./packages/openmemory-js
+      context: ./packages/engram-js
       dockerfile: Dockerfile
     ports:
       - "8098:8080"
     environment:
-      OM_PORT: ${OM_PORT:-8080}
+      EG_PORT: ${EG_PORT:-8080}
 
       # PostgreSQL (primary storage)
-      OM_PG_HOST: postgres
-      OM_PG_PORT: 5432
-      OM_PG_DB: ${OM_PG_DB:-openmemory}
-      OM_PG_USER: ${OM_PG_USER:-postgres}
-      OM_PG_PASSWORD: ${OM_PG_PASSWORD:-postgres}
-      OM_PG_SCHEMA: ${OM_PG_SCHEMA:-public}
-      OM_PG_SSL: disable
+      EG_PG_HOST: postgres
+      EG_PG_PORT: 5432
+      EG_PG_DB: ${EG_PG_DB:-engram}
+      EG_PG_USER: ${EG_PG_USER:-postgres}
+      EG_PG_PASSWORD: ${EG_PG_PASSWORD:-postgres}
+      EG_PG_SCHEMA: ${EG_PG_SCHEMA:-public}
+      EG_PG_SSL: disable
 
       # Storage backend (postgres, sqlite, valkey/redis)
-      OM_STORAGE: postgres
-      OM_SQLITE_PATH: /data/openmemory.sqlite
+      EG_STORAGE: postgres
+      EG_SQLITE_PATH: /data/engram.sqlite
 
       # Embedding provider & model overrides
-      OM_EMBEDDINGS: ollama
-      OM_EMBEDDING_FALLBACK: ollama
-      OM_VEC_DIM: ${OM_VEC_DIM:-1536}
+      EG_EMBEDDINGS: ollama
+      EG_EMBEDDING_FALLBACK: ollama
+      EG_VEC_DIM: ${EG_VEC_DIM:-1536}
 
       # Vector store (postgres, qdrant, pinecone, weaviate, chroma, milvus)
-      OM_VECTOR_STORE: postgres
-      OM_VECTOR_COLLECTION: openmemory_memories
+      EG_VECTOR_STORE: postgres
+      EG_VECTOR_COLLECTION: engram_memories
 
       # Ollama (local embeddings & LLM)
       OLLAMA_URL: http://ollama:11434
-      OM_OLLAMA_URL: http://ollama:11434
+      EG_OLLAMA_URL: http://ollama:11434
 
       # Embedding model overrides
-      OM_OPENAI_MODEL: ${OM_OPENAI_MODEL:-text-embedding-3-small}
-      OM_GEMINI_MODEL: ${OM_GEMINI_MODEL:-models/gemini-embedding-001}
-      OM_OLLAMA_MODEL: bge-m3
+      EG_OPENAI_MODEL: ${EG_OPENAI_MODEL:-text-embedding-3-small}
+      EG_GEMINI_MODEL: ${EG_GEMINI_MODEL:-models/gemini-embedding-001}
+      EG_OLLAMA_MODEL: bge-m3
 
       # LLM for consolidation / extraction (only qwen2.5:7b)
       LLAMA_URL: http://10.10.10.41:8080/v1
-      OM_LLM_URL: http://10.10.10.41:8080/v1
+      EG_LLM_URL: http://10.10.10.41:8080/v1
       CONSOLIDATION_MODEL: qwen2.5:7b
       EXTRACTION_MODEL: qwen2.5:7b
 
       # Auth & telemetry
-      OM_API_KEY: ${OM_API_KEY:-}
-      OM_REQUIRE_API_KEY: ${OM_REQUIRE_API_KEY:-false}
-      OM_LOG_AUTH: ${OM_LOG_AUTH:-false}
-      OM_TELEMETRY: ${OM_TELEMETRY:-true}
+      EG_API_KEY: ${EG_API_KEY:-}
+      EG_REQUIRE_API_KEY: ${EG_REQUIRE_API_KEY:-false}
+      EG_LOG_AUTH: ${EG_LOG_AUTH:-false}
+      EG_TELEMETRY: ${EG_TELEMETRY:-true}
 
       # Server limits
-      OM_MAX_PAYLOAD_SIZE: ${OM_MAX_PAYLOAD_SIZE:-1000000}
-      OM_RATE_LIMIT_ENABLED: ${OM_RATE_LIMIT_ENABLED:-false}
-      OM_RATE_LIMIT_WINDOW_MS: ${OM_RATE_LIMIT_WINDOW_MS:-60000}
-      OM_RATE_LIMIT_MAX_REQUESTS: ${OM_RATE_LIMIT_MAX_REQUESTS:-100}
+      EG_MAX_PAYLOAD_SIZE: ${EG_MAX_PAYLOAD_SIZE:-1000000}
+      EG_RATE_LIMIT_ENABLED: ${EG_RATE_LIMIT_ENABLED:-false}
+      EG_RATE_LIMIT_WINDOW_MS: ${EG_RATE_LIMIT_WINDOW_MS:-60000}
+      EG_RATE_LIMIT_MAX_REQUESTS: ${EG_RATE_LIMIT_MAX_REQUESTS:-100}
 
     volumes:
       - server_data:/data
     networks:
-      - ftr10-codecortex
+      - ftr10-engram
     depends_on:
       postgres:
         condition: service_healthy
@@ -134,7 +134,7 @@ services:
         node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'qwen2.5:7b',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
         echo 'Pulling bge-m3...' &&
         node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'bge-m3',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
-        echo 'Starting CodeCortex proxy...' &&
+        echo 'Starting Engram proxy...' &&
         npm run start
       "
     healthcheck:
@@ -156,14 +156,14 @@ services:
       context: ./apps/web
       dockerfile: Dockerfile
       args:
-        VITE_OM_API_URL: http://openmemory:8080
+        VITE_OM_API_URL: http://engram:8080
     ports:
       - "8099:80"
     depends_on:
-      openmemory:
+      engram:
         condition: service_healthy
     networks:
-      - ftr10-codecortex
+      - ftr10-engram
     restart: unless-stopped
 
 volumes:
@@ -173,5 +173,5 @@ volumes:
   ollama_data:
 
 networks:
-  ftr10-codecortex:
+  ftr10-engram:
     driver: bridge

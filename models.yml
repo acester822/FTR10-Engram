@@ -1,4 +1,4 @@
-# OpenMemory Embedding Models Configuration
+# Engram Embedding Models Configuration
 # Configure which models to use for each memory facet and provider
 # Provider settings (URLs, API keys, etc.) are in .env
 

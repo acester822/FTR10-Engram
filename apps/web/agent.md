@@ -1,13 +1,13 @@
-# Agent: OpenMemory Web Interface
+# Agent: Engram Web Interface
 
 ## Overview
-The `@openmemory/web` application is the React-based frontend for the OpenMemory system. It provides a visual interface for users to interact with their cognitive memory (Genome and Phenotype), monitor memory patterns, and manage their OpenMemory data.
+The `@engram/web` application is the React-based frontend for the Engram system. It provides a visual interface for users to interact with their cognitive memory (Genome and Phenotype), monitor memory patterns, and manage their Engram data.
 
 ## Functionality
 - **Dashboard**: Visualizes memory statistics and usage patterns.
 - **Memory Exploration**: Provides tools to browse and interact with stored coding context.
 - **User Interface**: A modern, responsive web UI built with React, Vite, and Tailwind CSS.
-- **Backend Integration**: Connects to the OpenMemory backend API to fetch and manage cognitive data.
+- **Backend Integration**: Connects to the Engram backend API to fetch and manage cognitive data.
 
 ## Getting Started
 

@@ -11,7 +11,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
-  console.log(`🚀 CodeCortex Proxy running on http://localhost:${PORT}`);
+  console.log(`🚀 Engram Proxy running on http://localhost:${PORT}`);
   
   // 🧠 START THE HIPPOCAMPUS
   consolidationEngine.start();

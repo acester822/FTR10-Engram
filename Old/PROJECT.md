@@ -1,4 +1,4 @@
-# CodeCortex / OpenMemory — Project Tracker
+# Engram / Engram — Project Tracker
 
 > Vision and implementation roadmap derived from the Vision.md conversation.
 > Tracks the product-level plan (smart proxy, standalone app, consolidation, traces).
@@ -7,7 +7,7 @@
 
 ## Vision Summary
 
-**CodeCortex** is a cognitive memory engine for LLMs and agents:
+**Engram** is a cognitive memory engine for LLMs and agents:
 - Real long-term memory (not just embeddings in a table)
 - Self-hosted, local-first (SQLite / Postgres)
 - Python + Node SDKs
@@ -94,7 +94,7 @@ Detailed tasks: [TODOP4.md](TODOP4.md)
 | Primary use case | Standalone app for developer workflows | Not autonomous agents |
 | Memory model | 5-sector HMD + Genome/Phenotype | More structured than flat vector DB |
 | Integration approach | Standalone app (proxy layer) | Sits between user tool and LLM; transparent to both |
-| Comparison | "Letta asks the LLM to manage its memory. CodeCortex manages the memory *for* the LLM." | Key differentiator |
+| Comparison | "Letta asks the LLM to manage its memory. Engram manages the memory *for* the LLM." | Key differentiator |
 
 ## Open Questions
 

@@ -4,7 +4,7 @@ import * as os from 'os';
 
 export interface CodexConfig {
     contextProviders?: {
-        openmemory: {
+        engram: {
             enabled: boolean;
             endpoint: string;
             method: string;
@@ -13,7 +13,7 @@ export interface CodexConfig {
         };
     };
     mcpServers?: {
-        openmemory: {
+        engram: {
             command: string;
             args: string[];
             env?: Record<string, string>;
@@ -26,14 +26,14 @@ export function generateCodexConfig(backendUrl: string, apiKey?: string, useMCP 
         const backendMcpPath = mcpServerPath || path.join(process.cwd(), 'backend', 'dist', 'ai', 'mcp.js');
         const config: CodexConfig = {
             mcpServers: {
-                openmemory: {
+                engram: {
                     command: 'node',
                     args: [backendMcpPath]
                 }
             }
         };
         if (apiKey) {
-            config.mcpServers!.openmemory.env = { OM_API_KEY: apiKey };
+            config.mcpServers!.engram.env = { EG_API_KEY: apiKey };
         }
         return config;
     }
@@ -43,7 +43,7 @@ export function generateCodexConfig(backendUrl: string, apiKey?: string, useMCP 
 
     return {
         contextProviders: {
-            openmemory: {
+            engram: {
                 enabled: true,
                 endpoint: `${backendUrl}/api/ide/context`,
                 method: 'POST',

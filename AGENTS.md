@@ -1,20 +1,20 @@
 # Agents.md
 
 ## Important Files:
-- /home/ftr/Documents/openWeb.searxng/OpenMemory/AGENTS.md - Project information, flows, commands, etc
-- /home/ftr/Documents/openWeb.searxng/OpenMemory/readme.md - Similar to the agents.md but will have less technical information
-- /home/ftr/Documents/openWeb.searxng/OpenMemory - Directory for the entire project
-- /home/ftr/Documents/openWeb.searxng/OpenMemory/apps/web - Web Interface
-- /home/ftr/Documents/openWeb.searxng/OpenMemory/apps/vscode-extension - Openmemory helper extension, not currently being used
-- /home/ftr/Documents/openWeb.searxng/OpenMemory/plan.md - The Plan, this is what the project is trying to do accomplish
+- /home/ftr/Documents/openWeb.searxng/Engram/AGENTS.md - Project information, flows, commands, etc
+- /home/ftr/Documents/openWeb.searxng/Engram/readme.md - Similar to the agents.md but will have less technical information
+- /home/ftr/Documents/openWeb.searxng/Engram - Directory for the entire project
+- /home/ftr/Documents/openWeb.searxng/Engram/apps/web - Web Interface
+- /home/ftr/Documents/openWeb.searxng/Engram/apps/vscode-extension - Openmemory helper extension, not currently being used
+- /home/ftr/Documents/openWeb.searxng/Engram/plan.md - The Plan, this is what the project is trying to do accomplish
 - 
-- /home/ftr/Documents/openWeb.searxng/OpenMemory/Vision.md - This was a brainstorming session to conceptualize and begin programming the revisions to the project
+- /home/ftr/Documents/openWeb.searxng/Engram/Vision.md - This was a brainstorming session to conceptualize and begin programming the revisions to the project
 
 ## Important Commands:
 
 ### Command to Start the server:
   ```bash
-  cd /home/ftr/Documents/openWeb.searxng/OpenMemory/packages/openmemory-js && OM_PORT=8080 npx nodemon src/server.ts
+  cd /home/ftr/Documents/openWeb.searxng/Engram/packages/engram-js && EG_PORT=8080 npx nodemon src/server.ts
   ```
 ## Project Flows:
 ```mermaid
@@ -73,7 +73,7 @@ flowchart TD
        │ 1. Sends prompt + requested model ("Qwopus3.6")
        ▼
 ┌────────────────────────────────────────────────────────────────────────────────┐
-│ 🖥️ LINUX SERVER (OpenMemory Proxy :8080)                              │
+│ 🖥️ LINUX SERVER (Engram Proxy :8080)                              │
 │                                                                       │
 │ 2. Calls Local Ollama (:11434) for embedding (bge-m3)                 │
 │ 3. Queries Local DB for Genome/Phenotype memories                     │
@@ -119,7 +119,7 @@ flowchart TD
 [LLAMA-SWAP] (MSI Raider - The Muscle)
   ├─ 5. ROUTE: Receives request & loads `Qwopus3.6` into RTX 4090 VRAM.
   ├─ 6. GENERATE: Creates response (naturally using the baked-in context).
-  └─ 7. STREAM: Sends raw SSE tokens back to OpenMemory Proxy.
+  └─ 7. STREAM: Sends raw SSE tokens back to Engram Proxy.
   ↓ (Tokens arrive back at Linux Server)
 [OPENMEMORY PROXY] (Linux Server - The Pipeline)
   ├─ 8. PIPE: Instantly passes raw SSE tokens back to the Client Tool.
@@ -132,21 +132,21 @@ flowchart TD
 ```
 
 ## Intended Operation
-1. **Start your Backend**: `cd /home/ftr/Documents/openWeb.searxng/OpenMemory/packages/openmemory-js && OM_PORT=8080 npx nodemon src/server.ts`
+1. **Start your Backend**: `cd /home/ftr/Documents/openWeb.searxng/Engram/packages/engram-js && EG_PORT=8080 npx nodemon src/server.ts`
    Ensure your Node.js proxy is running & Verify it's listening on `http://localhost:8080`.
 2. **Open the Chat Panel**: 
    In the new VS Code window, open Kilo's Chat view (`Ctrl+Alt+I` or `Cmd+Option+I`).
-3. **Invoke CodeCortex**: 
+3. **Invoke Engram**: 
    Type `@cortex How should I structure my auth middleware?`
 4. **Observe the Magic**:
-   * You will see "🧠 Querying CodeCortex memory engine..."
+   * You will see "🧠 Querying Engram memory engine..."
    * The response will stream in naturally.
-   * At the bottom, you will see a collapsible **"🧠 CodeCortex Memory Trace"** section showing exactly *why* the AI answered the way it did, citing your postgres database.
+   * At the bottom, you will see a collapsible **"🧠 Engram Memory Trace"** section showing exactly *why* the AI answered the way it did, citing your postgres database.
 
 
 ## Current Status:
-- The plan was executed, and is in a debugging phase, CodeCortex is currently online!!
+- The plan was executed, and is in a debugging phase, Engram is currently online!!
 
 ## Issues:
-### Naming conventions are a bit scattered, in the end the project will be named FTR10 CodeCortex. The server will be named CodeCortex. The modified Kilo extension will be named CodeCortexVS.
+### Naming conventions are a bit scattered, in the end the project will be named FTR10 Engram. The server will be named Engram. The modified Kilo extension will be named EngramVS.
 

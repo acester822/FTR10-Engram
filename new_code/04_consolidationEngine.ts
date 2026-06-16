@@ -18,10 +18,10 @@ export class ConsolidationEngine {
     // Run every 30 minutes: '*/30 * * * *'
     // For testing, you can change this to '* * * * *' (every minute)
     cron.schedule('*/30 * * * *', async () => {
-      console.log('[CodeCortex] 🧠 Starting memory consolidation cycle...');
+      console.log('[Engram] 🧠 Starting memory consolidation cycle...');
       await this.runConsolidationCycle();
     });
-    console.log('[CodeCortex] Consolidation engine scheduled (every 30 mins).');
+    console.log('[Engram] Consolidation engine scheduled (every 30 mins).');
   }
 
   private async runConsolidationCycle() {
@@ -41,20 +41,20 @@ export class ConsolidationEngine {
       `);
 
       if (candidates.length < MIN_MEMORIES_TO_CONSOLIDATE) {
-        console.log(`[CodeCortex] Only ${candidates.length} candidates. Skipping consolidation.`);
+        console.log(`[Engram] Only ${candidates.length} candidates. Skipping consolidation.`);
         return;
       }
 
       // 2. Group candidates by a simple heuristic (e.g., first 3 words, or just batch them)
       // For simplicity, we'll batch the oldest 5-10 memories together per cycle.
       const batch = candidates.slice(0, 10);
-      console.log(`[CodeCortex] Synthesizing ${batch.length} episodic memories...`);
+      console.log(`[Engram] Synthesizing ${batch.length} episodic memories...`);
 
       // 3. Prompt the local LLM to synthesize
       const synthesizedContent = await this.synthesizeWithLLM(batch);
 
       if (!synthesizedContent || synthesizedContent.trim().length < 10) {
-        console.warn('[CodeCortex] LLM returned empty synthesis. Aborting.');
+        console.warn('[Engram] LLM returned empty synthesis. Aborting.');
         return;
       }
 
@@ -78,10 +78,10 @@ export class ConsolidationEngine {
         DELETE FROM memories WHERE id IN (${idsToDelete})
       `);
 
-      console.log(`[CodeCortex] ✅ Consolidation complete. Created semantic memory: ${newMemoryId}`);
+      console.log(`[Engram] ✅ Consolidation complete. Created semantic memory: ${newMemoryId}`);
 
     } catch (error) {
-      console.error('[CodeCortex] ❌ Consolidation cycle failed:', error);
+      console.error('[Engram] ❌ Consolidation cycle failed:', error);
     }
   }
 
@@ -121,7 +121,7 @@ Synthesized Semantic Memory:
       const data = await response.json();
       return data.response.trim();
     } catch (error) {
-      console.error('[CodeCortex] LLM Synthesis failed:', error);
+      console.error('[Engram] LLM Synthesis failed:', error);
       return '';
     }
   }

@@ -1,6 +1,6 @@
 {
-    "name": "openmemory-vscode",
-    "displayName": "OpenMemory for VS Code",
+    "name": "engram-vscode",
+    "displayName": "Engram for VS Code",
     "description": "Cognitive memory system that remembers your coding context across sessions",
     "version": "8.0.0",
     "publisher": "Nullure",
@@ -25,78 +25,78 @@
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/caviraoss/openmemory"
+        "url": "https://github.com/caviraoss/engram"
     },
     "main": "./out/extension.js",
     "contributes": {
         "commands": [
             {
-                "command": "openmemory.statusBarClick",
-                "title": "OpenMemory: Status Bar Menu"
+                "command": "engram.statusBarClick",
+                "title": "Engram: Status Bar Menu"
             },
             {
-                "command": "openmemory.queryContext",
-                "title": "OpenMemory: Query Context"
+                "command": "engram.queryContext",
+                "title": "Engram: Query Context"
             },
             {
-                "command": "openmemory.addToMemory",
-                "title": "OpenMemory: Add Selection to Memory"
+                "command": "engram.addToMemory",
+                "title": "Engram: Add Selection to Memory"
             },
             {
-                "command": "openmemory.quickNote",
-                "title": "OpenMemory: Quick Note"
+                "command": "engram.quickNote",
+                "title": "Engram: Quick Note"
             },
             {
-                "command": "openmemory.viewPatterns",
-                "title": "OpenMemory: View Patterns"
+                "command": "engram.viewPatterns",
+                "title": "Engram: View Patterns"
             },
             {
-                "command": "openmemory.toggleTracking",
-                "title": "OpenMemory: Toggle Tracking"
+                "command": "engram.toggleTracking",
+                "title": "Engram: Toggle Tracking"
             },
             {
-                "command": "openmemory.setup",
-                "title": "OpenMemory: Setup"
+                "command": "engram.setup",
+                "title": "Engram: Setup"
             },
             {
-                "command": "openmemory.dashboard",
-                "title": "OpenMemory: Dashboard"
+                "command": "engram.dashboard",
+                "title": "Engram: Dashboard"
             }
         ],
         "configuration": {
-            "title": "OpenMemory",
+            "title": "Engram",
             "properties": {
-                "openmemory.enabled": {
+                "engram.enabled": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Enable or disable OpenMemory tracking and features"
+                    "description": "Enable or disable Engram tracking and features"
                 },
-                "openmemory.backendUrl": {
+                "engram.backendUrl": {
                     "type": "string",
                     "default": "http://localhost:8080",
-                    "description": "URL of the OpenMemory backend server"
+                    "description": "URL of the Engram backend server"
                 },
-                "openmemory.apiKey": {
+                "engram.apiKey": {
                     "type": "string",
                     "default": "",
-                    "description": "API key for OpenMemory backend authentication (leave empty if no auth required)"
+                    "description": "API key for Engram backend authentication (leave empty if no auth required)"
                 },
-                "openmemory.useMCP": {
+                "engram.useMCP": {
                     "type": "boolean",
                     "default": false,
                     "description": "Use MCP protocol for AI tool integration instead of direct HTTP"
                 },
-                "openmemory.mcpServerPath": {
+                "engram.mcpServerPath": {
                     "type": "string",
                     "default": "",
                     "description": "Path to MCP server executable (leave empty to use built-in backend MCP)"
                 },
-                "openmemory.userId": {
+                "engram.userId": {
                     "type": "string",
                     "default": "",
-                    "description": "Custom User ID for OpenMemory (leave empty to auto-generate)"
+                    "description": "Custom User ID for Engram (leave empty to auto-generate)"
                 },
-                "openmemory.projectName": {
+                "engram.projectName": {
                     "type": "string",
                     "default": "",
                     "description": "Custom Project Name (leave empty to use workspace name)"
@@ -105,9 +105,9 @@
         },
         "chatParticipants": [
             {
-                "id": "openmemory.cortex",
+                "id": "engram.cortex",
                 "name": "cortex",
-                "fullName": "OpenMemory Cortex",
+                "fullName": "Engram Cortex",
                 "description": "Chat with full cognitive memory context (Genome + Phenotype)",
                 "isSticky": true
             }

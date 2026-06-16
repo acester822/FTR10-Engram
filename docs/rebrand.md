@@ -1,6 +1,6 @@
 Renaming hundreds of occurrences across a codebase can be daunting, but with Git and a few Linux command-line tools, you can do it safely, quickly, and reversibly. 
 
-Since you are on Linux, here is the safest, most efficient step-by-step guide to rebranding everything to **Engram** (and updating prefixes like `OM_` to `EG_`).
+Since you are on Linux, here is the safest, most efficient step-by-step guide to rebranding everything to **Engram** (and updating prefixes like `EG_` to `EG_`).
 
 ---
 
@@ -20,7 +20,7 @@ Before running any bulk operations, ensure you have a clean slate and a safe pla
 ---
 
 ### ⚠️ Phase 2: Rename Files and Directories
-Text replacement won't rename the actual files or folders (like `packages/openmemory-js`). We need to rename those first.
+Text replacement won't rename the actual files or folders (like `packages/engram-js`). We need to rename those first.
 
 Run this in the root of your repository. *(Note: This uses the Perl-based `rename` utility, which is standard on most Linux distros. If you get a "command not found" error, install it via `sudo apt install rename`).*
 
@@ -28,17 +28,17 @@ Run this in the root of your repository. *(Note: This uses the Perl-based `renam
 # Rename directories and files (case-insensitive matches handled separately)
 echo "Renaming files and directories..."
 
-# Lowercase openmemory -> engram
-find . -depth -name '*openmemory*' -not -path '*/.git/*' -not -path '*/node_modules/*' -exec rename 's/openmemory/engram/g' {} +
+# Lowercase engram -> engram
+find . -depth -name '*engram*' -not -path '*/.git/*' -not -path '*/node_modules/*' -exec rename 's/engram/engram/g' {} +
 
-# Capitalized OpenMemory -> Engram
-find . -depth -name '*OpenMemory*' -not -path '*/.git/*' -not -path '*/node_modules/*' -exec rename 's/OpenMemory/Engram/g' {} +
+# Capitalized Engram -> Engram
+find . -depth -name '*Engram*' -not -path '*/.git/*' -not -path '*/node_modules/*' -exec rename 's/Engram/Engram/g' {} +
 
-# Lowercase codecortex -> engram
-find . -depth -name '*codecortex*' -not -path '*/.git/*' -not -path '*/node_modules/*' -exec rename 's/codecortex/engram/g' {} +
+# Lowercase engram -> engram
+find . -depth -name '*engram*' -not -path '*/.git/*' -not -path '*/node_modules/*' -exec rename 's/engram/engram/g' {} +
 
-# Capitalized CodeCortex -> Engram
-find . -depth -name '*CodeCortex*' -not -path '*/.git/*' -not -path '*/node_modules/*' -exec rename 's/CodeCortex/Engram/g' {} +
+# Capitalized Engram -> Engram
+find . -depth -name '*Engram*' -not -path '*/.git/*' -not -path '*/node_modules/*' -exec rename 's/Engram/Engram/g' {} +
 ```
 
 ---
@@ -46,7 +46,7 @@ find . -depth -name '*CodeCortex*' -not -path '*/.git/*' -not -path '*/node_modu
 ### ⚠️ Phase 3: Bulk Text Replacement
 Now we replace the text *inside* the files. We will use `find` combined with `sed` (Stream Editor). 
 
-**Important:** We exclude `.git`, `node_modules`, `dist`, `build`, and lockfiles to prevent corrupting dependencies or git history. We also use `\b` (word boundary) for `OM_` so we don't accidentally turn `PROMPT_VAR` into `PEG_`.
+**Important:** We exclude `.git`, `node_modules`, `dist`, `build`, and lockfiles to prevent corrupting dependencies or git history. We also use `\b` (word boundary) for `EG_` so we don't accidentally turn `PROMPT_VAR` into `PEG_`.
 
 ```bash
 echo "Replacing text inside files..."
@@ -59,10 +59,10 @@ find . -type f \
   -not -path '*/pnpm-lock.yaml' \
   -not -path '*/package-lock.json' \
   -exec sed -i \
-    -e 's/OpenMemory/Engram/g' \
-    -e 's/openmemory/engram/g' \
-    -e 's/CodeCortex/Engram/g' \
-    -e 's/codecortex/engram/g' \
+    -e 's/Engram/Engram/g' \
+    -e 's/engram/engram/g' \
+    -e 's/Engram/Engram/g' \
+    -e 's/engram/engram/g' \
     -e 's/\bOM_/EG_/g' \
     -e 's/\bom_/eg_/g' \
     {} +
@@ -86,7 +86,7 @@ Bulk replacements are powerful, but they can occasionally over-match. You **must
    grep -r "SEGE_" . --exclude-dir=node_modules --exclude-dir=.git
    ```
 3. **Update hardcoded paths manually:**
-   If you renamed `packages/openmemory-js` to `packages/engram-js`, you may need to manually update:
+   If you renamed `packages/engram-js` to `packages/engram-js`, you may need to manually update:
    - `package.json` (workspace references)
    - `docker-compose.yml` (build context paths)
    - `tsconfig.json` (path aliases, if any)
@@ -120,15 +120,15 @@ If you are uncomfortable with command-line bulk operations, VS Code has a fantas
 
 1. Press `Ctrl+Shift+H` (Replace in Files).
 2. Enable **Regular Expression** mode (the `.*` icon).
-3. Search: `\b(OpenMemory|openmemory|CodeCortex|codecortex)\b`
-4. Replace: `Engram` (or `engram` depending on context, though regex replace can't dynamically change case, so you'd have to do them one by one: `OpenMemory` -> `Engram`, then `openmemory` -> `engram`).
+3. Search: `\b(Engram|engram|Engram|engram)\b`
+4. Replace: `Engram` (or `engram` depending on context, though regex replace can't dynamically change case, so you'd have to do them one by one: `Engram` -> `Engram`, then `engram` -> `engram`).
 5. Click the **"..."** icon next to the replace field and select **"Include"** / **"Exclude"** to ignore `node_modules`, `.git`, etc.
 6. Review the preview pane carefully, then click **"Replace All"**.
 
 ### Summary of the New Naming Convention
 - **Project/Repo:** `Engram` / `engram`
-- **Env Vars:** `EG_PG_HOST`, `EG_PORT`, etc. (instead of `OM_`)
-- **Internal Vars:** `eg_port`, `eg_storage` (instead of `om_`)
-- **Packages:** `packages/engram-js` (instead of `openmemory-js`)
+- **Env Vars:** `EG_PG_HOST`, `EG_PORT`, etc. (instead of `EG_`)
+- **Internal Vars:** `eg_port`, `eg_storage` (instead of `eg_`)
+- **Packages:** `packages/engram-js` (instead of `engram-js`)
 
 Let me know if you want me to refine the `sed` replacements for any specific edge cases you know exist in your codebase!

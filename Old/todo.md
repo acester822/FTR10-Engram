@@ -1,4 +1,4 @@
-Here is the complete, copy-paste-ready code to transform your VS Code extension into a **Cognitive Chat Participant** that talks directly to your CodeCortex proxy and renders beautiful, collapsible Explainable Traces.
+Here is the complete, copy-paste-ready code to transform your VS Code extension into a **Cognitive Chat Participant** that talks directly to your Engram proxy and renders beautiful, collapsible Explainable Traces.
 
 We will use native VS Code Chat APIs and standard Markdown `<details>` tags, which VS Code renders perfectly as collapsible UI elements without needing complex custom webviews.
 
@@ -11,22 +11,22 @@ Open your extension's `package.json` and add/update these sections:
 
 ```json
 {
-  "name": "codecortex-vscode",
-  "displayName": "CodeCortex",
+  "name": "engram-vscode",
+  "displayName": "Engram",
   "version": "0.1.0",
   "engines": {
     "vscode": "^1.89.0"
   },
   "main": "./out/extension.js",
   "activationEvents": [
-    "onChatParticipant:openmemory.cortex"
+    "onChatParticipant:engram.cortex"
   ],
   "contributes": {
     "chatParticipants": [
       {
-        "id": "openmemory.cortex",
+        "id": "engram.cortex",
         "name": "cortex",
-        "fullName": "CodeCortex",
+        "fullName": "Engram",
         "description": "Chat with full cognitive memory context (Genome + Phenotype)",
         "isSticky": true,
         "commands": [
@@ -67,7 +67,7 @@ import { execSync } from 'child_process';
 const PROXY_URL = 'http://localhost:8080/v1/chat/completions';
 
 export function activate(context: vscode.ExtensionContext) {
-	console.log('🧠 CodeCortex extension is now active!');
+	console.log('🧠 Engram extension is now active!');
 
 	// 1. Register the Chat Participant
 	const handler: vscode.ChatRequestHandler = async (request: vscode.ChatRequest, chatContext: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
@@ -77,11 +77,11 @@ export function activate(context: vscode.ExtensionContext) {
 		
 		// 3. Format the payload for our Smart Proxy
 		const messages = [
-			{ role: 'system', content: `You are CodeCortex, an AI assistant with access to the user's long-term cognitive memory. Local Context: ${localContext}` },
+			{ role: 'system', content: `You are Engram, an AI assistant with access to the user's long-term cognitive memory. Local Context: ${localContext}` },
 			{ role: 'user', content: request.prompt }
 		];
 
-		stream.progress('🧠 Querying CodeCortex memory engine...');
+		stream.progress('🧠 Querying Engram memory engine...');
 
 		try {
 			// 4. Fetch from the Smart Proxy
@@ -141,11 +141,11 @@ export function activate(context: vscode.ExtensionContext) {
 			renderCognitiveTrace(stream, fullResponseText);
 
 		} catch (error: any) {
-			stream.markdown(`❌ **CodeCortex Error**: ${error.message}\n\n*Is the CodeCortex proxy running on port 8080?*`);
+			stream.markdown(`❌ **Engram Error**: ${error.message}\n\n*Is the Engram proxy running on port 8080?*`);
 	　　}
 	};
 
-	const participant = vscode.chat.createChatParticipant('openmemory.cortex', handler);
+	const participant = vscode.chat.createChatParticipant('engram.cortex', handler);
 	participant.iconPath = new vscode.ThemeIcon('brain'); // Native VS Code brain icon
 	
 	context.subscriptions.push(participant);
@@ -189,7 +189,7 @@ async function gatherLocalContext(): Promise<string> {
  */
 function renderCognitiveTrace(stream: vscode.ChatResponseStream, responseText: string) {
 	// In a full implementation, the proxy would send a custom SSE event like:
-	// event: codecortex_trace
+	// event: engram_trace
 	// data: {"genome": ["Prefers Python"], "phenotype": ["Debugged JWT yesterday"]}
 	
 	// For now, we render a static-structured collapsible block that proves the concept.
@@ -198,7 +198,7 @@ function renderCognitiveTrace(stream: vscode.ChatResponseStream, responseText: s
 
 ---
 <details>
-<summary>🧠 <b>CodeCortex Memory Trace</b> (Click to expand)</summary>
+<summary>🧠 <b>Engram Memory Trace</b> (Click to expand)</summary>
 <br>
 <b>✅ Genome (Immutable):</b>
 <ul>
@@ -225,7 +225,7 @@ export function deactivate() {}
 ---
 
 ### Step 3: Updating the Proxy to Send the Trace (The Missing Link)
-For the trace to be *dynamic* (showing exactly what was retrieved for *this specific request*), your proxy (`packages/openmemory-js/src/server/index.ts`) needs to append the trace data at the end of the SSE stream.
+For the trace to be *dynamic* (showing exactly what was retrieved for *this specific request*), your proxy (`packages/engram-js/src/server/index.ts`) needs to append the trace data at the end of the SSE stream.
 
 Add this small helper to the end of your proxy's `/v1/chat/completions` route, right before `res.end()`:
 
@@ -241,26 +241,26 @@ const traceData = {
 
 // 2. Send a custom SSE event that the VS Code extension can parse
 const tracePayload = JSON.stringify(traceData);
-res.write(`event: codecortex_trace\ndata: ${tracePayload}\n\n`);
+res.write(`event: engram_trace\ndata: ${tracePayload}\n\n`);
 
 res.end();
 ```
 
-*(Note: If you add the custom SSE event above, you can update the `extension.ts` SSE parser to catch `event: codecortex_trace`, parse the JSON, and dynamically generate the `<details>` markdown instead of using the static placeholder I provided. This is the ultimate "Explainable AI" feature).*
+*(Note: If you add the custom SSE event above, you can update the `extension.ts` SSE parser to catch `event: engram_trace`, parse the JSON, and dynamically generate the `<details>` markdown instead of using the static placeholder I provided. This is the ultimate "Explainable AI" feature).*
 
 ---
 
 ### Step 4: How to Test This MVP
 
 1. **Start your Backend**: 
-   Ensure your Node.js proxy is running: `npm run dev` (or however you start `packages/openmemory-js`). Verify it's listening on `http://localhost:8080`.
+   Ensure your Node.js proxy is running: `npm run dev` (or however you start `packages/engram-js`). Verify it's listening on `http://localhost:8080`.
 2. **Start the Extension**: 
    Open the `apps/vscode-extension` folder in VS Code. Press `F5` to launch the Extension Development Host.
 3. **Open the Chat Panel**: 
    In the new VS Code window, open the Chat view (`Ctrl+Alt+I` or `Cmd+Option+I`).
-4. **Invoke CodeCortex**: 
+4. **Invoke Engram**: 
    Type `@cortex How should I structure my auth middleware?`
 5. **Observe the Magic**:
-   * You will see "🧠 Querying CodeCortex memory engine..."
+   * You will see "🧠 Querying Engram memory engine..."
    * The response will stream in naturally.
-   * At the bottom, you will see a collapsible **"🧠 CodeCortex Memory Trace"** section showing exactly *why* the AI answered the way it did, citing your SQLite database.
+   * At the bottom, you will see a collapsible **"🧠 Engram Memory Trace"** section showing exactly *why* the AI answered the way it did, citing your SQLite database.

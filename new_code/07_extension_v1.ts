@@ -6,7 +6,7 @@ import { execSync } from 'child_process';
 const PROXY_URL = 'http://localhost:8080/v1/chat/completions';
 
 export function activate(context: vscode.ExtensionContext) {
-	console.log('🧠 CodeCortex extension is now active!');
+	console.log('🧠 Engram extension is now active!');
 
 	// 1. Register the Chat Participant
 	const handler: vscode.ChatRequestHandler = async (request: vscode.ChatRequest, chatContext: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
@@ -16,11 +16,11 @@ export function activate(context: vscode.ExtensionContext) {
 		
 		// 3. Format the payload for our Smart Proxy
 		const messages = [
-			{ role: 'system', content: `You are CodeCortex, an AI assistant with access to the user's long-term cognitive memory. Local Context: ${localContext}` },
+			{ role: 'system', content: `You are Engram, an AI assistant with access to the user's long-term cognitive memory. Local Context: ${localContext}` },
 			{ role: 'user', content: request.prompt }
 		];
 
-		stream.progress('🧠 Querying CodeCortex memory engine...');
+		stream.progress('🧠 Querying Engram memory engine...');
 
 		try {
 			// 4. Fetch from the Smart Proxy
@@ -80,11 +80,11 @@ export function activate(context: vscode.ExtensionContext) {
 			renderCognitiveTrace(stream, fullResponseText);
 
 		} catch (error: any) {
-			stream.markdown(`❌ **CodeCortex Error**: ${error.message}\n\n*Is the CodeCortex proxy running on port 8080?*`);
+			stream.markdown(`❌ **Engram Error**: ${error.message}\n\n*Is the Engram proxy running on port 8080?*`);
 	  	}
 	};
 
-	const participant = vscode.chat.createChatParticipant('openmemory.cortex', handler);
+	const participant = vscode.chat.createChatParticipant('engram.cortex', handler);
 	participant.iconPath = new vscode.ThemeIcon('brain'); // Native VS Code brain icon
 	
 	context.subscriptions.push(participant);
@@ -128,7 +128,7 @@ async function gatherLocalContext(): Promise<string> {
  */
 function renderCognitiveTrace(stream: vscode.ChatResponseStream, responseText: string) {
 	// In a full implementation, the proxy would send a custom SSE event like:
-	// event: codecortex_trace
+	// event: engram_trace
 	// data: {"genome": ["Prefers Python"], "phenotype": ["Debugged JWT yesterday"]}
 	
 	// For now, we render a static-structured collapsible block that proves the concept.
@@ -137,7 +137,7 @@ function renderCognitiveTrace(stream: vscode.ChatResponseStream, responseText: s
 
 ---
 <details>
-<summary>🧠 <b>CodeCortex Memory Trace</b> (Click to expand)</summary>
+<summary>🧠 <b>Engram Memory Trace</b> (Click to expand)</summary>
 <br>
 <b>✅ Genome (Immutable):</b>
 <ul>

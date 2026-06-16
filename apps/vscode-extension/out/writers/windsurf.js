@@ -42,14 +42,14 @@ function generateWindsurfConfig(backendUrl, apiKey, useMCP = false, mcpServerPat
     if (useMCP) {
         const backendMcpPath = mcpServerPath || path.join(process.cwd(), 'backend', 'dist', 'ai', 'mcp.js');
         return {
-            contextProvider: 'openmemory-mcp',
+            contextProvider: 'engram-mcp',
             mcp: {
                 configPath: backendMcpPath
             }
         };
     }
     const config = {
-        contextProvider: 'openmemory',
+        contextProvider: 'engram',
         api: `${backendUrl}/api/ide/context`
     };
     if (apiKey)
@@ -58,7 +58,7 @@ function generateWindsurfConfig(backendUrl, apiKey, useMCP = false, mcpServerPat
 }
 async function writeWindsurfConfig(backendUrl, apiKey, useMCP = false, mcpServerPath) {
     const windsurfDir = path.join(os.homedir(), '.windsurf', 'context');
-    const configFile = path.join(windsurfDir, 'openmemory.json');
+    const configFile = path.join(windsurfDir, 'engram.json');
     if (!fs.existsSync(windsurfDir)) {
         fs.mkdirSync(windsurfDir, { recursive: true });
     }

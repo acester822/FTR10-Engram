@@ -1,6 +1,6 @@
-# CodeCortex Tracker — Plan Implementation Status
+# Engram Tracker — Plan Implementation Status
 
-This file tracks progress against `/home/ftr/Documents/openWeb.searxng/OpenMemory/plan.md`. Every item from the plan is listed with its status. No deviations from the plan — this is a strict checklist.
+This file tracks progress against `/home/ftr/Documents/openWeb.searxng/Engram/plan.md`. Every item from the plan is listed with its status. No deviations from the plan — this is a strict checklist.
 
 ---
 
@@ -40,7 +40,7 @@ This file tracks progress against `/home/ftr/Documents/openWeb.searxng/OpenMemor
 
 ### 1. The Proactive Injection Engine — MemoryInjector Service
 
-**File**: `packages/openmemory-js/src/services/memoryInjector.ts`
+**File**: `packages/engram-js/src/services/memoryInjector.ts`
 
 - [x] Genome Fetch — fast SQL query filtering by `is_genome = true`
 - [x] Phenotype Fetch — vector search filtered by memory_tier (not yet implemented as HMD sectors)
@@ -48,7 +48,7 @@ This file tracks progress against `/home/ftr/Documents/openWeb.searxng/OpenMemor
 
 ### 2. The Consolidation Pipeline (Background Cron)
 
-**File**: `packages/openmemory-js/src/services/consolidationEngine.ts`
+**File**: `packages/engram-js/src/services/consolidationEngine.ts`
 
 - [x] Create `src/services/consolidationEngine.ts` — ✅ DONE
 - [x] Query episodic sector for memories older than 24 hours — uses `recorded_at < NOW() - INTERVAL '24 hours'` (Postgres) or `datetime('now', '-24 hours')` (SQLite)
@@ -58,7 +58,7 @@ This file tracks progress against `/home/ftr/Documents/openWeb.searxng/OpenMemor
 
 ### 3. Temporal Decay Algorithm
 
-**File**: `packages/openmemory-js/src/services/memoryInjector.ts`
+**File**: `packages/engram-js/src/services/memoryInjector.ts`
 
 - [x] Ebbinghaus formula: `Final_Score = Vector_Similarity * Access_Count_Multiplier * e^(-Time_Since_Created * Decay_Rate)`
   - Implemented in `computeDecaySalience()` — line 108
@@ -72,7 +72,7 @@ This file tracks progress against `/home/ftr/Documents/openWeb.searxng/OpenMemor
 
 ### Action Item 1: Create `POST /v1/chat/completions` endpoint
 
-- [x] Add to Express/Fastify router — ✅ DONE (packages/openmemory-js/src/api/routes/chat/completions/route.ts, registered in routes/index.ts)
+- [x] Add to Express/Fastify router — ✅ DONE (packages/engram-js/src/api/routes/chat/completions/route.ts, registered in routes/index.ts)
 
 ### Action Item 2: Implement the Interceptor Logic
 
@@ -85,7 +85,7 @@ This file tracks progress against `/home/ftr/Documents/openWeb.searxng/OpenMemor
 
 ### Action Item 3: Definition of Done
 
-- [x] Can open Open WebUI or Continue.dev, point API URL to `http://localhost:8080/v1`, and chat with local LLM while automatically injecting CodeCortex memory — **TESTED ✅** (streaming + non-streaming both work; qwen2.5:3b via Ollama returned "The capital of France is Paris." with `_trace` payload)
+- [x] Can open Open WebUI or Continue.dev, point API URL to `http://localhost:8080/v1`, and chat with local LLM while automatically injecting Engram memory — **TESTED ✅** (streaming + non-streaming both work; qwen2.5:3b via Ollama returned "The capital of France is Paris." with `_trace` payload)
 
 ---
 
@@ -93,11 +93,11 @@ This file tracks progress against `/home/ftr/Documents/openWeb.searxng/OpenMemor
 
 ### Action Item 1: Register native VS Code Chat Participant
 
-- [x] Stop trying to hijack Copilot, register `@cortex` Chat Participant — ✅ DONE (id: `openmemory.cortex`, name: `cortex`)
+- [x] Stop trying to hijack Copilot, register `@cortex` Chat Participant — ✅ DONE (id: `engram.cortex`, name: `cortex`)
 
 ### Action Item 2: Update `package.json`
 
-- [x] Add `chatParticipants` contribution with id `openmemory.cortex`, name `cortex` — ✅ DONE (apps/vscode-extension/package.json)
+- [x] Add `chatParticipants` contribution with id `engram.cortex`, name `cortex` — ✅ DONE (apps/vscode-extension/package.json)
 
 ### Action Item 3: Gather Hyper-Local Context
 
@@ -115,7 +115,7 @@ This file tracks progress against `/home/ftr/Documents/openWeb.searxng/OpenMemor
 
 ### Action Item 1: Modify the Proxy Response
 
-- [x] Custom sidecar payload at end of stream containing memory trace JSON with sector, content, confidence — ✅ DONE (proxy sends `event: codecortex_trace` in streaming mode; non-streaming sends `_trace` key in JSON body)
+- [x] Custom sidecar payload at end of stream containing memory trace JSON with sector, content, confidence — ✅ DONE (proxy sends `event: engram_trace` in streaming mode; non-streaming sends `_trace` key in JSON body)
 
 ### Action Item 2: Update VS Code UI
 
@@ -145,7 +145,7 @@ This file tracks progress against `/home/ftr/Documents/openWeb.searxng/OpenMemor
 - *Milestone: Type `@cortex How do I fix this error?` and it knows codebase + past mistakes*
 
 ### Week 4: Traces & Polish
-- [x] Implement Explainable Traces JSON payload in the proxy — ✅ DONE (event: codecortex_trace in streaming, _trace key in non-streaming)
+- [x] Implement Explainable Traces JSON payload in the proxy — ✅ DONE (event: engram_trace in streaming, _trace key in non-streaming)
 - [x] Build collapsible UI in VS Code extension to display traces — ✅ DONE (renderDynamicCognitiveTrace with dynamic data from SSE event routing)
 - [ ] Write README documenting new "Implicit Proxy" architecture — **NOT STARTED**
 - *Milestone: V2 Launch ready*
@@ -165,19 +165,19 @@ Updated memories table with genome/phenotype and temporal decay columns in schem
 - Bumped schema version to 3.0.0-genome-decay
 
 ### Phase 2a — MemoryInjector Service (COMPLETE)
-Created `packages/openmemory-js/src/services/memoryInjector.ts` with:
+Created `packages/engram-js/src/services/memoryInjector.ts` with:
 - Genome/Phenotype classification using pattern matching (`classifyAsGenome`) against known genome patterns (facts, definitions, scientific constants, historical dates) and phenotype patterns (opinions, temporal references, personal experiences). Default heuristic: short declarative sentences without first-person pronouns → genome.
 - Temporal decay engine: `computeEffectiveAge` factors in last access time and access count reinforcement; `computeDecaySalience` uses exponential decay model with salience-dependent lambda.
 - Service methods: `inject()` (classifies on insert), `recordAccess()` (reinforces memories), `runDecayJob()`, `archiveDecayed()` (archives below threshold, genome gets "cold" tier instead of "archived").
 
 ### Phase 2b — ConsolidationEngine (COMPLETE)
-Created `packages/openmemory-js/src/services/consolidationEngine.ts` with:
+Created `packages/engram-js/src/services/consolidationEngine.ts` with:
 - Background cron job that groups episodic memories older than 24 hours by `consolidation_hash` or embedding similarity.
 - Uses local LLM to summarize into one semantic memory, then deletes raw episodic memories.
-- Wired into server startup in `packages/openmemory-js/src/api/index.ts`.
+- Wired into server startup in `packages/engram-js/src/api/index.ts`.
 
 ### Phase 3 — Smart Proxy /v1/chat/completions (COMPLETE)
-Created `packages/openmemory-js/src/api/routes/chat/completions/route.ts`, registered in `routes/index.ts`:
+Created `packages/engram-js/src/api/routes/chat/completions/route.ts`, registered in `routes/index.ts`:
 - Express endpoint that intercepts requests, builds cognitive context via MemoryInjector.
 - Injects genome + phenotype into system prompt, forwards to LLM, streams SSE back.
 - Logs interactions for memory extraction (`logInteractionAsync`).
@@ -187,7 +187,7 @@ Updated `apps/vscode-extension/`:
 - Registered `@cortex` participant in `package.json` (lines 106-114).
 - Added `registerChatParticipant()` in `extension.ts` (line 548) with:
   - Local context gathering (`gatherChatLocalContext()`) — active file, git branch.
-  - SSE streaming parser with event routing for `codecortex_trace`.
+  - SSE streaming parser with event routing for `engram_trace`.
   - Dynamic trace rendering via `renderDynamicCognitiveTrace()`.
 
 ### Phase 5 — Explainable Traces (COMPLETE)

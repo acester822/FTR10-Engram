@@ -1,4 +1,4 @@
-# CodeCortex (FTR10 OpenMemory)
+# Engram (FTR10 Engram)
 
 A cognitive memory proxy that gives AI models persistent, project-aware context across sessions. It intercepts LLM API calls, injects relevant memories from a local PostgreSQL vector store, and automatically extracts new facts from conversations for future recall.
 
@@ -13,7 +13,7 @@ A cognitive memory proxy that gives AI models persistent, project-aware context 
                          │  Redis (:6379)         │  ← optional cache
                          └────────────────────────┘
                                  ▲ ▼
-                         CodeCortex Proxy (:8080)
+                         Engram Proxy (:8080)
                                  ▲ ▼
                          http://10.10.10.41:8080/v1
                                  ▼
@@ -23,7 +23,7 @@ A cognitive memory proxy that gives AI models persistent, project-aware context 
 ### How It Works
 
 1. **Intercept** — User sends a prompt to `http://<server>:8098/v1/chat/completions`
-2. **Embed & Recall** — CodeCortex uses local Ollama (`bge-m3`) to embed the query, then searches PostgreSQL for relevant memories (Genome = immutable facts, Phenotype = decaying context)
+2. **Embed & Recall** — Engram uses local Ollama (`bge-m3`) to embed the query, then searches PostgreSQL for relevant memories (Genome = immutable facts, Phenotype = decaying context)
 3. **Weave Context** — Relevant memories are silently injected into the system prompt with instructions to use them naturally
 4. **Forward** — The enriched request is forwarded to llama-swap on your GPU machine (`10.10.10.41:8080/v1`) for generation
 5. **Stream** — Tokens stream back transparently to the client in real-time
@@ -40,7 +40,7 @@ docker compose up --build -d
 docker compose ps
 
 # View logs
-docker compose logs -f openmemory
+docker compose logs -f engram
 ```
 
 ### Services
@@ -50,7 +50,7 @@ docker compose logs -f openmemory
 | **postgres** | 5432 | PostgreSQL with pgvector extension — memory storage |
 | **redis** | 6379 | Redis — optional cache / valkey storage |
 | **ollama** | 11434 | Ollama LLM server (qwen2.5:3b + bge-m3, auto-pinned) |
-| **openmemory** | 8098 | CodeCortex proxy — the main API endpoint |
+| **engram** | 8098 | Engram proxy — the main API endpoint |
 | **ui** | 8099 | Web GUI (Vite preview) |
 
 ### Stop & Clean
@@ -65,7 +65,7 @@ docker compose down -v
 
 ## Client Configuration
 
-Point your IDE / CLI to the CodeCortex proxy:
+Point your IDE / CLI to the Engram proxy:
 
 ```
 http://<your-server-ip>:8098/v1
@@ -79,28 +79,28 @@ Copy `.env.example` to `.env` and adjust as needed. Key variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OM_PORT` | `8080` | Server HTTP port (container) |
-| `OM_STORAGE` | `postgres` | Storage backend (`postgres`, `memory`, `sqlite`) |
-| `OM_EMBEDDINGS` | `ollama` | Embedding provider |
-| `OM_OLLAMA_MODEL` | `bge-m3` | Ollama embedding model |
+| `EG_PORT` | `8080` | Server HTTP port (container) |
+| `EG_STORAGE` | `postgres` | Storage backend (`postgres`, `memory`, `sqlite`) |
+| `EG_EMBEDDINGS` | `ollama` | Embedding provider |
+| `EG_OLLAMA_MODEL` | `bge-m3` | Ollama embedding model |
 | `CONSOLIDATION_MODEL` | `qwen2.5:3b` | LLM for memory consolidation |
 | `EXTRACTION_MODEL` | `qwen2.5:3b` | LLM for async fact extraction |
 | `LLAMA_URL` | `http://10.10.10.41:8080/v1` | Upstream llama-swap endpoint |
-| `OM_VECTOR_STORE` | `postgres` | Vector store backend |
-| `OM_API_KEY` | _(empty)_ | API key for auth (leave empty to disable) |
+| `EG_VECTOR_STORE` | `postgres` | Vector store backend |
+| `EG_API_KEY` | _(empty)_ | API key for auth (leave empty to disable) |
 
 ## Local Development (No Docker)
 
 ```bash
 # 1. Start PostgreSQL locally and create the database
 sudo systemctl start postgresql
-psql -U postgres -c "CREATE DATABASE openmemory;"
+psql -U postgres -c "CREATE DATABASE engram;"
 
 # 2. Install dependencies
 npm install
 
 # 3. Run migrations
-npx tsx packages/openmemory-js/src/database/migrate.ts
+npx tsx packages/engram-js/src/database/migrate.ts
 
 # 4. Start Ollama locally and pull models
 ollama serve &
@@ -110,12 +110,12 @@ ollama pull qwen2.5:3b
 # 5. Set environment variables (at minimum)
 export OLLAMA_URL=http://localhost:11434
 export LLAMA_URL=http://10.10.10.41:8080/v1
-export OM_STORAGE=postgres
-export OM_PG_HOST=localhost
-export OM_PG_DB=openmemory
+export EG_STORAGE=postgres
+export EG_PG_HOST=localhost
+export EG_PG_DB=engram
 
 # 6. Start the server
-cd packages/openmemory-js && OM_PORT=8080 npx nodemon src/server.ts
+cd packages/engram-js && EG_PORT=8080 npx nodemon src/server.ts
 ```
 
 ## Web GUI
@@ -137,8 +137,8 @@ cd apps/web && npm run build
 ## Project Structure
 
 ```
-OpenMemory/
-├── packages/openmemory-js/   # CodeCortex proxy server
+Engram/
+├── packages/engram-js/   # Engram proxy server
 │   ├── src/
 │   │   ├── api/routes/       # HTTP routes (chat completions, health, etc.)
 │   │   ├── configuration/    # Environment parsing & config loading
@@ -166,4 +166,4 @@ OpenMemory/
 
 ## Naming
 
-The project was previously called "OpenMemory" / "CodeCortex". The official name is **FTR10 CodeCortex**. The server binary/package is **CodeCortex**, and the VS Code extension (when ready) will be **CodeCortexVS**.
+The project was previously called "Engram" / "Engram". The official name is **FTR10 Engram**. The server binary/package is **Engram**, and the VS Code extension (when ready) will be **EngramVS**.

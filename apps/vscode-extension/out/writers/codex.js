@@ -43,14 +43,14 @@ function generateCodexConfig(backendUrl, apiKey, useMCP = false, mcpServerPath) 
         const backendMcpPath = mcpServerPath || path.join(process.cwd(), 'backend', 'dist', 'ai', 'mcp.js');
         const config = {
             mcpServers: {
-                openmemory: {
+                engram: {
                     command: 'node',
                     args: [backendMcpPath]
                 }
             }
         };
         if (apiKey) {
-            config.mcpServers.openmemory.env = { OM_API_KEY: apiKey };
+            config.mcpServers.engram.env = { EG_API_KEY: apiKey };
         }
         return config;
     }
@@ -59,7 +59,7 @@ function generateCodexConfig(backendUrl, apiKey, useMCP = false, mcpServerPath) 
         headers['x-api-key'] = apiKey;
     return {
         contextProviders: {
-            openmemory: {
+            engram: {
                 enabled: true,
                 endpoint: `${backendUrl}/api/ide/context`,
                 method: 'POST',

@@ -36,7 +36,7 @@ Thumbnails.db
 .DS_Store?
 ._*
 
-# OpenMemory specific
+# Engram specific
 data/
 storage/
 tmp/

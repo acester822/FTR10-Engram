@@ -42,7 +42,7 @@ function generateCopilotConfig(backendUrl, apiKey, useMCP = false, mcpServerPath
     if (useMCP) {
         const backendMcpPath = mcpServerPath || path.join(process.cwd(), 'backend', 'dist', 'ai', 'mcp.js');
         const config = {
-            name: 'OpenMemory',
+            name: 'Engram',
             type: 'mcp',
             mcpServer: {
                 command: 'node',
@@ -50,12 +50,12 @@ function generateCopilotConfig(backendUrl, apiKey, useMCP = false, mcpServerPath
             }
         };
         if (apiKey) {
-            config.mcpServer.env = { OM_API_KEY: apiKey };
+            config.mcpServer.env = { EG_API_KEY: apiKey };
         }
         return config;
     }
     const config = {
-        name: 'OpenMemory',
+        name: 'Engram',
         type: 'context_provider',
         endpoint: `${backendUrl}/api/ide/context`
     };
@@ -69,7 +69,7 @@ function generateCopilotConfig(backendUrl, apiKey, useMCP = false, mcpServerPath
 }
 async function writeCopilotConfig(backendUrl, apiKey, useMCP = false, mcpServerPath) {
     const copilotDir = path.join(os.homedir(), '.github', 'copilot');
-    const configFile = path.join(copilotDir, 'openmemory.json');
+    const configFile = path.join(copilotDir, 'engram.json');
     if (!fs.existsSync(copilotDir)) {
         fs.mkdirSync(copilotDir, { recursive: true });
     }

@@ -1,7 +1,7 @@
 ### Idea 1: The Standalone Smart Proxy (Highly Recommended)
 Since your backend already has the `HSG Memory Engine` and the `/memory/query` endpoint, you don't need to build a new app. You just need to add **one new endpoint** to your existing Node.js server that acts as an OpenAI-compatible proxy.
 
-**How to implement it in `packages/openmemory-js/src/server/index.ts`:**
+**How to implement it in `packages/engram-js/src/server/index.ts`:**
 
 1. **Add a new route:** `POST /v1/chat/completions`
 2. **Intercept:** When a user points their IDE (or a tool like Open WebUI/Continue) to `http://localhost:8080/v1/chat/completions` instead of Ollama/OpenAI, your server catches the request.
@@ -11,7 +11,7 @@ Since your backend already has the `HSG Memory Engine` and the `/memory/query` e
 5. **Forward & Stream:** Forward the modified `req.body` to the actual LLM endpoint (configured via your `OLLAMA_URL` or `OPENAI_API_KEY` env vars) and stream the SSE response back to the client.
 6. **The "Vice Versa" Loop:** Once the stream finishes, fire an asynchronous background task to call your own `/memory/add` endpoint with the `(User Prompt + LLM Response)` so it gets classified into the 5 sectors and added to the waypoint graph.
 
-**Why this wins:** It requires **zero changes** to the user's workflow. They just change the API endpoint in their IDE settings from `http://localhost:11434` to `http://localhost:8080`. The LLM never knows OpenMemory exists; it just receives a perfectly primed prompt every single time.
+**Why this wins:** It requires **zero changes** to the user's workflow. They just change the API endpoint in their IDE settings from `http://localhost:11434` to `http://localhost:8080`. The LLM never knows Engram exists; it just receives a perfectly primed prompt every single time.
 
 ---
 
@@ -20,7 +20,7 @@ Since your backend already has the `HSG Memory Engine` and the `/memory/query` e
 Make a plan to implement these changes please, start to finish that I can follow, architectures, layouts, designs, etc
 
 ### ASSISTANT
-This is a comprehensive, start-to-finish architectural and implementation plan to transform **CodeCortex (OpenMemory)** from an MCP-dependent tool into a **Standalone Cognitive Proxy and VS Code Extension**. 
+This is a comprehensive, start-to-finish architectural and implementation plan to transform **Engram (Engram)** from an MCP-dependent tool into a **Standalone Cognitive Proxy and VS Code Extension**. 
 
 We will integrate the biological memory concepts inspired by Bitterbot (Genome/Phenotype, Consolidation, Decay) directly into your existing Node.js/TypeScript stack.
 
@@ -69,7 +69,7 @@ We need to upgrade your SQLite/Postgres schema to support biological memory conc
 ---
 
 # 🧠 Phase 2: The Core Engine Upgrades (Bitterbot Concepts)
-Before building the proxy, upgrade the backend memory engine (`packages/openmemory-js/src/server/`) to handle the new cognitive logic.
+Before building the proxy, upgrade the backend memory engine (`packages/engram-js/src/server/`) to handle the new cognitive logic.
 
 ### 1. The Proactive Injection Engine
 Create a new service: `src/services/memoryInjector.ts`.
@@ -133,7 +133,7 @@ This is the most critical step. You will turn your Node.js server into an OpenAI
        logInteractionAsync(userPrompt, llmResponse); 
    });
    ```
-3. **Definition of Done:** You can open a tool like **Open WebUI** or **Continue.dev**, point its API URL to `http://localhost:8080/v1`, and it will chat with your local LLM while automatically injecting CodeCortex memory.
+3. **Definition of Done:** You can open a tool like **Open WebUI** or **Continue.dev**, point its API URL to `http://localhost:8080/v1`, and it will chat with your local LLM while automatically injecting Engram memory.
 
 ---
 
@@ -147,7 +147,7 @@ Now we update `apps/vscode-extension` to be the "Smart Client" that talks to you
    "contributes": {
      "chatParticipants": [
        {
-         "id": "openmemory.cognitive",
+         "id": "engram.cognitive",
          "name": "cortex",
          "description": "Chat with full cognitive context",
          "isSticky": true
@@ -225,7 +225,7 @@ Here is the complete, production-ready TypeScript code for the **`memoryInjector
 This is the "brain" of your Smart Proxy. It handles the separation of **Genome** (immutable facts) and **Phenotype** (decaying context), applies the **Ebbinghaus Temporal Decay** algorithm, and formats everything into a highly token-efficient system prompt.
 
 ### Where to put this
-Create this file at: `packages/openmemory-js/src/services/memoryInjector.ts`
+Create this file at: `packages/engram-js/src/services/memoryInjector.ts`
 
 ### The Code: `memoryInjector.ts`
 
@@ -264,7 +264,7 @@ export class MemoryInjector {
    * Takes a user prompt and returns a fully formatted cognitive context string.
    */
   async buildCognitiveContext(userPrompt: string): Promise<string> {
-    console.log('[CodeCortex] Building cognitive context for prompt...');
+    console.log('[Engram] Building cognitive context for prompt...');
 
     // 1. Fetch Genome (Immutable, fast SQL query, no vector math)
     const genomeMemories = await this.fetchGenome();
@@ -274,7 +274,7 @@ export class MemoryInjector {
 
     // 3. Update access counts in the background (Fire and forget)
     this.updateAccessCounts([...genomeMemories, ...phenotypeMemories]).catch(err => 
-      console.error('[CodeCortex] Failed to update access counts:', err)
+      console.error('[Engram] Failed to update access counts:', err)
     );
 
     // 4. Format into the final System Prompt injection
@@ -365,7 +365,7 @@ export class MemoryInjector {
     }
 
     contextBlock += '[END CODECORTEX CONTEXT]\n';
-    contextBlock += 'Use the above context silently to inform your response. Do not explicitly mention "CodeCortex" or the context blocks unless directly asked about your memory.\n';
+    contextBlock += 'Use the above context silently to inform your response. Do not explicitly mention "Engram" or the context blocks unless directly asked about your memory.\n';
 
     return contextBlock;
   }
@@ -467,12 +467,12 @@ app.post('/v1/chat/completions', async (req, res) => {
     // 6. LOG (The "Vice Versa" Loop): 
     // Fire and forget. Save this interaction to the DB so the Consolidation Cron can process it later.
     logInteractionAsync(userPrompt, llmPayload).catch(err => 
-      console.error('[CodeCortex] Async logging failed:', err)
+      console.error('[Engram] Async logging failed:', err)
     );
 
   } catch (error) {
-    console.error('[CodeCortex] Proxy Error:', error);
-    res.status(500).json({ error: 'Internal CodeCortex Proxy Error' });
+    console.error('[Engram] Proxy Error:', error);
+    res.status(500).json({ error: 'Internal Engram Proxy Error' });
   }
 });
 ```
@@ -574,10 +574,10 @@ export class ConsolidationEngine {
     // Run every 30 minutes: '*/30 * * * *'
     // For testing, you can change this to '* * * * *' (every minute)
     cron.schedule('*/30 * * * *', async () => {
-      console.log('[CodeCortex] 🧠 Starting memory consolidation cycle...');
+      console.log('[Engram] 🧠 Starting memory consolidation cycle...');
       await this.runConsolidationCycle();
     });
-    console.log('[CodeCortex] Consolidation engine scheduled (every 30 mins).');
+    console.log('[Engram] Consolidation engine scheduled (every 30 mins).');
   }
 
   private async runConsolidationCycle() {
@@ -597,20 +597,20 @@ export class ConsolidationEngine {
       `);
 
       if (candidates.length < MIN_MEMORIES_TO_CONSOLIDATE) {
-        console.log(`[CodeCortex] Only ${candidates.length} candidates. Skipping consolidation.`);
+        console.log(`[Engram] Only ${candidates.length} candidates. Skipping consolidation.`);
         return;
       }
 
       // 2. Group candidates by a simple heuristic (e.g., first 3 words, or just batch them)
       // For simplicity, we'll batch the oldest 5-10 memories together per cycle.
       const batch = candidates.slice0, 10);
-      console.log(`[CodeCortex] Synthesizing ${batch.length} episodic memories...`);
+      console.log(`[Engram] Synthesizing ${batch.length} episodic memories...`);
 
       // 3. Prompt the local LLM to synthesize
       const synthesizedContent = await this.synthesizeWithLLM(batch);
 
       if (!synthesizedContent || synthesizedContent.trim().length < 10) {
-        console.warn('[CodeCortex] LLM returned empty synthesis. Aborting.');
+        console.warn('[Engram] LLM returned empty synthesis. Aborting.');
         return;
       }
 
@@ -634,10 +634,10 @@ export class ConsolidationEngine {
         DELETE FROM memories WHERE id IN (${idsToDelete})
       `);
 
-      console.log(`[CodeCortex] ✅ Consolidation complete. Created semantic memory: ${newMemoryId}`);
+      console.log(`[Engram] ✅ Consolidation complete. Created semantic memory: ${newMemoryId}`);
 
     } catch (error) {
-      console.error('[CodeCortex] ❌ Consolidation cycle failed:', error);
+      console.error('[Engram] ❌ Consolidation cycle failed:', error);
     }
   }
 
@@ -677,7 +677,7 @@ Synthesized Semantic Memory:
       const data = await response.json();
       return data.response.trim();
     } catch (error) {
-      console.error('[CodeCortex] LLM Synthesis failed:', error);
+      console.error('[Engram] LLM Synthesis failed:', error);
       return '';
     }
   }
@@ -719,7 +719,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
-  console.log(`🚀 CodeCortex Proxy running on http://localhost:${PORT}`);
+  console.log(`🚀 Engram Proxy running on http://localhost:${PORT}`);
   
   // 🧠 START THE HIPPOCAMPUS
   consolidationEngine.start();
@@ -747,7 +747,7 @@ Would you like me to write the `package.json` updates and the `extension.ts` cod
 yes please
 
 ### ASSISTANT
-Here is the complete, copy-paste-ready code to transform your VS Code extension into a **Cognitive Chat Participant** that talks directly to your CodeCortex proxy and renders beautiful, collapsible Explainable Traces.
+Here is the complete, copy-paste-ready code to transform your VS Code extension into a **Cognitive Chat Participant** that talks directly to your Engram proxy and renders beautiful, collapsible Explainable Traces.
 
 We will use native VS Code Chat APIs and standard Markdown `<details>` tags, which VS Code renders perfectly as collapsible UI elements without needing complex custom webviews.
 
@@ -760,22 +760,22 @@ Open your extension's `package.json` and add/update these sections:
 
 ```json
 {
-  "name": "codecortex-vscode",
-  "displayName": "CodeCortex",
+  "name": "engram-vscode",
+  "displayName": "Engram",
   "version": "0.1.0",
   "engines": {
     "vscode": "^1.89.0"
   },
   "main": "./out/extension.js",
   "activationEvents": [
-    "onChatParticipant:openmemory.cortex"
+    "onChatParticipant:engram.cortex"
   ],
   "contributes": {
     "chatParticipants": [
       {
-        "id": "openmemory.cortex",
+        "id": "engram.cortex",
         "name": "cortex",
-        "fullName": "CodeCortex",
+        "fullName": "Engram",
         "description": "Chat with full cognitive memory context (Genome + Phenotype)",
         "isSticky": true,
         "commands": [
@@ -816,7 +816,7 @@ import { execSync } from 'child_process';
 const PROXY_URL = 'http://localhost:8080/v1/chat/completions';
 
 export function activate(context: vscode.ExtensionContext) {
-	console.log('🧠 CodeCortex extension is now active!');
+	console.log('🧠 Engram extension is now active!');
 
 	// 1. Register the Chat Participant
 	const handler: vscode.ChatRequestHandler = async (request: vscode.ChatRequest, chatContext: vscode.ChatContext, stream: vscode.ChatResponseStream, token: vscode.CancellationToken) => {
@@ -826,11 +826,11 @@ export function activate(context: vscode.ExtensionContext) {
 		
 		// 3. Format the payload for our Smart Proxy
 		const messages = [
-			{ role: 'system', content: `You are CodeCortex, an AI assistant with access to the user's long-term cognitive memory. Local Context: ${localContext}` },
+			{ role: 'system', content: `You are Engram, an AI assistant with access to the user's long-term cognitive memory. Local Context: ${localContext}` },
 			{ role: 'user', content: request.prompt }
 		];
 
-		stream.progress('🧠 Querying CodeCortex memory engine...');
+		stream.progress('🧠 Querying Engram memory engine...');
 
 		try {
 			// 4. Fetch from the Smart Proxy
@@ -890,11 +890,11 @@ export function activate(context: vscode.ExtensionContext) {
 			renderCognitiveTrace(stream, fullResponseText);
 
 		} catch (error: any) {
-			stream.markdown(`❌ **CodeCortex Error**: ${error.message}\n\n*Is the CodeCortex proxy running on port 8080?*`);
+			stream.markdown(`❌ **Engram Error**: ${error.message}\n\n*Is the Engram proxy running on port 8080?*`);
 	　　}
 	};
 
-	const participant = vscode.chat.createChatParticipant('openmemory.cortex', handler);
+	const participant = vscode.chat.createChatParticipant('engram.cortex', handler);
 	participant.iconPath = new vscode.ThemeIcon('brain'); // Native VS Code brain icon
 	
 	context.subscriptions.push(participant);
@@ -938,7 +938,7 @@ async function gatherLocalContext(): Promise<string> {
  */
 function renderCognitiveTrace(stream: vscode.ChatResponseStream, responseText: string) {
 	// In a full implementation, the proxy would send a custom SSE event like:
-	// event: codecortex_trace
+	// event: engram_trace
 	// data: {"genome": ["Prefers Python"], "phenotype": ["Debugged JWT yesterday"]}
 	
 	// For now, we render a static-structured collapsible block that proves the concept.
@@ -947,7 +947,7 @@ function renderCognitiveTrace(stream: vscode.ChatResponseStream, responseText: s
 
 ---
 <details>
-<summary>🧠 <b>CodeCortex Memory Trace</b> (Click to expand)</summary>
+<summary>🧠 <b>Engram Memory Trace</b> (Click to expand)</summary>
 <br>
 <b>✅ Genome (Immutable):</b>
 <ul>
@@ -974,7 +974,7 @@ export function deactivate() {}
 ---
 
 ### Step 3: Updating the Proxy to Send the Trace (The Missing Link)
-For the trace to be *dynamic* (showing exactly what was retrieved for *this specific request*), your proxy (`packages/openmemory-js/src/server/index.ts`) needs to append the trace data at the end of the SSE stream.
+For the trace to be *dynamic* (showing exactly what was retrieved for *this specific request*), your proxy (`packages/engram-js/src/server/index.ts`) needs to append the trace data at the end of the SSE stream.
 
 Add this small helper to the end of your proxy's `/v1/chat/completions` route, right before `res.end()`:
 
@@ -990,34 +990,34 @@ const traceData = {
 
 // 2. Send a custom SSE event that the VS Code extension can parse
 const tracePayload = JSON.stringify(traceData);
-res.write(`event: codecortex_trace\ndata: ${tracePayload}\n\n`);
+res.write(`event: engram_trace\ndata: ${tracePayload}\n\n`);
 
 res.end();
 ```
 
-*(Note: If you add the custom SSE event above, you can update the `extension.ts` SSE parser to catch `event: codecortex_trace`, parse the JSON, and dynamically generate the `<details>` markdown instead of using the static placeholder I provided. This is the ultimate "Explainable AI" feature).*
+*(Note: If you add the custom SSE event above, you can update the `extension.ts` SSE parser to catch `event: engram_trace`, parse the JSON, and dynamically generate the `<details>` markdown instead of using the static placeholder I provided. This is the ultimate "Explainable AI" feature).*
 
 ---
 
 ### Step 4: How to Test This MVP
 
 1. **Start your Backend**: 
-   Ensure your Node.js proxy is running: `npm run dev` (or however you start `packages/openmemory-js`). Verify it's listening on `http://localhost:8080`.
+   Ensure your Node.js proxy is running: `npm run dev` (or however you start `packages/engram-js`). Verify it's listening on `http://localhost:8080`.
 2. **Start the Extension**: 
    Open the `apps/vscode-extension` folder in VS Code. Press `F5` to launch the Extension Development Host.
 3. **Open the Chat Panel**: 
    In the new VS Code window, open the Chat view (`Ctrl+Alt+I` or `Cmd+Option+I`).
-4. **Invoke CodeCortex**: 
+4. **Invoke Engram**: 
    Type `@cortex How should I structure my auth middleware?`
 5. **Observe the Magic**:
-   * You will see "🧠 Querying CodeCortex memory engine..."
+   * You will see "🧠 Querying Engram memory engine..."
    * The response will stream in naturally.
-   * At the bottom, you will see a collapsible **"🧠 CodeCortex Memory Trace"** section showing exactly *why* the AI answered the way it did, citing your SQLite database.
+   * At the bottom, you will see a collapsible **"🧠 Engram Memory Trace"** section showing exactly *why* the AI answered the way it did, citing your SQLite database.
 
 ---
 
 ### You Have Now Built a Complete Cognitive Architecture
-Let's review what you now have in your CodeCortex monorepo:
+Let's review what you now have in your Engram monorepo:
 1. **Database**: Schema with Genome/Phenotype separation and Ebbinghaus decay.
 2. **Memory Injector**: The brain that intercepts prompts and builds cognitive context.
 3. **Consolidation Engine**: The background "hippocampus" that merges episodic logs into semantic facts.
@@ -1034,7 +1034,7 @@ refine the SSE parsing logic in the extension to make the trace 100% dynamic bas
 ### ASSISTANT
 Here is the fully refined, production-ready **SSE parsing logic** for your VS Code extension. 
 
-By switching to a proper Server-Sent Events (SSE) parser that respects the `event:` and `data:` prefixes (separated by `\n\n`), the extension can now seamlessly distinguish between standard LLM text chunks and your custom `codecortex_trace` payload.
+By switching to a proper Server-Sent Events (SSE) parser that respects the `event:` and `data:` prefixes (separated by `\n\n`), the extension can now seamlessly distinguish between standard LLM text chunks and your custom `engram_trace` payload.
 
 Replace your existing `src/extension.ts` with this updated version.
 
@@ -1056,7 +1056,7 @@ interface CognitiveTrace {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-	console.log('🧠 CodeCortex extension is now active!');
+	console.log('🧠 Engram extension is now active!');
 
 	const handler: vscode.ChatRequestHandler = async (
 		request: vscode.ChatRequest, 
@@ -1067,11 +1067,11 @@ export function activate(context: vscode.ExtensionContext) {
 		const localContext = await gatherLocalContext();
 		
 		const messages = [
-			{ role: 'system', content: `You are CodeCortex. Local Context: ${localContext}` },
+			{ role: 'system', content: `You are Engram. Local Context: ${localContext}` },
 			{ role: 'user', content: request.prompt }
 		];
 
-		stream.progress('🧠 Querying CodeCortex memory engine...');
+		stream.progress('🧠 Querying Engram memory engine...');
 
 		let dynamicTrace: CognitiveTrace | null = null;
 
@@ -1134,12 +1134,12 @@ export function activate(context: vscode.ExtensionContext) {
 							// Ignore JSON parse errors on partial chunks
 						}
 					} 
-					// Handle Custom CodeCortex Trace Event
-					else if (eventType === 'codecortex_trace') {
+					// Handle Custom Engram Trace Event
+					else if (eventType === 'engram_trace') {
 						try {
 							dynamicTrace = JSON.parse(eventData) as CognitiveTrace;
 						} catch (e) {
-							console.error('[CodeCortex] Failed to parse trace data:', e);
+							console.error('[Engram] Failed to parse trace data:', e);
 						}
 					}
 				}
@@ -1154,11 +1154,11 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 		} catch (error: any) {
-			stream.markdown(`❌ **CodeCortex Error**: ${error.message}\n\n*Is the CodeCortex proxy running on port 8080?*`);
+			stream.markdown(`❌ **Engram Error**: ${error.message}\n\n*Is the Engram proxy running on port 8080?*`);
 		}
 	};
 
-	const participant = vscode.chat.createChatParticipant('openmemory.cortex', handler);
+	const participant = vscode.chat.createChatParticipant('engram.cortex', handler);
 	participant.iconPath = new vscode.ThemeIcon('brain');
 	
 	context.subscriptions.push(participant);
@@ -1195,7 +1195,7 @@ async function gatherLocalContext(): Promise<string> {
  * Renders a 100% dynamic, collapsible Explainable Trace based on proxy data.
  */
 function renderDynamicCognitiveTrace(stream: vscode.ChatResponseStream, trace: CognitiveTrace) {
-	let markdown = `\n\n---\n<details>\n<summary>🧠 <b>CodeCortex Memory Trace</b> (Click to expand)</summary>\n<br>\n`;
+	let markdown = `\n\n---\n<details>\n<summary>🧠 <b>Engram Memory Trace</b> (Click to expand)</summary>\n<br>\n`;
 
 	// Render Genome
 	if (trace.genome && trace.genome.length > 0) {
@@ -1244,13 +1244,13 @@ export function deactivate() {}
 
 ### Why This Parser is Robust
 1. **`\n\n` Delimiter**: Standard SSE dictates that messages are separated by double newlines. Splitting by `\n\n` guarantees we never try to parse a partial JSON chunk, eliminating the `Unexpected end of JSON input` errors that plague naive SSE parsers.
-2. **Event Routing**: It explicitly checks for `event: codecortex_trace`. If the proxy sends standard OpenAI chunks (`event: message` or no event), it routes them to `stream.markdown()`. If it sends the trace, it saves it to a variable and waits until the stream is fully complete to render the UI.
+2. **Event Routing**: It explicitly checks for `event: engram_trace`. If the proxy sends standard OpenAI chunks (`event: message` or no event), it routes them to `stream.markdown()`. If it sends the trace, it saves it to a variable and waits until the stream is fully complete to render the UI.
 3. **Graceful Degradation**: If the proxy fails to send a trace (e.g., the database is empty), the `if (dynamicTrace)` check fails gracefully, and it renders a polite fallback message instead of crashing or showing broken UI.
 
 ---
 
 ### The Required Proxy-Side Handshake (Double Check)
-For this extension code to work, your Node.js proxy (`packages/openmemory-js/src/server/index.ts`) **must** format the end of its stream exactly like this. 
+For this extension code to work, your Node.js proxy (`packages/engram-js/src/server/index.ts`) **must** format the end of its stream exactly like this. 
 
 Ensure your proxy route ends with this logic right before `res.end()`:
 
@@ -1270,7 +1270,7 @@ const tracePayload = {
 
 // 2. Send the custom SSE event. Note the \n\n at the end!
 const traceDataString = JSON.stringify(tracePayload);
-res.write(`event: codecortex_trace\ndata: ${traceDataString}\n\n`);
+res.write(`event: engram_trace\ndata: ${traceDataString}\n\n`);
 
 // 3. Close the stream
 res.end();
@@ -1305,7 +1305,7 @@ We will use a fast, local LLM (like `phi3` or `llama3:8b` via Ollama) with **str
 
 ### Step 1: The Memory Logger Service
 
-Create this file at: `packages/openmemory-js/src/services/memoryLogger.ts`
+Create this file at: `packages/engram-js/src/services/memoryLogger.ts`
 
 ```typescript
 import { v4 as uuidv4 } from 'uuid';
@@ -1322,7 +1322,7 @@ const LOCAL_LLM_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 export async function logInteractionAsync(userPrompt: string, llmResponseText: string): Promise<void> {
   // Wrap in try/catch so it never crashes the main proxy request
   try {
-    console.log('[CodeCortex] 🧠 Analyzing conversation for new memories...');
+    console.log('[Engram] 🧠 Analyzing conversation for new memories...');
 
     const extractionPrompt = `
 You are a cognitive memory extraction engine. 
@@ -1389,12 +1389,12 @@ If no significant memories are found, output an empty array: []
       const cleanJson = data.response.replace(/^```json\s*|\s*```$/g, '').trim();
       extractedMemories = JSON.parse(cleanJson);
     } catch (e) {
-      console.error('[CodeCortex] Failed to parse LLM extraction JSON. Raw output:', data.response);
+      console.error('[Engram] Failed to parse LLM extraction JSON. Raw output:', data.response);
       return; // Exit gracefully
     }
 
     if (!Array.isArray(extractedMemories) || extractedMemories.length === 0) {
-      console.log('[CodeCortex] No new significant memories extracted.');
+      console.log('[Engram] No new significant memories extracted.');
       return;
     }
 
@@ -1419,11 +1419,11 @@ If no significant memories are found, output an empty array: []
         decayRate
       ]);
       
-      console.log(`[CodeCortex] 💾 Saved new [${mem.sector}] memory: "${mem.content.substring(0, 60)}${mem.content.length > 60 ? '...' : ''}"`);
+      console.log(`[Engram] 💾 Saved new [${mem.sector}] memory: "${mem.content.substring(0, 60)}${mem.content.length > 60 ? '...' : ''}"`);
     }
 
   } catch (error) {
-    console.error('[CodeCortex] ❌ Async memory logging failed:', error);
+    console.error('[Engram] ❌ Async memory logging failed:', error);
   }
 }
 ```
@@ -1496,7 +1496,7 @@ app.post('/v1/chat/completions', async (req, res) => {
       genome: genomeMemories.map(m => m.content),
       phenotype: phenotypeMemories.map(m => ({ sector: m.sector, content: m.content, score: m.finalScore }))
     });
-    res.write(`event: codecortex_trace\ndata: ${tracePayload}\n\n`);
+    res.write(`event: engram_trace\ndata: ${tracePayload}\n\n`);
     res.end();
 
     // 3. CLEANUP & LOG: Parse the accumulated text to get the clean string, then log
@@ -1504,12 +1504,12 @@ app.post('/v1/chat/completions', async (req, res) => {
     
     // Fire and forget
     logInteractionAsync(userPrompt, cleanResponse).catch(err => 
-      console.error('[CodeCortex] Background logging failed:', err)
+      console.error('[Engram] Background logging failed:', err)
     );
 
   } catch (error) {
-    console.error('[CodeCortex] Proxy Error:', error);
-    res.status(500).json({ error: 'Internal CodeCortex Proxy Error' });
+    console.error('[Engram] Proxy Error:', error);
+    res.status(500).json({ error: 'Internal Engram Proxy Error' });
   }
 });
 
@@ -1551,7 +1551,7 @@ async buildCognitiveContextWithTrace(userPrompt: string): Promise<{ cognitiveCon
 2. **Open VS Code**: Launch the extension development host.
 3. **Give a Command**: Open the chat and type:
    > `@cortex Hey, just so you know, from now on I want all code examples to use async/await instead of Promises. Also, I'm currently working on the auth middleware in src/auth.ts.`
-4. **Observe the UI**: The LLM will acknowledge your request. At the bottom, the **CodeCortex Memory Trace** will expand, showing that it just saved a new `procedural` or `semantic` genome memory.
+4. **Observe the UI**: The LLM will acknowledge your request. At the bottom, the **Engram Memory Trace** will expand, showing that it just saved a new `procedural` or `semantic` genome memory.
 5. **Verify the DB**: Open your SQLite/Postgres database and run:
    ```sql
    SELECT content, sector, is_genome FROM memories ORDER BY created_at DESC LIMIT 3;
@@ -1561,7 +1561,7 @@ async buildCognitiveContextWithTrace(userPrompt: string): Promise<{ cognitiveCon
 ---
 
 ### 🎉 You Have Built a Complete Cognitive Architecture
-Let's review the fully assembled **CodeCortex** system:
+Let's review the fully assembled **Engram** system:
 1. **Database**: Schema with Genome/Phenotype separation and Ebbinghaus temporal decay.
 2. **Memory Injector**: Intercepts prompts, fetches decaying/immutable context, and builds the system prompt.
 3. **Consolidation Engine**: Background cron job that compresses fragmented episodic logs into long-term semantic facts.
@@ -1577,7 +1577,7 @@ Is there any specific part of this stack you'd like to refine further (e.g., add
 I would like you to code a web interface that can be used to see every part of the memory process, laid out in a way that makes perfect sense to the use, it should also have stats, logs, and the ability to edit or delete memories
 
 ### ASSISTANT
-This is the perfect capstone for CodeCortex. A dedicated web dashboard transforms it from a "black box" background service into a fully transparent, manageable cognitive engine. 
+This is the perfect capstone for Engram. A dedicated web dashboard transforms it from a "black box" background service into a fully transparent, manageable cognitive engine. 
 
 We will build a **React + Vite + Tailwind CSS** dashboard that connects to your existing Node.js backend. It will feature a **Dashboard** (stats), a **Memory Explorer** (search, edit, delete), and an **Interaction Logs** view (showing the full Input → Injected Context → Output → Extracted Memory pipeline).
 
@@ -1586,7 +1586,7 @@ Here is the complete, start-to-finish implementation.
 ---
 
 ### Step 1: Add Dashboard API Endpoints to Your Backend
-Add these routes to your Node.js server (`packages/openmemory-js/src/server/index.ts` or `routes.ts`) to serve the frontend.
+Add these routes to your Node.js server (`packages/engram-js/src/server/index.ts` or `routes.ts`) to serve the frontend.
 
 ```typescript
 import express from 'express';
@@ -1757,7 +1757,7 @@ export default function App() {
       <div className="fixed left-0 top-0 h-full w-64 bg-slate-900 text-white p-6 flex flex-col">
         <div className="flex items-center gap-3 mb-10">
           <Brain className="w-8 h-8 text-blue-400" />
-          <h1 className="text-xl font-bold tracking-tight">CodeCortex</h1>
+          <h1 className="text-xl font-bold tracking-tight">Engram</h1>
         </div>
         
         <nav className="space-y-2 flex-1">
@@ -1927,7 +1927,7 @@ function MemoriesView() {
           <option value="reflective">Reflective</option
 </think>
 
-This is the perfect capstone for CodeCortex. A dedicated web dashboard transforms it from a "black box" background service into a fully transparent, manageable cognitive engine. 
+This is the perfect capstone for Engram. A dedicated web dashboard transforms it from a "black box" background service into a fully transparent, manageable cognitive engine. 
 
 We will build a **React + Vite + Tailwind CSS** dashboard that connects to your existing Node.js backend. It will feature a **Dashboard** (stats), a **Memory Explorer** (search, edit, delete), and an **Interaction Logs** view (showing the full Input → Injected Context → Output → Extracted Memory pipeline).
 
@@ -1936,7 +1936,7 @@ Here is the complete, start-to-finish implementation.
 ---
 
 ### Step 1: Add Dashboard API Endpoints to Your Backend
-Add these routes to your Node.js server (`packages/openmemory-js/src/server/index.ts` or `routes.ts`) to serve the frontend.
+Add these routes to your Node.js server (`packages/engram-js/src/server/index.ts` or `routes.ts`) to serve the frontend.
 
 ```typescript
 import express from 'express';
@@ -2091,7 +2091,7 @@ export default function App() {
       <div className="fixed left-0 top-0 h-full w-64 bg-slate-900 text-white p-6 flex flex-col">
         <div className="flex items-center gap-3 mb-10">
           <Brain className="w-8 h-8 text-blue-400" />
-          <h1 className="text-xl font-bold tracking-tight">CodeCortex</h1>
+          <h1 className="text-xl font-bold tracking-tight">Engram</h1>
         </div>
         
         <nav className="space-y-2 flex-1">
@@ -2362,7 +2362,7 @@ function LogsView() {
    ```
 3. **Open the Browser**: Navigate to `http://localhost:5173`.
 
-### Why This UI is a Game-Changer for CodeCortex
+### Why This UI is a Game-Changer for Engram
 1. **Total Transparency**: Users can see *exactly* what the AI knows. No more "black box" anxiety.
 2. **Human-in-the-Loop Curation**: If the LLM extracts a hallucinated or incorrect fact, the user can instantly click the **Edit** pencil icon, correct the text, or toggle it from "Phenotype" to "Genome" (or delete it entirely).
 3. **Process Visualization**: The "Interaction Logs" timeline visually demonstrates the "vice versa" loop in action, showing the user that the system is actively learning and categorizing their workflow.
@@ -2397,11 +2397,11 @@ Is there any specific part of the stack you'd like to refine further (e.g., addi
 ### USER
 Sort of, this is what I had in mind, The Flow:
 The User types a prompt in any tool (e.g., Cline in VS Code, or a terminal script).
-The Tool is configured to point to http://localhost:8080/v1/chat/completions (your CodeCortex proxy) instead of the real LLM endpoint.
-CodeCortex Intercepts: It pauses the request, queries the SQLite database for relevant Genome and Phenotype memories.
-A small response is formulated from codecortex signalling that it added 2 genome memories and 1 phenotype memory to the response, this is sent to the user at the same time the modified request is sent to the chosen agent model. 
+The Tool is configured to point to http://localhost:8080/v1/chat/completions (your Engram proxy) instead of the real LLM endpoint.
+Engram Intercepts: It pauses the request, queries the SQLite database for relevant Genome and Phenotype memories.
+A small response is formulated from engram signalling that it added 2 genome memories and 1 phenotype memory to the response, this is sent to the user at the same time the modified request is sent to the chosen agent model. 
 The LLM Responds: It streams the answer back through to the agent. The response feels "baked in" because the LLM just answers naturally.
-CodeCortex Logs (Async): In the background, it saves the interaction to extract new memories for next time, and then sends a small response to the user indicating if anything new was stored, status, etc. 
+Engram Logs (Async): In the background, it saves the interaction to extract new memories for next time, and then sends a small response to the user indicating if anything new was stored, status, etc. 
 
 ### ASSISTANT
 This is a brilliant refinement. By injecting the status updates directly into the Server-Sent Events (SSE) stream, you achieve the ultimate goal: **The user gets full transparency into the memory engine's actions without requiring a custom UI.** 
@@ -2418,14 +2418,14 @@ Update the `buildCognitiveContext` method signature and return statement:
 ```typescript
 // Change the return type to include counts
 async buildCognitiveContext(userPrompt: string): Promise<{ contextString: string, genomeCount: number, phenotypeCount: number }> {
-  console.log('[CodeCortex] Building cognitive context for prompt...');
+  console.log('[Engram] Building cognitive context for prompt...');
 
   const genomeMemories = await this.fetchGenome();
   const phenotypeMemories = await this.fetchPhenotype(userPrompt);
 
   // Fire and forget access count update
   this.updateAccessCounts([...genomeMemories, ...phenotypeMemories]).catch(err => 
-    console.error('[CodeCortex] Failed to update access counts:', err)
+    console.error('[Engram] Failed to update access counts:', err)
   );
 
   return {
@@ -2445,7 +2445,7 @@ Update the `logInteractionAsync` function to return an object with the count:
 // Change return type to Promise<{ storedCount: number }>
 export async function logInteractionAsync(userPrompt: string, llmResponseText: string): Promise<{ storedCount: number }> {
   try {
-    console.log('[CodeCortex] 🧠 Analyzing conversation for new memories...');
+    console.log('[Engram] 🧠 Analyzing conversation for new memories...');
 
     // ... [Keep the existing extractionPrompt and fetch logic exactly the same] ...
 
@@ -2456,24 +2456,24 @@ export async function logInteractionAsync(userPrompt: string, llmResponseText: s
       const cleanJson = data.response.replace(/^```json\s*|\s*```$/g, '').trim();
       extractedMemories = JSON.parse(cleanJson);
     } catch (e) {
-      console.error('[CodeCortex] Failed to parse LLM extraction JSON.');
+      console.error('[Engram] Failed to parse LLM extraction JSON.');
       return { storedCount: 0 }; // Return 0 on failure
     }
 
     if (!Array.isArray(extractedMemories) || extractedMemories.length === 0) {
-      console.log('[CodeCortex] No new significant memories extracted.');
+      console.log('[Engram] No new significant memories extracted.');
       return { storedCount: 0 }; // Return 0 if empty
     }
 
     // ... [Keep the existing database insertion loop exactly the same] ...
 
-    console.log(`[CodeCortex] 💾 Saved ${extractedMemories.length} new memories.`);
+    console.log(`[Engram] 💾 Saved ${extractedMemories.length} new memories.`);
     
     // Return the count of successfully stored memories
     return { storedCount: extractedMemories.length };
 
   } catch (error) {
-    console.error('[CodeCortex] ❌ Async memory logging failed:', error);
+    console.error('[Engram] ❌ Async memory logging failed:', error);
     return { storedCount: 0 }; // Return 0 on error
   }
 }
@@ -2497,7 +2497,7 @@ app.use(express.json());
  * Helper to create valid OpenAI-compatible SSE chunks.
  * This allows any client (Cline, CLI, etc.) to render our status messages natively.
  */
-function createSSEChunk(content: string, model: string = 'codecortex-proxy') {
+function createSSEChunk(content: string, model: string = 'engram-proxy') {
   const chunk = {
     id: `chatcmpl-${uuidv4()}`,
     object: 'chat.completion.chunk',
@@ -2538,7 +2538,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
 
     // 4. INITIAL STATUS: Tell the user what memory was injected BEFORE the LLM starts
-    const initialStatus = `🧠 *CodeCortex: Injected ${genomeCount} Genome and ${phenotypeCount} Phenotype memory(ies) into context.*\n\n`;
+    const initialStatus = `🧠 *Engram: Injected ${genomeCount} Genome and ${phenotypeCount} Phenotype memory(ies) into context.*\n\n`;
     res.write(createSSEChunk(initialStatus, model));
 
     // 5. FORWARD & STREAM: Send to LLM and pipe response back to user
@@ -2584,7 +2584,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     const logResult = await logInteractionAsync(userPrompt, fullResponseText);
 
     // 7. FINAL STATUS: Tell the user what was learned AFTER the LLM finishes
-    const finalStatus = `\n\n---\n🧠 *CodeCortex: Extraction complete. Stored ${logResult.storedCount} new memory(ies).*`;
+    const finalStatus = `\n\n---\n🧠 *Engram: Extraction complete. Stored ${logResult.storedCount} new memory(ies).*`;
     res.write(createSSEChunk(finalStatus, model));
 
     // 8. CLOSE STREAM
@@ -2592,12 +2592,12 @@ app.post('/v1/chat/completions', async (req, res) => {
     res.end();
 
   } catch (error: any) {
-    console.error('[CodeCortex] Proxy Error:', error);
+    console.error('[Engram] Proxy Error:', error);
     if (!res.headersSent) {
       res.status(500).json({ error: error.message });
     } else {
       // If stream already started, send error as an SSE chunk
-      res.write(createSSEChunk(`\n\n❌ *CodeCortex Error: ${error.message}*`));
+      res.write(createSSEChunk(`\n\n❌ *Engram Error: ${error.message}*`));
       res.write('data: [DONE]\n\n');
       res.end();
     }
@@ -2605,7 +2605,7 @@ app.post('/v1/chat/completions', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`🧠 CodeCortex Transparent Proxy running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`🧠 Engram Transparent Proxy running on http://localhost:${PORT}`));
 ```
 
 ### How This Looks to the End User
@@ -2614,12 +2614,12 @@ Because we are using standard OpenAI SSE formatting, **any tool** the user confi
 
 When the user asks a question in Cline, Continue, or a terminal CLI, the chat window will output:
 
-> 🧠 *CodeCortex: Injected 2 Genome and 1 Phenotype memory(ies) into context.*
+> 🧠 *Engram: Injected 2 Genome and 1 Phenotype memory(ies) into context.*
 > 
 > Here is the functional React component you requested. I made sure to use async/await for the data fetching, as that aligns with your preferred coding style... [LLM Response continues]
 > 
 > ---
-> 🧠 *CodeCortex: Extraction complete. Stored 1 new memory(ies).*
+> 🧠 *Engram: Extraction complete. Stored 1 new memory(ies).*
 
 ### Why This Architecture is the Ultimate Solution
 1. **Zero UI Lock-in:** You don't need to maintain a custom VS Code webview. If the user wants to use a new IDE or a CLI tool tomorrow, it just works.
@@ -2682,7 +2682,7 @@ This perfectly aligns with your vision of a universal, transparent cognitive lay
 # New Code below:
 
 ## Updated or added files:
-- /home/ftr/Documents/openWeb.searxng/OpenMemory/AGENTS.md
+- /home/ftr/Documents/openWeb.searxng/Engram/AGENTS.md
 
 ## Updated Project Flows:
 ```mermaid
@@ -2741,7 +2741,7 @@ flowchart TD
        │ 1. Sends prompt + requested model ("Qwopus3.6")
        ▼
 ┌────────────────────────────────────────────────────────────────────────────────┐
-│ 🖥️ LINUX SERVER (OpenMemory Proxy :8080)                              │
+│ 🖥️ LINUX SERVER (Engram Proxy :8080)                              │
 │                                                                       │
 │ 2. Calls Local Ollama (:11434) for embedding (bge-m3)                 │
 │ 3. Queries Local DB for Genome/Phenotype memories                     │
@@ -2787,7 +2787,7 @@ flowchart TD
 [LLAMA-SWAP] (MSI Raider - The Muscle)
   ├─ 5. ROUTE: Receives request & loads `Qwopus3.6` into RTX 4090 VRAM.
   ├─ 6. GENERATE: Creates response (naturally using the baked-in context).
-  └─ 7. STREAM: Sends raw SSE tokens back to OpenMemory Proxy.
+  └─ 7. STREAM: Sends raw SSE tokens back to Engram Proxy.
   ↓ (Tokens arrive back at Linux Server)
 [OPENMEMORY PROXY] (Linux Server - The Pipeline)
   ├─ 8. PIPE: Instantly passes raw SSE tokens back to the Client Tool.
@@ -2802,22 +2802,22 @@ flowchart TD
 ### ASSISTANT
 This is a critical architectural realization, especially since you are using **llama-swap** to manage your VRAM on that RTX 4090. 
 
-The reason your internal agents are "confused" is likely an **Identity Crisis**: when OpenMemory calls Ollama to extract memories, if the system prompt isn't strictly isolated, the LLM thinks it's talking to the user and tries to answer their coding question instead of outputting the JSON memory extraction. 
+The reason your internal agents are "confused" is likely an **Identity Crisis**: when Engram calls Ollama to extract memories, if the system prompt isn't strictly isolated, the LLM thinks it's talking to the user and tries to answer their coding question instead of outputting the JSON memory extraction. 
 
-Furthermore, **you must never send OpenMemory's internal background tasks to `llama-swap`**. If you do, `llama-swap` will evict your massive `Qwopus3.6` model from VRAM just to run a tiny memory extraction task, ruining the user's chat experience. Internal tasks must go directly to Ollama using your CPU/minimal models.
+Furthermore, **you must never send Engram's internal background tasks to `llama-swap`**. If you do, `llama-swap` will evict your massive `Qwopus3.6` model from VRAM just to run a tiny memory extraction task, ruining the user's chat experience. Internal tasks must go directly to Ollama using your CPU/minimal models.
 
 Here is the exact flow chart, the fix for the confused agents, and the updated proxy code to route everything correctly.
 
 ---
 
-### 🗺️ The OpenMemory Transparent Proxy Flow Chart
+### 🗺️ The Engram Transparent Proxy Flow Chart
 
 ```text
 [USER] 
   │ (Types prompt in Cline, CLI, or IDE)
   ▼
 [CLIENT TOOL] 
-  │ (Sends request to OpenMemory Proxy instead of llama-swap)
+  │ (Sends request to Engram Proxy instead of llama-swap)
   │ Payload: { model: "Qwopus3.6-MTP-no-thinking", messages: [...] }
   ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -2921,7 +2921,7 @@ const UPSTREAM_LLM_URL = process.env.UPSTREAM_LLM_URL || 'http://localhost:8090'
 /**
  * Helper to create valid OpenAI-compatible SSE chunks for status updates.
  */
-function createSSEChunk(content: string, model: string = 'codecortex-proxy') {
+function createSSEChunk(content: string, model: string = 'engram-proxy') {
   const chunk = {
     id: `chatcmpl-${uuidv4()}`,
     object: 'chat.completion.chunk',
@@ -2959,7 +2959,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
 
     // 4. INITIAL STATUS
-    res.write(createSSEChunk(`🧠 *CodeCortex: Injected ${genomeCount} Genome and ${phenotypeCount} Phenotype memory(ies).*\n\n`, targetModel));
+    res.write(createSSEChunk(`🧠 *Engram: Injected ${genomeCount} Genome and ${phenotypeCount} Phenotype memory(ies).*\n\n`, targetModel));
 
     // 5. FORWARD TO UPSTREAM (llama-swap) WITH THE USER'S REQUESTED MODEL
     const llmResponse = await fetch(`${UPSTREAM_LLM_URL}/v1/chat/completions`, {
@@ -3002,16 +3002,16 @@ app.post('/v1/chat/completions', async (req, res) => {
     const logResult = await logInteractionAsync(userPrompt, fullResponseText);
 
     // 8. FINAL STATUS
-    res.write(createSSEChunk(`\n\n---\n🧠 *CodeCortex: Extraction complete. Stored ${logResult.storedCount} new memory(ies).*`, targetModel));
+    res.write(createSSEChunk(`\n\n---\n🧠 *Engram: Extraction complete. Stored ${logResult.storedCount} new memory(ies).*`, targetModel));
     res.write('data: [DONE]\n\n');
     res.end();
 
   } catch (error: any) {
-    console.error('[CodeCortex] Proxy Error:', error);
+    console.error('[Engram] Proxy Error:', error);
     if (!res.headersSent) {
       res.status(500).json({ error: error.message });
     } else {
-      res.write(createSSEChunk(`\n\n❌ *CodeCortex Error: ${error.message}*`));
+      res.write(createSSEChunk(`\n\n❌ *Engram Error: ${error.message}*`));
       res.write('data: [DONE]\n\n');
       res.end();
     }
@@ -3020,30 +3020,30 @@ app.post('/v1/chat/completions', async (req, res) => {
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`🧠 CodeCortex Transparent Proxy running on http://localhost:${PORT}`);
+  console.log(`🧠 Engram Transparent Proxy running on http://localhost:${PORT}`);
   console.log(`   ↳ Internal Embeddings/Extraction: ${INTERNAL_OLLAMA_URL}`);
   console.log(`   ↳ Upstream User Chat (llama-swap): ${UPSTREAM_LLM_URL}`);
 });
 ```
 
 ### Summary of What This Fixes:
-1. **No More VRAM Thrashing:** By defining `INTERNAL_OLLAMA_URL` (Port 11434) and `UPSTREAM_LLM_URL` (Port 8090 / llama-swap), OpenMemory's background tasks will use `qwen-cpu-minimal` or `bge-m3` on your CPU, leaving your RTX 4090 entirely dedicated to `Qwopus3.6-MTP-no-thinking`.
-2. **Dynamic Model Routing:** The proxy now reads `req.body.model`. If the user's client asks for `Qwopus3.6`, OpenMemory forwards it to `llama-swap` asking for `Qwopus3.6`. It doesn't hardcode anything.
+1. **No More VRAM Thrashing:** By defining `INTERNAL_OLLAMA_URL` (Port 11434) and `UPSTREAM_LLM_URL` (Port 8090 / llama-swap), Engram's background tasks will use `qwen-cpu-minimal` or `bge-m3` on your CPU, leaving your RTX 4090 entirely dedicated to `Qwopus3.6-MTP-no-thinking`.
+2. **Dynamic Model Routing:** The proxy now reads `req.body.model`. If the user's client asks for `Qwopus3.6`, Engram forwards it to `llama-swap` asking for `Qwopus3.6`. It doesn't hardcode anything.
 3. **Cured Agent Confusion:** The aggressive system prompt in the extraction worker ensures your internal Ollama models act like dumb APIs, not chatty assistants.
 
 Update your `.env` or environment variables to point `UPSTREAM_LLM_URL` to your `llama-swap` instance, and you are fully operational!
 
 ### USER
-This sounds much better, currently this is the IP and Port setup, do I need to change llama-swap to listen on 8090 instead now? The important distinction should be llama-swap is not running on the same machine as OpenMemory/Ollama. This needs to be user configurable as not all users will be using a seperate machine for processing, OpenMemory, Ollama, and Llama-swap may be on the same machine, or they may not even use llama-swap at all, perhaps they use Ollama for their OpenMemory agents AND there main chat assistant
+This sounds much better, currently this is the IP and Port setup, do I need to change llama-swap to listen on 8090 instead now? The important distinction should be llama-swap is not running on the same machine as Engram/Ollama. This needs to be user configurable as not all users will be using a seperate machine for processing, Engram, Ollama, and Llama-swap may be on the same machine, or they may not even use llama-swap at all, perhaps they use Ollama for their Engram agents AND there main chat assistant
 
-OpenMemory: http://localhost:8080/v1 (Linux Server that OpenMemory is running on)
-Ollama: http://localhost:11434 (The same linux server as OpenMemory)
+Engram: http://localhost:8080/v1 (Linux Server that Engram is running on)
+Ollama: http://localhost:11434 (The same linux server as Engram)
 Llama-Swap: http://10.10.10.41:8080/v1 (MSI Raider RTX 4090), this could also be my ROG Scar RTX 5090
 
 ### ASSISTANT
-You **do not** need to change llama-swap to port 8090 for your current setup, because they are on completely different machines. Since OpenMemory is on your Linux server and llama-swap is on your MSI Raider (`10.10.10.41`), they can both happily listen on port `8080` without any conflicts. 
+You **do not** need to change llama-swap to port 8090 for your current setup, because they are on completely different machines. Since Engram is on your Linux server and llama-swap is on your MSI Raider (`10.10.10.41`), they can both happily listen on port `8080` without any conflicts. 
 
-However, you are 100% correct that **this must be user-configurable**. If another user wants to run OpenMemory, Ollama, and llama-swap all on the exact same laptop, they *would* run into a port collision and need to change one of them.
+However, you are 100% correct that **this must be user-configurable**. If another user wants to run Engram, Ollama, and llama-swap all on the exact same laptop, they *would* run into a port collision and need to change one of them.
 
 To solve this universally, we use a standard **`.env` (Environment Variables)** file. This allows every user to define exactly where their services are living without touching the core code.
 
@@ -3052,12 +3052,12 @@ Here is exactly how to set this up so it works flawlessly for your distributed s
 ---
 
 ### Step 1: Create the `.env` File
-In the root directory of your OpenMemory backend (where your `package.json` is), create a file named `.env`. 
+In the root directory of your Engram backend (where your `package.json` is), create a file named `.env`. 
 
 For **your specific distributed setup**, paste this exact configuration:
 
 ```env
-# 1. OpenMemory Proxy Port (Where Cline/CLI connects to)
+# 1. Engram Proxy Port (Where Cline/CLI connects to)
 PORT=8080
 
 # 2. Internal Ollama (Used ONLY for embeddings and memory extraction)
@@ -3080,23 +3080,23 @@ With this configuration, here is exactly how the traffic flows across your netwo
 1. **The Client (Cline/CLI on your MSI Raider):** 
    You configure your IDE tool to point to `http://<Linux-Server-IP>:8080/v1`. 
    *(It does NOT point to llama-swap anymore).*
-2. **OpenMemory (Linux Server on Port 8080):** 
+2. **Engram (Linux Server on Port 8080):** 
    Receives the request. It uses `localhost:11434` (Internal Ollama) to run `bge-m3` for embeddings and `qwen-cpu-minimal` for extraction. **Your 4090 VRAM is untouched.**
 3. **The Forward (Linux Server -> MSI Raider):** 
-   OpenMemory takes the enriched prompt and forwards it to `http://10.10.10.41:8080/v1` (llama-swap).
+   Engram takes the enriched prompt and forwards it to `http://10.10.10.41:8080/v1` (llama-swap).
 4. **The LLM (MSI Raider):** 
-   llama-swap loads `Qwopus3.6-MTP-no-thinking` into the RTX 4090 VRAM, generates the response, and streams it back to OpenMemory, which passes it back to your IDE.
+   llama-swap loads `Qwopus3.6-MTP-no-thinking` into the RTX 4090 VRAM, generates the response, and streams it back to Engram, which passes it back to your IDE.
 
 ---
 
 ### Step 3: How Other Users Will Configure It
 
-Because we are using environment variables, if someone downloads OpenMemory, they can adapt it to their hardware by simply changing the `.env` file.
+Because we are using environment variables, if someone downloads Engram, they can adapt it to their hardware by simply changing the `.env` file.
 
 #### Scenario A: The "All-in-One" User (Single Machine)
-A user has a single Mac or PC. They run Ollama, llama-swap, and OpenMemory all on the same machine. They **must** avoid port collisions. Their `.env` would look like this:
+A user has a single Mac or PC. They run Ollama, llama-swap, and Engram all on the same machine. They **must** avoid port collisions. Their `.env` would look like this:
 ```env
-PORT=8081                # OpenMemory moves to 8081 to avoid conflict
+PORT=8081                # Engram moves to 8081 to avoid conflict
 INTERNAL_OLLAMA_URL=http://localhost:11434
 UPSTREAM_LLM_URL=http://localhost:8080   # llama-swap stays on 8080
 ```
@@ -3110,7 +3110,7 @@ UPSTREAM_LLM_URL=http://localhost:11434  # Points directly to Ollama!
 ```
 
 #### Scenario C: The "Cloud API" User
-A user wants OpenMemory to manage their memory, but they want to use the official OpenAI API (or Anthropic) for the actual chat to save local compute. Their `.env`:
+A user wants Engram to manage their memory, but they want to use the official OpenAI API (or Anthropic) for the actual chat to save local compute. Their `.env`:
 ```env
 PORT=8080
 INTERNAL_OLLAMA_URL=http://localhost:11434
@@ -3123,51 +3123,51 @@ UPSTREAM_LLM_URL=https://api.openai.com  # Points to the cloud!
 ### Summary
 By using the `.env` file to define `INTERNAL_OLLAMA_URL` and `UPSTREAM_LLM_URL`, you have completely decoupled the architecture from the hardware. 
 
-You don't need to change any ports on your MSI Raider. Just ensure your `.env` file on the Linux server has `UPSTREAM_LLM_URL=http://10.10.10.41:8080`, restart the OpenMemory backend, and it will seamlessly bridge the gap between your Linux server's memory engine and your RTX 4090's processing power!
+You don't need to change any ports on your MSI Raider. Just ensure your `.env` file on the Linux server has `UPSTREAM_LLM_URL=http://10.10.10.41:8080`, restart the Engram backend, and it will seamlessly bridge the gap between your Linux server's memory engine and your RTX 4090's processing power!
 
 ### USER
 I already have a .env file, this is the current contents, 
-# OpenMemory JS server environment
+# Engram JS server environment
 
-OM_PORT=8080
-OM_API_KEY=
-OM_REQUIRE_API_KEY=false
-OM_LOG_AUTH=false
-OM_TELEMETRY=true
+EG_PORT=8080
+EG_API_KEY=
+EG_REQUIRE_API_KEY=false
+EG_LOG_AUTH=false
+EG_TELEMETRY=true
 
 # Server Mode
-OM_MODE=standard
-OM_STORAGE=postgres
+EG_MODE=standard
+EG_STORAGE=postgres
 
 # PostgreSQL Settings
-OM_PG_HOST=localhost
-OM_PG_PORT=5432
-OM_PG_DB=openmemory
-OM_PG_USER=postgres
-OM_PG_PASSWORD=postgres
-OM_PG_SCHEMA=public
-OM_PG_SSL=disable
-OM_PG_POOL_MAX=10
-OM_PG_IDLE_TIMEOUT_MS=30000
-OM_PG_CONNECTION_TIMEOUT_MS=5000
-OM_PG_STATEMENT_TIMEOUT_MS=30000
+EG_PG_HOST=localhost
+EG_PG_PORT=5432
+EG_PG_DB=engram
+EG_PG_USER=postgres
+EG_PG_PASSWORD=postgres
+EG_PG_SCHEMA=public
+EG_PG_SSL=disable
+EG_PG_POOL_MAX=10
+EG_PG_IDLE_TIMEOUT_MS=30000
+EG_PG_CONNECTION_TIMEOUT_MS=5000
+EG_PG_STATEMENT_TIMEOUT_MS=30000
 
 # Local storage options
 # postgres is the durable production default.
 # memory is process-local, sqlite is file-local, valkey/redis uses valkey or redis.
-OM_SQLITE_PATH=./openmemory.sqlite
+EG_SQLITE_PATH=./engram.sqlite
 VALKEY_URL=redis://localhost:6379
 REDIS_URL=redis://localhost:6379
 
 # Embeddings
-OM_EMBEDDINGS=ollama
-OM_EMBEDDING_FALLBACK=synthetic
-OM_VEC_DIM=768
-OM_EMBED_TIMEOUT_MS=30000
-OM_EMBED_MODEL=
-OM_OPENAI_MODEL=text-embedding-3-small
-OM_GEMINI_MODEL=models/gemini-embedding-001
-OM_OLLAMA_MODEL=nomic-embed-text
+EG_EMBEDDINGS=ollama
+EG_EMBEDDING_FALLBACK=synthetic
+EG_VEC_DIM=768
+EG_EMBED_TIMEOUT_MS=30000
+EG_EMBED_MODEL=
+EG_OPENAI_MODEL=text-embedding-3-small
+EG_GEMINI_MODEL=models/gemini-embedding-001
+EG_OLLAMA_MODEL=nomic-embed-text
 
 OPENAI_API_KEY=
 GEMINI_API_KEY=
@@ -3202,13 +3202,13 @@ CHAT_MODEL=qwen3.6:35b
 # Vector storage
 # Postgres uses the durable pgvector column. Other stores handle vector search
 # while Postgres remains the memory/source-of-truth database.
-OM_VECTOR_STORE=postgres
-OM_VECTOR_COLLECTION=openmemory_memories
-OM_VECTOR_TIMEOUT_MS=10000
-OM_VECTOR_URL=
-OM_VECTOR_API_KEY=
-OM_QDRANT_URL=http://localhost:6333
-OM_QDRANT_API_KEY=
+EG_VECTOR_STORE=postgres
+EG_VECTOR_COLLECTION=engram_memories
+EG_VECTOR_TIMEOUT_MS=10000
+EG_VECTOR_URL=
+EG_VECTOR_API_KEY=
+EG_QDRANT_URL=http://localhost:6333
+EG_QDRANT_API_KEY=
 PINECONE_INDEX_HOST=
 PINECONE_API_KEY=
 WEAVIATE_URL=http://localhost:8080
@@ -3218,17 +3218,17 @@ MILVUS_URL=http://localhost:19530
 MILVUS_API_KEY=
 
 # Server limits
-OM_MAX_PAYLOAD_SIZE=1000000
-OM_RATE_LIMIT_ENABLED=false
-OM_RATE_LIMIT_WINDOW_MS=60000
-OM_RATE_LIMIT_MAX_REQUESTS=100
+EG_MAX_PAYLOAD_SIZE=1000000
+EG_RATE_LIMIT_ENABLED=false
+EG_RATE_LIMIT_WINDOW_MS=60000
+EG_RATE_LIMIT_MAX_REQUESTS=100
 
 
 LLM_URL=http://10.10.10.41:8080/v1
 
 
 ### ASSISTANT
-This `.env` file is incredibly well-structured! You have clearly put a lot of thought into making OpenMemory highly configurable. 
+This `.env` file is incredibly well-structured! You have clearly put a lot of thought into making Engram highly configurable. 
 
 Looking at your configuration, I see a few critical details we need to address to make the new Transparent Proxy work perfectly with your specific setup, plus one major hardware warning regarding your RTX 4090.
 
@@ -3244,7 +3244,7 @@ In your previous message, you mentioned Ollama was on the Linux server. However,
 `LLM_URL=http://10.10.10.41:8080/v1` (This is also your **MSI Raider**).
 
 **⚠️ The VRAM Collision:** 
-Because both OpenMemory's background tasks and your main chat are pointing to the MSI Raider, OpenMemory will use `qwen2.5:14b` for memory extraction. `qwen2.5:14b` is a massive model that will consume 8-10GB of VRAM. If `llama-swap` is trying to run `Qwopus3.6` at the same time, **they will fight for VRAM**, causing severe lag or out-of-memory crashes.
+Because both Engram's background tasks and your main chat are pointing to the MSI Raider, Engram will use `qwen2.5:14b` for memory extraction. `qwen2.5:14b` is a massive model that will consume 8-10GB of VRAM. If `llama-swap` is trying to run `Qwopus3.6` at the same time, **they will fight for VRAM**, causing severe lag or out-of-memory crashes.
 * **Fix:** Change `EXTRACTION_MODEL` and `CONSOLIDATION_MODEL` in your `.env` to a tiny model like `qwen2.5:3b` or `qwen-cpu-minimal:latest`. This ensures background memory tasks use almost zero VRAM, leaving your 4090 entirely dedicated to your main chat agent.
 
 ---
@@ -3315,7 +3315,7 @@ app.post('/v1/chat/completions', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
 
     // 4. INITIAL STATUS
-    res.write(createSSEChunk(`🧠 *CodeCortex: Injected ${genomeCount} Genome and ${phenotypeCount} Phenotype memory(ies).*\n\n`, targetModel));
+    res.write(createSSEChunk(`🧠 *Engram: Injected ${genomeCount} Genome and ${phenotypeCount} Phenotype memory(ies).*\n\n`, targetModel));
 
     // 5. FORWARD TO UPSTREAM (llama-swap) WITH THE USER'S REQUESTED MODEL
     // Notice we use UPSTREAM_LLM_URL directly since it already contains /v1
@@ -3358,25 +3358,25 @@ app.post('/v1/chat/completions', async (req, res) => {
     const logResult = await logInteractionAsync(userPrompt, fullResponseText);
 
     // 8. FINAL STATUS
-    res.write(createSSEChunk(`\n\n---\n🧠 *CodeCortex: Extraction complete. Stored ${logResult.storedCount} new memory(ies).*`, targetModel));
+    res.write(createSSEChunk(`\n\n---\n🧠 *Engram: Extraction complete. Stored ${logResult.storedCount} new memory(ies).*`, targetModel));
     res.write('data: [DONE]\n\n');
     res.end();
 
   } catch (error: any) {
-    console.error('[CodeCortex] Proxy Error:', error);
+    console.error('[Engram] Proxy Error:', error);
     if (!res.headersSent) {
       res.status(500).json({ error: error.message });
     } else {
-      res.write(createSSEChunk(`\n\n❌ *CodeCortex Error: ${error.message}*`, 'error'));
+      res.write(createSSEChunk(`\n\n❌ *Engram Error: ${error.message}*`, 'error'));
       res.write('data: [DONE]\n\n');
       res.end();
     }
   }
 });
 
-const PORT = process.env.OM_PORT || 8080;
+const PORT = process.env.EG_PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`🧠 CodeCortex Transparent Proxy running on port ${PORT}`);
+  console.log(`🧠 Engram Transparent Proxy running on port ${PORT}`);
   console.log(`   ↳ Internal Embeddings/Extraction: ${INTERNAL_OLLAMA_URL}`);
   console.log(`   ↳ Upstream User Chat (llama-swap): ${UPSTREAM_LLM_URL}`);
   console.log(`   ↳ Default Fallback Model: ${DEFAULT_CHAT_MODEL}`);
@@ -3415,20 +3415,20 @@ const response = await fetch(`${INTERNAL_OLLAMA_URL}/api/generate`, {
 
 ### Summary of the Final Setup:
 1. **Client (Cline/CLI):** Points to `http://<Linux-Server-IP>:8080/v1`.
-2. **OpenMemory Proxy (Linux Server):** Intercepts, uses `OLLAMA_URL` (MSI Raider) for tiny embeddings/extraction, and forwards the chat to `LLM_URL` (MSI Raider llama-swap).
+2. **Engram Proxy (Linux Server):** Intercepts, uses `OLLAMA_URL` (MSI Raider) for tiny embeddings/extraction, and forwards the chat to `LLM_URL` (MSI Raider llama-swap).
 3. **VRAM Protection:** By changing `EXTRACTION_MODEL` to a 3B parameter model, you ensure the 4090 can handle background memory tasks without interrupting your massive `Qwopus3.6` chat session.
 
 Make those two small tweaks to your `.env` (fix the duplicate `CHAT_MODEL` and shrink the `EXTRACTION_MODEL`), drop in this new proxy code, and your universal, transparent cognitive engine is fully operational!
 
 ### USER
-This is not correct, OpenMemory Proxy (Linux Server): Intercepts, uses OLLAMA_URL (MSI Raider) for tiny embeddings/extraction,.
+This is not correct, Engram Proxy (Linux Server): Intercepts, uses OLLAMA_URL (MSI Raider) for tiny embeddings/extraction,.
 
-It should be using the Ollama that is on the Linux Server OpenMemory is running on
+It should be using the Ollama that is on the Linux Server Engram is running on
 
 ### ASSISTANT
 My apologies! I saw the `10.10.10.41` IP address in your `.env` file next to `OLLAMA_URL` and incorrectly assumed Ollama was running on the MSI Raider. 
 
-Since OpenMemory and Ollama are both on the **Linux Server**, and only llama-swap is on the **MSI Raider**, you just need to update two lines in your `.env` file. 
+Since Engram and Ollama are both on the **Linux Server**, and only llama-swap is on the **MSI Raider**, you just need to update two lines in your `.env` file. 
 
 The good news is that the TypeScript proxy code I provided in the previous step is **100% correct** and doesn't need to be changed. It dynamically reads those exact environment variables. You just need to point them to the right machines.
 

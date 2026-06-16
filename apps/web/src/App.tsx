@@ -58,7 +58,7 @@ export default function App() {
       <aside className="fixed left-0 top-0 h-full w-64 bg-slate-900 text-white p-6 flex flex-col z-20">
         <div className="flex items-center gap-3 mb-10">
           <Skull className="w-8 h-8 text-blue-400" />
-          <h1 className="text-xl font-bold tracking-tight">CodeCortex</h1>
+          <h1 className="text-xl font-bold tracking-tight">Engram</h1>
         </div>
 
         <nav className="space-y-2 flex-1">

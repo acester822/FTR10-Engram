@@ -1,6 +1,6 @@
 Here is the fully refined, production-ready **SSE parsing logic** for your VS Code extension. 
 
-By switching to a proper Server-Sent Events (SSE) parser that respects the `event:` and `data:` prefixes (separated by `\n\n`), the extension can now seamlessly distinguish between standard LLM text chunks and your custom `codecortex_trace` payload.
+By switching to a proper Server-Sent Events (SSE) parser that respects the `event:` and `data:` prefixes (separated by `\n\n`), the extension can now seamlessly distinguish between standard LLM text chunks and your custom `engram_trace` payload.
 
 Replace your existing `src/extension.ts` with this updated version.
 
@@ -22,7 +22,7 @@ interface CognitiveTrace {
 }
 
 export function activate(context: vscode.ExtensionContext) {
-	console.log('🧠 CodeCortex extension is now active!');
+	console.log('🧠 Engram extension is now active!');
 
 	const handler: vscode.ChatRequestHandler = async (
 		request: vscode.ChatRequest, 
@@ -33,11 +33,11 @@ export function activate(context: vscode.ExtensionContext) {
 		const localContext = await gatherLocalContext();
 		
 		const messages = [
-			{ role: 'system', content: `You are CodeCortex. Local Context: ${localContext}` },
+			{ role: 'system', content: `You are Engram. Local Context: ${localContext}` },
 			{ role: 'user', content: request.prompt }
 		];
 
-		stream.progress('🧠 Querying CodeCortex memory engine...');
+		stream.progress('🧠 Querying Engram memory engine...');
 
 		let dynamicTrace: CognitiveTrace | null = null;
 
@@ -100,12 +100,12 @@ export function activate(context: vscode.ExtensionContext) {
 							// Ignore JSON parse errors on partial chunks
 						}
 					} 
-					// Handle Custom CodeCortex Trace Event
-					else if (eventType === 'codecortex_trace') {
+					// Handle Custom Engram Trace Event
+					else if (eventType === 'engram_trace') {
 						try {
 							dynamicTrace = JSON.parse(eventData) as CognitiveTrace;
 						} catch (e) {
-							console.error('[CodeCortex] Failed to parse trace data:', e);
+							console.error('[Engram] Failed to parse trace data:', e);
 						}
 					}
 				}
@@ -120,11 +120,11 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 
 		} catch (error: any) {
-			stream.markdown(`❌ **CodeCortex Error**: ${error.message}\n\n*Is the CodeCortex proxy running on port 8080?*`);
+			stream.markdown(`❌ **Engram Error**: ${error.message}\n\n*Is the Engram proxy running on port 8080?*`);
 		}
 	};
 
-	const participant = vscode.chat.createChatParticipant('openmemory.cortex', handler);
+	const participant = vscode.chat.createChatParticipant('engram.cortex', handler);
 	participant.iconPath = new vscode.ThemeIcon('brain');
 	
 	context.subscriptions.push(participant);
@@ -161,7 +161,7 @@ async function gatherLocalContext(): Promise<string> {
  * Renders a 100% dynamic, collapsible Explainable Trace based on proxy data.
  */
 function renderDynamicCognitiveTrace(stream: vscode.ChatResponseStream, trace: CognitiveTrace) {
-	let markdown = `\n\n---\n<details>\n<summary>🧠 <b>CodeCortex Memory Trace</b> (Click to expand)</summary>\n<br>\n`;
+	let markdown = `\n\n---\n<details>\n<summary>🧠 <b>Engram Memory Trace</b> (Click to expand)</summary>\n<br>\n`;
 
 	// Render Genome
 	if (trace.genome && trace.genome.length > 0) {
@@ -210,13 +210,13 @@ export function deactivate() {}
 
 ### Why This Parser is Robust
 1. **`\n\n` Delimiter**: Standard SSE dictates that messages are separated by double newlines. Splitting by `\n\n` guarantees we never try to parse a partial JSON chunk, eliminating the `Unexpected end of JSON input` errors that plague naive SSE parsers.
-2. **Event Routing**: It explicitly checks for `event: codecortex_trace`. If the proxy sends standard OpenAI chunks (`event: message` or no event), it routes them to `stream.markdown()`. If it sends the trace, it saves it to a variable and waits until the stream is fully complete to render the UI.
+2. **Event Routing**: It explicitly checks for `event: engram_trace`. If the proxy sends standard OpenAI chunks (`event: message` or no event), it routes them to `stream.markdown()`. If it sends the trace, it saves it to a variable and waits until the stream is fully complete to render the UI.
 3. **Graceful Degradation**: If the proxy fails to send a trace (e.g., the database is empty), the `if (dynamicTrace)` check fails gracefully, and it renders a polite fallback message instead of crashing or showing broken UI.
 
 ---
 
 ### The Required Proxy-Side Handshake (Double Check)
-For this extension code to work, your Node.js proxy (`packages/openmemory-js/src/server/index.ts`) **must** format the end of its stream exactly like this. 
+For this extension code to work, your Node.js proxy (`packages/engram-js/src/server/index.ts`) **must** format the end of its stream exactly like this. 
 
 Ensure your proxy route ends with this logic right before `res.end()`:
 
@@ -236,7 +236,7 @@ const tracePayload = {
 
 // 2. Send the custom SSE event. Note the \n\n at the end!
 const traceDataString = JSON.stringify(tracePayload);
-res.write(`event: codecortex_trace\ndata: ${traceDataString}\n\n`);
+res.write(`event: engram_trace\ndata: ${traceDataString}\n\n`);
 
 // 3. Close the stream
 res.end();

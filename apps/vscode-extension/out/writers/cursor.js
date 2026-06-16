@@ -42,11 +42,11 @@ function generateCursorConfig(backendUrl, apiKey, useMCP = false, mcpServerPath)
     if (useMCP) {
         const backendMcpPath = mcpServerPath || path.join(process.cwd(), 'backend', 'dist', 'ai', 'mcp.js');
         return {
-            name: 'OpenMemory',
+            name: 'Engram',
             type: 'mcp',
             mcp: {
                 server: backendMcpPath,
-                tools: ['openmemory_query', 'openmemory_store', 'openmemory_list', 'openmemory_get', 'openmemory_reinforce']
+                tools: ['engram_query', 'engram_store', 'engram_list', 'engram_get', 'engram_reinforce']
             }
         };
     }
@@ -54,7 +54,7 @@ function generateCursorConfig(backendUrl, apiKey, useMCP = false, mcpServerPath)
     if (apiKey)
         headers['x-api-key'] = apiKey;
     return {
-        name: 'OpenMemory',
+        name: 'Engram',
         type: 'http',
         endpoint: `${backendUrl}/api/ide/context`,
         method: 'POST',
@@ -68,7 +68,7 @@ function generateCursorConfig(backendUrl, apiKey, useMCP = false, mcpServerPath)
 }
 async function writeCursorConfig(backendUrl, apiKey, useMCP = false, mcpServerPath) {
     const cursorDir = path.join(os.homedir(), '.cursor', 'context_providers');
-    const configFile = path.join(cursorDir, 'openmemory.json');
+    const configFile = path.join(cursorDir, 'engram.json');
     if (!fs.existsSync(cursorDir)) {
         fs.mkdirSync(cursorDir, { recursive: true });
     }

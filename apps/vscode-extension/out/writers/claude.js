@@ -43,10 +43,10 @@ function generateClaudeConfig(backendUrl, apiKey, useMCP = false, mcpServerPath)
         const backendMcpPath = mcpServerPath || path.join(process.cwd(), 'backend', 'dist', 'ai', 'mcp.js');
         return {
             mcpServers: {
-                openmemory: {
+                engram: {
                     command: 'node',
                     args: [backendMcpPath],
-                    env: apiKey ? { OM_API_KEY: apiKey } : undefined
+                    env: apiKey ? { EG_API_KEY: apiKey } : undefined
                 }
             }
         };
@@ -61,7 +61,7 @@ function generateClaudeConfig(backendUrl, apiKey, useMCP = false, mcpServerPath)
 }
 async function writeClaudeConfig(backendUrl, apiKey, useMCP = false, mcpServerPath) {
     const claudeDir = path.join(os.homedir(), '.claude', 'providers');
-    const configFile = path.join(claudeDir, 'openmemory.json');
+    const configFile = path.join(claudeDir, 'engram.json');
     if (!fs.existsSync(claudeDir)) {
         fs.mkdirSync(claudeDir, { recursive: true });
     }
