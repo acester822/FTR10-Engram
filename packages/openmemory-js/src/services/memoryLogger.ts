@@ -30,8 +30,7 @@ export async function logInteractionAsync(
   try {
     console.log('[CodeCortex] 🧠 Analyzing conversation for new memories...');
 
-    const extractionPrompt = `
-### SYSTEM DIRECTIVE ###
+    const extractionPrompt = `### SYSTEM DIRECTIVE ###
 You are a background data-extraction API. You are NOT a chat assistant. 
 You do not answer questions. You do not write code. You do not converse.
 Your ONLY function is to analyze the provided text and output a strict JSON array of extracted facts.
@@ -39,49 +38,80 @@ Your ONLY function is to analyze the provided text and output a strict JSON arra
 CRITICAL RULE: If the user explicitly asks to "remember", "save", "store", or "add to memory" something, you MUST extract that exact information as a high-priority fact, regardless of whether it looks like documentation, a rule, or a preference. Treat explicit save requests as permanent (is_genome: true).
 
 ### INPUT DATA ###
-User Prompt: ${userPrompt}
-AI Response: ${llmResponseText}
+User Prompt: ${userPrompt.substring(0, 2000)}
+AI Response: ${llmResponseText.substring(0, 3000)}
 
 ### OUTPUT SCHEMA ###
 Return ONLY a valid JSON array. No markdown, no explanations, no conversational text.
 [
   {
     "content": "The extracted fact or rule",
-    "sector": "procedural", // Options: semantic, procedural, episodic, emotional, reflective
-    "is_genome": true // Set to true if the user explicitly asked to remember it as a permanent rule
+    "sector": "procedural",
+    "is_genome": true
   }
 ]
 If no facts are worth saving, return exactly: []
+
+### EXECUTE EXTRACTION NOW ###
 `.trim();
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000); // 30s timeout for extraction
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    
     try {
+      console.log('[CodeCortex DEBUG] Sending extraction request to Ollama...');
+      
       const response = await fetch(`${env.ollama_url}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: process.env.EXTRACTION_MODEL || "qwen2.5:3b",
+          model: process.env.EXTRACTION_MODEL || "qwen2.5:7b",
           prompt: extractionPrompt,
           stream: false,
-          format: "json"
+          format: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                content: { type: "string" },
+                sector: { type: "string", enum: ["semantic","procedural","episodic","emotional","reflective"] },
+                is_genome: { type: "boolean" }
+              },
+              required: ["content","sector","is_genome"]
+            }
+          },
+          options: {
+            temperature: 0.1,
+            num_predict: 500
+          }
         }),
         signal: controller.signal,
       });
 
       if (!response.ok) { 
         console.warn('[CodeCortex] Extraction LLM returned status', response.status); 
+        const errorText = await response.text();
+        console.error('[CodeCortex] Error response:', errorText);
         return { storedCount: 0 }; 
       }
 
       const data = await response.json();
+      
+      // DEBUG: Log the full response structure
+      console.log("[CodeCortex DEBUG] Full Ollama response:", JSON.stringify(data, null, 2));
+      
+      if (!data.response || typeof data.response !== 'string') {
+        console.error('[CodeCortex] Invalid response structure. data.response:', data.response);
+        return { storedCount: 0 };
+      }
+
       let extractedMemories: any[] = [];
       
       try {
-        const cleanJson = (data.response || "").replace(/^```json\s*|\s*```$/g, "").trim();
+        const cleanJson = data.response.replace(/^```json\s*|\s*```$/g, "").trim();
         extractedMemories = JSON.parse(cleanJson);
-      } catch { 
-        console.error('[CodeCortex] Failed to parse extraction JSON:', data.response); 
+      } catch (e) { 
+        console.error("[CodeCortex] Failed to parse extraction JSON. Raw output:", data.response); 
         return { storedCount: 0 }; 
       }
 
@@ -90,27 +120,24 @@ If no facts are worth saving, return exactly: []
         return { storedCount: 0 };
       }
 
-      // Store each extracted memory via the durable repository
+      // Store each extracted memory
       for (const mem of extractedMemories) {
         let decayRate = DEFAULT_PHENOTYPE_DECAY_RATE;
         if (mem.is_genome) decayRate = DEFAULT_GENOME_DECAY_RATE;
         else if (mem.sector === "episodic") decayRate = 0.15;
         else if (["semantic", "procedural"].includes(mem.sector)) decayRate = 0.05;
 
-        // Use real DB connection (not mock) so INSERT operations work properly
         await rememberDurableMemory(kit_make_db(run_async, all_async), {
           content: mem.content,
           user_id: "system",
           project_id: undefined,
-          metadata: { sector: mem.sector, decay_rate: decayRate },
+          metadata: { sector: mem.sector, decay_rate: decayRate, is_genome: mem.is_genome },
         });
 
         console.log(`[CodeCortex] 💾 Saved [${mem.sector}] memory: "${mem.content.substring(0, 60)}..."`);
       }
       
       console.log(`[CodeCortex] 💾 Saved ${extractedMemories.length} new memories.`);
-      
-      // Return the count of successfully stored memories
       return { storedCount: extractedMemories.length };
     } finally { 
       clearTimeout(timeoutId); 

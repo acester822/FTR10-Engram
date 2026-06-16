@@ -302,7 +302,7 @@ function MemoriesView() {
         payload.contracts = { is_genome: editForm.is_genome };
       }
       await fetch(`${API_BASE}/memories/${editingId}`, {
-        method: "PATCH",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });

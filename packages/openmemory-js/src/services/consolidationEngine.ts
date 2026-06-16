@@ -36,7 +36,7 @@ export interface ConsolidationResult {
 const CONSOLIDATION_THRESHOLD_HOURS = 24; // Memories older than 24h are candidates
 const MIN_MEMORIES_TO_CONSOLIDATE = 3;    // Don't consolidate unless we have at least 3 related memories
 const MAX_BATCH_SIZE = 10;                // Max episodic memories to consolidate per cycle
-const LOCAL_LLM_MODEL = process.env.CONSOLIDATION_MODEL || "qwen2.5:3b";
+const LOCAL_LLM_MODEL = process.env.CONSOLIDATION_MODEL || "qwen2.5:7b";
 const LOCAL_LLM_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 
 // ── Consolidation Engine ──────────────────────────────────────────────

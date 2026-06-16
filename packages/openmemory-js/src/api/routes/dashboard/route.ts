@@ -165,8 +165,11 @@ export const dashboard_route = (app: any) => {
     try {
       const id = req.params.id;
       if (!id) return bad(res, "id", "memory ID is required");
-      const { content, sector, is_genome } = req.body || {};
-      await updateMemory(id, content, sector, is_genome);
+      const body = req.body || {};
+      const content = body.content;
+      const sector = body.sector ?? (body.metadata as any)?.sector;
+      const isGenome = body.is_genome !== undefined ? body.is_genome : (body.contracts as any)?.is_genome;
+      await updateMemory(id, content, sector, isGenome);
       return res.json({ success: true });
     } catch (e: unknown) {
       fail(res, "dashboard_memory_update_failed", e);

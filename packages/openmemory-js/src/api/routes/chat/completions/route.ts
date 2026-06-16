@@ -183,31 +183,37 @@ export const chat_completions_route = (app: any) => {
       const cognitiveContext = buildCognitiveContext(genomeMemories, phenotypeMemories);
 
       // 1.5 Sanitize previous messages to remove CodeCortex status artifacts
-      // This prevents the LLM from seeing or echoing our UI status messages from history
-      const STATUS_RE = /🧠\s*\*?CodeCortex:\s*(Injected|Extraction complete)/g;
       const sanitizedMessages = body.messages
         .map((msg: any) => {
           if (msg.role === 'assistant' && typeof msg.content === 'string') {
             let cleanContent = msg.content;
-            // Remove initial injected status (handles variations in numbers/markdown)
-            cleanContent = cleanContent.replace(/🧠 \*?CodeCortex:\s*\*?Injected \d+ Genome and \d+ Phenotype memory\(ies\) into context\.\*\n?/g, '');
-            // Remove final extraction status (with or without preceding ---)
-            cleanContent = cleanContent.replace(/\n?---?\s*🧠 \*?CodeCortex:\s*\*?Extraction complete\. Stored \d+ new memory\(ies\)\.\*/g, '');
+            
+            // Create fresh regex instances for each message (no shared state!)
+            const injectedRe = /🧠 \*?CodeCortex:\s*\*?Injected \d+ Genome and \d+ Phenotype memory\(ies\) into context\.\*\n?/g;
+            const extractionRe = /\n?---?\s*🧠 \*?CodeCortex:\s*\*?Extraction complete\. Stored \d+ new memory\(ies\)\.\*/g;
+            const statusRe = /🧠\s*\*?CodeCortex:\s*(Injected|Extraction complete)[^\n]*/g;
+            
+            // Remove all status messages
+            cleanContent = cleanContent.replace(injectedRe, '');
+            cleanContent = cleanContent.replace(extractionRe, '');
+            cleanContent = cleanContent.replace(statusRe, '');
+            
             const trimmed = cleanContent.trim();
-            // Drop messages that are now empty or only whitespace after stripping status
+            
+            // Drop messages that are now empty
             if (!trimmed) return null;
-            // Also strip any remaining standalone status lines anywhere in the content
-            cleanContent = trimmed.replace(STATUS_RE, '');
-            if (!cleanContent.trim()) return null;
-            return { ...msg, content: cleanContent.trim() };
+            
+            return { ...msg, content: trimmed };
           }
-          // Also strip reasoning_content/reasoning from assistant messages (client leaks them into history)
+          
+          // Strip reasoning_content from assistant messages
           if (msg.role === 'assistant' && (msg.reasoning_content || msg.reasoning)) {
             const cleaned = { ...msg };
             delete cleaned.reasoning_content;
             delete cleaned.reasoning;
             return cleaned;
           }
+          
           return msg;
         })
         .filter((msg: any): msg is NonNullable<typeof msg> => msg !== null);
