@@ -6,6 +6,7 @@
 import { env } from "../configuration/index";
 import { get_model } from "../database/models";
 import { facetConfigs } from "./facets";
+import { embedCache } from "../utils/embedCache";
 import {
   canonical_tokens_from_text,
   add_synonym_tokens,
@@ -44,7 +45,19 @@ export async function embedForFacet(
   facet: string,
 ): Promise<number[]> {
   if (!facetConfigs[facet]) throw new Error(`Unknown facet: ${facet}`);
-  return await get_sem_emb(text, facet);
+
+  // Check cache first
+  const cacheKey = `${facet}:${text}`;
+  const cached = embedCache.get(cacheKey);
+  if (cached) return cached;
+
+  const result = await get_sem_emb(text, facet);
+
+  // Store in cache (only for non-synthetic to keep cache meaningful)
+  // We still cache synthetic results — they're deterministic and cheap to skip
+  embedCache.set(cacheKey, result);
+
+  return result;
 }
 
 async function embed_with_provider(

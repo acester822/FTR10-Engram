@@ -5,7 +5,7 @@
 
 import crypto from "node:crypto";
 import { env } from "../configuration";
-import { make_db as kit_make_db, run_async, all_async } from "../api/routes/_kit";
+import { make_db as kit_make_db, run_async, all_async, transaction } from "../api/routes/_kit";
 import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
 import { logger } from "../utils/logger";
 
@@ -183,7 +183,7 @@ If no actions are needed, return exactly: []
 ### EXECUTE CONSOLIDATION NOW ###`.trim();
 
     try {
-      console.log(`[Engram] 🧠 Sending ${candidates.length} related memories to ${CONSOLIDATION_MODEL} for consolidation...`);
+      logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, candidateCount: candidates.length }, `Sending ${candidates.length} related memories to ${CONSOLIDATION_MODEL} for consolidation...`);
 
       const response = await fetch(`${env.ollama_url}/api/generate`, {
         method: "POST",
@@ -230,7 +230,7 @@ If no actions are needed, return exactly: []
 
       return parsed as ConsolidationAction[];
     } catch (error) {
-      console.error("[Engram] ❌ Consolidation LLM failed:", error);
+      logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err: error }, 'Consolidation LLM failed');
       return [];
     }
   }
@@ -242,73 +242,88 @@ If no actions are needed, return exactly: []
     const db = kit_make_db(run_async, all_async);
     const candidateMap = new Map(candidates.map(c => [c.id, c]));
 
-    for (const action of actions) {
-      try {
-        logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action, reason: action.reason }, `Executing ${action.action.toUpperCase()}`);
+    // Wrap all actions in a single transaction so partial failures roll back
+    await db.query("BEGIN");
+    let hasError = false;
+    try {
+      for (const action of actions) {
+        try {
+          logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action, reason: action.reason }, `Executing ${action.action.toUpperCase()}`);
 
-        if (action.action === "delete") {
-          const placeholders = action.target_ids.map((_, i) => `$${i + 1}`).join(",");
-          await db.query(`DELETE FROM "public"."memories" WHERE id IN (${placeholders})`, action.target_ids);
-        }
-        else if (action.action === "merge" || action.action === "update") {
-          // For merge/update, new_content is REQUIRED. If LLM forgot it, synthesize from the source memories.
-          let content = action.new_content;
-
-          if (!content) {
-            const targetCandidates = action.target_ids.map(id => candidateMap.get(id)).filter(Boolean);
-            logger.warn({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action }, `${action.action} missing new_content — synthesizing from source memories`);
-            content = await this.synthesizeContent(targetCandidates as MemoryCandidate[]);
+          if (action.action === "delete") {
+            const placeholders = action.target_ids.map((_, i) => `$${i + 1}`).join(",");
+            await db.query(`DELETE FROM "public"."memories" WHERE id IN (${placeholders})`, action.target_ids);
+          }
+          else if (action.action === "merge" || action.action === "update") {
+            // For merge/update, new_content is REQUIRED. If LLM forgot it, synthesize from the source memories.
+            let content = action.new_content;
 
             if (!content) {
-              logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action }, `Synthesis failed for ${action.action}, skipping action`);
-              continue;
+              const targetCandidates = action.target_ids.map(id => candidateMap.get(id)).filter(Boolean);
+              logger.warn({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action }, `${action.action} missing new_content — synthesizing from source memories`);
+              content = await this.synthesizeContent(targetCandidates as MemoryCandidate[]);
+
+              if (!content) {
+                logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action }, `Synthesis failed for ${action.action}, skipping action`);
+                continue;
+              }
             }
-          }
 
-          const newSector = action.new_sector || candidateMap.get(action.target_ids[0])?.sector || "semantic";
-          const isGenome = action.is_genome !== undefined ? action.is_genome : candidateMap.get(action.target_ids[0])?.is_genome || false;
-          const decayRate = isGenome ? DEFAULT_GENOME_DECAY_RATE : DEFAULT_PHENOTYPE_DECAY_RATE;
+            const newSector = action.new_sector || candidateMap.get(action.target_ids[0])?.sector || "semantic";
+            const isGenome = action.is_genome !== undefined ? action.is_genome : candidateMap.get(action.target_ids[0])?.is_genome || false;
+            const decayRate = isGenome ? DEFAULT_GENOME_DECAY_RATE : DEFAULT_PHENOTYPE_DECAY_RATE;
 
-          // For merge/update, we update the first target ID and delete the rest to avoid duplicates
-          const primaryId = action.target_ids[0];
-          const idsToDelete = action.target_ids.slice(1);
-
-          await db.query(
-            `UPDATE "public"."memories"
-             SET content = $1,
-                 metadata = jsonb_set(jsonb_set(jsonb_set(metadata, '{sector}', to_jsonb($2::text)), '{is_genome}', to_jsonb($3::boolean)), '{decay_rate}', to_jsonb($4::numeric))
-             WHERE id = $5`,
-            [content, newSector, isGenome, decayRate, primaryId]
-          );
-
-          if (idsToDelete.length > 0) {
-            const placeholders = idsToDelete.map((_, i) => `$${i + 1}`).join(",");
-            await db.query(`DELETE FROM "public"."memories" WHERE id IN (${placeholders})`, idsToDelete);
-          }
-        }
-        else if (action.action === "promote") {
-          // Promote each target individually — content stays the same, just set is_genome=true
-          for (const targetId of action.target_ids) {
-            const candidate = candidateMap.get(targetId);
-            const newSector = action.new_sector || candidate?.sector || "semantic";
-            const decayRate = DEFAULT_GENOME_DECAY_RATE;
+            // For merge/update, we update the first target ID and delete the rest to avoid duplicates
+            const primaryId = action.target_ids[0];
+            const idsToDelete = action.target_ids.slice(1);
 
             await db.query(
               `UPDATE "public"."memories"
-               SET is_genome = true,
-                   metadata = jsonb_set(jsonb_set(metadata, '{is_genome}', 'true'::jsonb), '{sector}', to_jsonb($1::text)),
-                   decay_rate = $2::numeric
-               WHERE id = $3`,
-              [newSector, decayRate, targetId]
+               SET content = $1,
+                   metadata = jsonb_set(jsonb_set(jsonb_set(metadata, '{sector}', to_jsonb($2::text)), '{is_genome}', to_jsonb($3::boolean)), '{decay_rate}', to_jsonb($4::numeric))
+               WHERE id = $5`,
+              [content, newSector, isGenome, decayRate, primaryId]
             );
 
-            logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, memoryId: targetId }, `Promoted memory to genome`);
+            if (idsToDelete.length > 0) {
+              const placeholders = idsToDelete.map((_, i) => `$${i + 1}`).join(",");
+              await db.query(`DELETE FROM "public"."memories" WHERE id IN (${placeholders})`, idsToDelete);
+            }
           }
+          else if (action.action === "promote") {
+            // Promote each target individually — content stays the same, just set is_genome=true
+            for (const targetId of action.target_ids) {
+              const candidate = candidateMap.get(targetId);
+              const newSector = action.new_sector || candidate?.sector || "semantic";
+              const decayRate = DEFAULT_GENOME_DECAY_RATE;
+
+              await db.query(
+                `UPDATE "public"."memories"
+                 SET is_genome = true,
+                     metadata = jsonb_set(jsonb_set(metadata, '{is_genome}', 'true'::jsonb), '{sector}', to_jsonb($1::text)),
+                     decay_rate = $2::numeric
+                 WHERE id = $3`,
+                [newSector, decayRate, targetId]
+              );
+
+              logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, memoryId: targetId }, `Promoted memory to genome`);
+            }
+          }
+        } catch (err) {
+          hasError = true;
+          logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action, err }, 'Failed to execute consolidation action — will roll back entire batch');
+          break; // Exit the loop — outer try/catch handles rollback
         }
-      } catch (err) {
-        logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action, err }, 'Failed to execute consolidation action');
-        // Continue to next action even if one fails
       }
+
+      if (hasError) {
+        await db.query("ROLLBACK");
+      } else {
+        await db.query("COMMIT");
+      }
+    } catch (err) {
+      await db.query("ROLLBACK");
+      logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Transaction failed in executeActions');
     }
   }
 
@@ -346,22 +361,21 @@ If no actions are needed, return exactly: []
    */
   public start(): void {
     const intervalMs = 30 * 60 * 1000; // every 30 minutes
-    const realDb = { query: (sql: string, params?: unknown[]) => all_async(sql, params as any[] ?? []).then((rows) => ({ rows })) };
 
     // Run once immediately on startup, then periodically
     this.runConsolidation().catch((err) => {
-      console.error("[Engram] Initial consolidation cycle failed:", err);
+      logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Initial consolidation cycle failed');
     });
 
     const timer = setInterval(() => {
       this.runConsolidation().catch((err) => {
-        console.error("[Engram] Scheduled consolidation cycle failed:", err);
+        logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Scheduled consolidation cycle failed');
       });
     }, intervalMs);
 
     timer.unref?.(); // Don't prevent process exit
 
-   logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, intervalMs: 1800000 }, 'Consolidation engine scheduled');
+    logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, intervalMs: 1800000 }, 'Consolidation engine scheduled');
   }
 }
 

@@ -5,6 +5,7 @@
 
 import { env } from "../../configuration/index";
 import crypto from "crypto";
+import { logger } from "../../utils/logger";
 
 const rate_limit_store = new Map<
   string,
@@ -106,6 +107,12 @@ export function authenticate_api_request(req: any, res: any, next: any) {
     });
   if (!validate_api_key(provided, auth_config.api_key))
     return res.status(403).json({ error: "invalid_api_key" });
+
+  // Surface authenticated identity to downstream request handlers
+  const keyHash = crypto.createHash("sha256").update(provided).digest("hex");
+  req.auth_user_id = `key:${keyHash.slice(0, 16)}`;
+  req.auth_key_hash = keyHash.slice(0, 8);
+
   const client_id = get_client_id(req, provided);
   const rl = check_rate_limit(client_id);
   if (auth_config.rate_limit_enabled) {
@@ -122,11 +129,9 @@ export function authenticate_api_request(req: any, res: any, next: any) {
 }
 
 export function log_authenticated_request(req: any, res: any, next: any) {
-  const key = extract_api_key(req);
-  if (key)
-    console.log(
-      `[AUTH] ${req.method} ${req.path} [${crypto.createHash("sha256").update(key).digest("hex").slice(0, 8)}...]`,
-    );
+  if (req.auth_key_hash) {
+    logger.info({ module: 'auth', method: req.method, path: req.path, keyHash: req.auth_key_hash }, `${req.method} ${req.path} [${req.auth_key_hash}]`);
+  }
   next();
 }
 

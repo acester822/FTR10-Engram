@@ -6,6 +6,7 @@
 import { rememberDurableMemory } from "../../../../durable/repository";
 import { local_add } from "../../../../database/localstore";
 import { embed } from "../../../../embeddings/embed";
+import { genomeCache } from "../../../../services/genomeCache";
 import { bad, fail, mem_ref, obj, to_memory, type remember_req, type route_ctx } from "../../_kit";
 
 export const memory_create_route = (app: any, ctx: route_ctx) => {
@@ -24,6 +25,7 @@ export const memory_create_route = (app: any, ctx: route_ctx) => {
       const embedding = await embed(body.content);
       if (ctx.mem) {
         const memory = await local_add(to_memory(body, embedding));
+        genomeCache.invalidate();
         return res.json({
           id: memory.id,
           memory_id: memory.id,
@@ -34,6 +36,7 @@ export const memory_create_route = (app: any, ctx: route_ctx) => {
       }
 
       const memory = await rememberDurableMemory(ctx.db, to_memory(body, embedding));
+      genomeCache.invalidate();
       if (ctx.vec) {
         await ctx.vec.upsert({
           id: memory.id,

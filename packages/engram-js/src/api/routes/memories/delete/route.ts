@@ -5,6 +5,7 @@
 
 import { deleteDurableMemory } from "../../../../durable/repository";
 import { local_delete } from "../../../../database/localstore";
+import { genomeCache } from "../../../../services/genomeCache";
 import { bad, fail, type delete_req, type route_ctx } from "../../_kit";
 
 export const memory_delete_route = (app: any, ctx: route_ctx) => {
@@ -23,6 +24,7 @@ export const memory_delete_route = (app: any, ctx: route_ctx) => {
         reason: body.reason,
       });
       if (!deleted) return res.status(404).json({ err: "not_found" });
+      genomeCache.invalidate();
       if (ctx.vec) await ctx.vec.delete(req.params.id);
       return res.json({ ok: true, adapter: "durable-postgres", deleted: { id: req.params.id } });
     } catch (e: unknown) {

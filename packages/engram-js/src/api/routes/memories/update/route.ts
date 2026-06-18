@@ -6,6 +6,7 @@
 import { DurableConflictError, updateDurableMemory } from "../../../../durable/repository";
 import { local_update } from "../../../../database/localstore";
 import { embed } from "../../../../embeddings/embed";
+import { genomeCache } from "../../../../services/genomeCache";
 import { bad, fail, has_update, mem_ref, obj, type route_ctx, type update_req } from "../../_kit";
 
 export const memory_update_route = (app: any, ctx: route_ctx) => {
@@ -44,6 +45,7 @@ export const memory_update_route = (app: any, ctx: route_ctx) => {
         expected_version: body?.expected_version,
       });
       if (!updated) return res.status(404).json({ err: "not_found" });
+      genomeCache.invalidate();
       if (ctx.vec && body.content)
         await ctx.vec.upsert({
           id: req.params.id,

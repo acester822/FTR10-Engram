@@ -4,6 +4,7 @@
 */
 
 import { moveDurableMemoryTier } from "../../../../durable/repository";
+import { genomeCache } from "../../../../services/genomeCache";
 import { bad, fail, type route_ctx, type tier_req } from "../../_kit";
 
 export const memory_tier_route = (app: any, ctx: route_ctx) => {
@@ -23,6 +24,7 @@ export const memory_tier_route = (app: any, ctx: route_ctx) => {
         reason: body.reason,
       });
       if (!moved) return res.status(404).json({ err: "not_found" });
+      genomeCache.invalidate();
       return res.json({ adapter: "durable-postgres", memory: moved });
     } catch (e: unknown) {
       fail(res, "tier_failed", e);

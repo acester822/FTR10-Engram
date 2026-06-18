@@ -8,7 +8,9 @@ import { consolidationEngine } from "../../../../services/consolidationEngine";
 import { compactionEngine } from "../../../../services/compactionEngine";
 import { classifyMemory, DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, computeDecaySalience, MemoryInjector } from "../../../../services/memoryInjector";
 import { buildInjectionStatus, buildExtractionStatus, stripEngramStatus, isEngramStatus } from "../../../../services/engramStatus";
+import { genomeCache } from "../../../../services/genomeCache";
 import { logger } from "../../../../utils/logger";
+import { retryFetch } from "../../../../utils/retry";
 import { recallDurableMemories, rememberDurableMemory } from "../../../../durable/repository";
 import { make_db as kit_make_db, run_async, all_async } from "../../_kit";
 import { logInteractionAsync } from "../../../../services/memoryLogger";
@@ -39,14 +41,22 @@ interface PhenotypeMemory {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
+/**
+ * Sanitize memory content to prevent prompt injection via delimiter break-out.
+ * Strips any occurrences of the ENGRAM delimiter markers from recall content.
+ */
+function sanitizeMemoryContent(content: string): string {
+  return content.replace(/\[END?\s*ENGRAM[^\]]*\]/gi, '[ENGRAM CONTENT — REDACTED]');
+}
+
 /** Build cognitive context from genome + phenotype memories */
 function buildCognitiveContext(genome: GenomeMemory[], phenotype: PhenotypeMemory[]): string {
-  let ctx = "[CODECORTEX COGNITIVE CONTEXT]\n";
+  let ctx = "[ENGRAM COGNITIVE CONTEXT]\n";
 
   if (genome.length > 0) {
     ctx += "--- CORE DIRECTIVES (GENOME) ---\n";
     for (const m of genome) {
-      ctx += `- ${m.content}\n`;
+      ctx += `- ${sanitizeMemoryContent(m.content)}\n`;
     }
     ctx += "\n";
   }
@@ -56,7 +66,7 @@ function buildCognitiveContext(genome: GenomeMemory[], phenotype: PhenotypeMemor
     const grouped: Record<string, string[]> = {};
     for (const m of phenotype) {
       if (!grouped[m.sector]) grouped[m.sector] = [];
-      grouped[m.sector].push(m.content);
+      grouped[m.sector].push(sanitizeMemoryContent(m.content));
     }
     for (const [sector, contents] of Object.entries(grouped)) {
       ctx += `[${sector.toUpperCase()}]\n`;
@@ -67,7 +77,7 @@ function buildCognitiveContext(genome: GenomeMemory[], phenotype: PhenotypeMemor
     }
   }
 
-  ctx += "[END CODECORTEX CONTEXT]\n";
+  ctx += "[END ENGRAM CONTEXT]\n";
   ctx += "Use the above context silently to inform your response. Do not explicitly mention \"Engram\" or the context blocks unless directly asked about your memory.\n";
   return ctx;
 }
@@ -142,6 +152,20 @@ export const chat_completions_route = (app: any) => {
         return res.status(400).json({ err: "messages is required" });
       }
 
+      // P0 #1: Override client-supplied user_id with authenticated identity
+      // to prevent user impersonation across API keys
+      if (req.auth_user_id) {
+        if (body.user_id && body.user_id !== req.auth_user_id) {
+          logger.warn({
+            module: 'chatRoute',
+            claimedUser: body.user_id,
+            authUser: req.auth_user_id,
+            keyHash: req.auth_key_hash,
+          }, `Client claimed user_id="${body.user_id}" but key is bound to "${req.auth_user_id}" — overriding`);
+        }
+        body.user_id = req.auth_user_id;
+      }
+
       // Extract user's last message first
       const userMessage = body.messages[body.messages.length - 1];
       const userPrompt = typeof userMessage.content === "string" ? userMessage.content : JSON.stringify(userMessage.content);
@@ -152,15 +176,21 @@ export const chat_completions_route = (app: any) => {
       // Use proper db executor (matches what all other routes use)
       const db = kit_make_db(run_async, all_async);
 
-      // Fetch genome memories from durable store
+      // Fetch genome memories from durable store (with cache — genomes are near-immutable)
       let genomeMemories: GenomeMemory[] = [];
-      try {
-        const result = await db.query(
-          `select id, content from "public"."memories" where is_genome = true and memory_tier != 'archived' order by recorded_at desc limit 10`,
-          [],
-        );
-        genomeMemories = (result.rows || []).map((r: any) => ({ id: r.id, content: r.content }));
-      } catch { /* schema may not exist yet */ }
+      const cachedGenomes = genomeCache.get();
+      if (cachedGenomes) {
+        genomeMemories = cachedGenomes;
+      } else {
+        try {
+          const result = await db.query(
+            `select id, content from "public"."memories" where is_genome = true and memory_tier != 'archived' order by recorded_at desc limit 10`,
+            [],
+          );
+          genomeMemories = (result.rows || []).map((r: any) => ({ id: r.id, content: r.content }));
+          genomeCache.set(genomeMemories);
+        } catch { /* schema may not exist yet */ }
+      }
       // Fetch phenotype memories via vector search on user prompt
       let phenotypeMemories: PhenotypeMemory[] = [];
       try {
@@ -171,7 +201,7 @@ export const chat_completions_route = (app: any) => {
           sector: r.sector || (r.metadata as any)?.sector || "semantic",
           score: r.score,
         }));
-      } catch (err: any) { console.warn("[Engram] Phenotype recall failed:", err.message); }
+      } catch (err: any) { logger.warn({ module: 'chatRoute', err: err.message }, 'Phenotype recall failed'); }
 
       logger.debug({ module: 'chatRoute', model: body.model || "default", action: 'memory_recall', genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length }, 'Memory recall completed');
 
@@ -215,11 +245,11 @@ export const chat_completions_route = (app: any) => {
       // 3. Inject into System Prompt (check for duplicates to avoid Jinja template errors)
       const enrichedMessages = [...processedMessages];
       const hasCognitiveContext = enrichedMessages.some(m =>
-        m.role === 'system' && typeof m.content === 'string' && (m.content.includes('[CODECORTEX COGNITIVE CONTEXT]') || m.content.includes('[COMPACTED SESSION SUMMARY]'))
+        m.role === 'system' && typeof m.content === 'string' && (m.content.includes('[ENGRAM COGNITIVE CONTEXT]') || m.content.includes('[COMPACTED SESSION SUMMARY]'))
       );
 
       if (!hasCognitiveContext) {
-        const cognitiveContextBlock = `[CODECORTEX COGNITIVE CONTEXT]\n${cognitiveContext}\n[END CODECORTEX CONTEXT]\nUse the above context silently to inform your response. Do not explicitly mention "Engram" or the context blocks unless directly asked about your memory.\n\n`;
+        const cognitiveContextBlock = `[ENGRAM COGNITIVE CONTEXT]\n${cognitiveContext}\n[END ENGRAM CONTEXT]\nUse the above context silently to inform your response. Do not explicitly mention "Engram" or the context blocks unless directly asked about your memory.\n\n`;
 
         if (enrichedMessages.length > 0 && enrichedMessages[0].role === "system") {
           // Prepend to the existing system message so it stays at index 0
@@ -254,10 +284,15 @@ export const chat_completions_route = (app: any) => {
 
       let llmResponse: Response;
       try {
-        llmResponse = await fetch(`${llmUrl}/chat/completions`, {
+        llmResponse = await retryFetch(`${llmUrl}/chat/completions`, {
           method: "POST",
           headers,
           body: JSON.stringify(llmPayload),
+        }, {
+          retries: 2,
+          baseDelayMs: 1000,
+          circuitBreakerHost: llmUrl,
+          retryOnStatus: (status) => status === 408 || status === 429 || status === 502 || status === 503 || status === 504,
         });
       } finally {
         if (release) release();
@@ -275,11 +310,6 @@ export const chat_completions_route = (app: any) => {
         res.setHeader("Connection", "keep-alive");
         (res as any)._streaming = true;
 
-        const tracePayload = JSON.stringify({
-          genome: genomeMemories.map((m) => m.content),
-          phenotype: phenotypeMemories.map((m) => ({ sector: m.sector, content: m.content, score: Number(m.score.toFixed(2)) })),
-        });
-
         // INITIAL STATUS: Tell the user what memory was injected BEFORE the LLM starts
         const initialStatus = buildInjectionStatus(genomeMemories.length, phenotypeMemories.length, compactionFactCount || undefined);
         res.write(createSSEChunk(initialStatus, body.model));
@@ -288,18 +318,6 @@ export const chat_completions_route = (app: any) => {
         if (!reader) {
           return res.status(500).json({ err: "No response body from LLM" });
         }
-
-        // Inject _trace into each SSE chunk so the SDK streaming parser can extract it
-        const traceInjected = (dataStr: string): string => {
-          try {
-            const json = JSON.parse(dataStr);
-            if (json.choices && Array.isArray(json.choices) && json.choices[0]) {
-              json.choices[0]._trace = JSON.parse(tracePayload);
-              return JSON.stringify(json);
-            }
-          } catch { /* not valid JSON, pass through */ }
-          return dataStr;
-        };
 
         const decoder = new TextDecoder();
         let fullLlmResponseText = ""; // Accumulate for async logging
@@ -342,6 +360,14 @@ export const chat_completions_route = (app: any) => {
 
         // 7. CLOSE STREAM
         res.write('data: [DONE]\n\n');
+
+        // Send trace after [DONE] so client Zod validation doesn't choke on non-OpenAI fields
+        const tracePayload = JSON.stringify({
+          genome: genomeMemories.map((m) => m.content),
+          phenotype: phenotypeMemories.map((m) => ({ sector: m.sector, content: m.content, score: Number(m.score.toFixed(2)) })),
+        });
+        res.write(`event: engram_trace\ndata: ${tracePayload}\n\n`);
+
         res.end();
       } else {
         // Non-streaming: collect full response then send as JSON

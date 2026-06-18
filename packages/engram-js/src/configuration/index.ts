@@ -4,6 +4,7 @@
 */
 
 import { load_env_files } from "./envFile";
+import { logger } from "../utils/logger";
 
 load_env_files(__dirname);
 
@@ -30,6 +31,45 @@ const DEFAULT_EMBEDDING_FALLBACK = str(process.env.EG_MODEL_EMBEDDING_FALLBACK, 
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+
+/**
+ * Validate required env vars at startup. Call before starting the server.
+ * Throws on missing or invalid values so the process fails loud and early.
+ */
+export function validateEnv(): void {
+  const errors: string[] = [];
+
+  // Required for production-safe operation
+  if (!process.env.EG_API_KEY && (bool(process.env.EG_REQUIRE_API_KEY) || process.env.NODE_ENV === "production")) {
+    errors.push("EG_API_KEY is required when EG_REQUIRE_API_KEY is set or NODE_ENV=production");
+  }
+
+  // PostgreSQL
+  if (!process.env.EG_PG_PASSWORD) {
+    errors.push("EG_PG_PASSWORD is required for database connection");
+  }
+  if (!process.env.EG_PG_DB) {
+    errors.push("EG_PG_DB is recommended — defaulting to 'engram'");
+  }
+
+  // Embedding dimension compatibility warning
+  const vecDim = num(process.env.EG_VEC_DIM, 1536);
+  if (vecDim < 128 || vecDim > 4096) {
+    errors.push(`EG_VEC_DIM=${vecDim} is out of typical range (128-4096)`);
+  }
+
+  // Payload size limits
+  const maxPayload = num(process.env.EG_MAX_PAYLOAD_SIZE, 1_000_000);
+  if (maxPayload < 10_000 || maxPayload > 100_000_000) {
+    errors.push(`EG_MAX_PAYLOAD_SIZE=${maxPayload} is suspiciously small or large`);
+  }
+
+  if (errors.length > 0) {
+    for (const err of errors) {
+      logger.warn({ module: 'config' }, `Config validation: ${err}`);
+    }
+  }
+}
 
 export const env = {
   port: num(process.env.EG_PORT, 8080),

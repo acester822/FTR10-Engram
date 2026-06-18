@@ -3,7 +3,7 @@
  - what is the file used for: creates and starts the engram http server app
 */
 
-import { env } from "../configuration/index";
+import { env, validateEnv } from "../configuration/index";
 import { routes } from "./routes";
 import {
   authenticate_api_request,
@@ -14,6 +14,7 @@ import { createHttpApp } from "./httpApp";
 import { consolidationEngine } from "../services/consolidationEngine";
 import { run_migrations } from "../database/migrate";
 import { logger } from "../utils/logger";
+import { embed } from "../embeddings/embed";
 
 export function createApp() {
   const app = createHttpApp({ max_payload_size: env.max_payload_size });
@@ -55,13 +56,59 @@ export function createApp() {
   return app;
 }
 
+/**
+ * Pre-load the embedding model on boot so the first user request isn't subject
+ * to Ollama's cold-start model-load latency. Non-fatal — if Ollama is down,
+ * embeddings will fall back through the provider chain at runtime.
+ */
+async function warmupEmbedding(): Promise<void> {
+  if (env.emb_kind !== "ollama") {
+    logger.debug({ module: 'warmup', provider: env.emb_kind }, 'Skipping embedding warmup (non-Ollama provider)');
+    return;
+  }
+
+  const model = env.embed_model_primary;
+  try {
+    // First check if Ollama is reachable and has the model
+    const tagsRes = await fetch(`${env.ollama_url}/api/tags`);
+    if (!tagsRes.ok) {
+      logger.warn({ module: 'warmup', status: tagsRes.status }, `Ollama returned ${tagsRes.status} — skipping warmup`);
+      return;
+    }
+
+    const body: any = await tagsRes.json();
+    const available = body.models?.some(
+      (m: any) => m.name === model || m.name.startsWith(model),
+    );
+
+    if (!available) {
+      logger.warn({ module: 'warmup', model }, `Embedding model "${model}" not found in Ollama — will load lazily on first request`);
+      return;
+    }
+
+    // Send a tiny dummy embedding to force model load
+    const start = Date.now();
+    await embed("_warmup_");
+    const elapsed = Date.now() - start;
+    logger.info({ module: 'warmup', model, elapsedMs: elapsed }, `Embedding model "${model}" warmed up in ${elapsed}ms`);
+  } catch (err) {
+    logger.warn({ module: 'warmup' }, `Ollama unreachable at ${env.ollama_url} — embeddings will fall back at runtime`);
+  }
+}
+
 export async function startServer() {
+  // Validate configuration before starting
+  validateEnv();
+
   // Run database migrations before starting the server
   try {
     await run_migrations();
   } catch (err) {
     logger.error({ module: 'server' }, `Migration failed, but continuing: ${err}`);
   }
+
+  // Warm up the embedding model so the first user request isn't cold
+  await warmupEmbedding();
 
   const app = createApp();
 

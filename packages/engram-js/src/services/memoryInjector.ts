@@ -66,7 +66,7 @@ export function classifyMemory(content: string): MemoryClassificationResult {
   let sector = "semantic";
   if (/\b(?:deploy|build|run|install|compile)\b/i.test(content)) sector = "procedural";
   else if (/\b(?:today|yesterday|tomorrow|last night|this morning)\b/i.test(content)) sector = "episodic";
-  else if (/\b(?:frustrat|hppy|love|hate|annoyed|excited|disappointed)\b/i.test(content)) sector = "emotional";
+  else if (/\b(?:frustrated|frustrating|frustration|happy|love|hate|annoyed|excited|disappointed)\b/i.test(content)) sector = "emotional";
   else if (/\b(?:lesson|learned|realized|understand|summary|conclusion)\b/i.test(content)) sector = "reflective";
 
   return { is_genome: isGenome, sector };

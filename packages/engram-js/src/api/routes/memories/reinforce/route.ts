@@ -5,6 +5,7 @@
 
 import { reinforceDurableMemory } from "../../../../durable/repository";
 import { local_reinforce } from "../../../../database/localstore";
+import { genomeCache } from "../../../../services/genomeCache";
 import { bad, fail, mem_ref, type reinforce_req, type route_ctx } from "../../_kit";
 
 export const memory_reinforce_route = (app: any, ctx: route_ctx) => {
@@ -20,6 +21,7 @@ export const memory_reinforce_route = (app: any, ctx: route_ctx) => {
         boost: body?.boost,
       });
       if (!reinforced) return res.status(404).json({ err: "not_found" });
+      genomeCache.invalidate();
       const out = { adapter: ctx.mem ? ctx.store : "durable-postgres", ...reinforced };
       return res.json({ ...out, memory: mem_ref(out) });
     } catch (e: unknown) {

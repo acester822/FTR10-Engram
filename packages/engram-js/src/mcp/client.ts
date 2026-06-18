@@ -17,12 +17,14 @@ export class DurableMcpClient {
   constructor(config: DurableMcpClientConfig = {}) {
     this.baseUrl = (
       config.base_url ||
-      process.env.EG_OPENMEMORY_URL ||
+      process.env.EG_ENGRAM_URL ||
+      process.env.EG_OPENMEMORY_URL || // legacy
       "http://localhost:8080"
     ).replace(/\/$/, "");
     this.apiKey =
       config.api_key ||
-      process.env.EG_OPENMEMORY_API_KEY ||
+      process.env.EG_ENGRAM_API_KEY ||
+      process.env.EG_OPENMEMORY_API_KEY || // legacy
       process.env.EG_API_KEY;
     this.fetcher = config.fetcher || fetch;
   }

@@ -5,6 +5,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { logger } from "../utils/logger";
 
 const val = (raw: string) => {
   const txt = raw.trim();
@@ -29,7 +30,13 @@ const load = (file: string) => {
       const m = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
       if (m && !process.env[m[1]]) process.env[m[1]] = val(m[2] || "");
     }
-  } catch {}
+  } catch {
+    // .env is optional; only warn on actual read errors (permission, broken filesystem)
+    const exists = fs.existsSync(file);
+    if (exists) {
+      logger.warn({ module: 'config', file }, `Failed to load .env file that exists at ${file}`);
+    }
+  }
 };
 
 export const load_env_files = (base = __dirname) => {

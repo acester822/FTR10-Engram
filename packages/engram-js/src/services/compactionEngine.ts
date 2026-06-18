@@ -4,7 +4,7 @@
  */
 
 import { env } from "../configuration";
-import { make_db as kit_make_db, run_async, all_async } from "../api/routes/_kit";
+import { make_db as kit_make_db, run_async, all_async, transaction } from "../api/routes/_kit";
 import { rememberDurableMemory } from "../durable/repository";
 import { DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
 import { logger } from "../utils/logger";
@@ -269,24 +269,35 @@ export class CompactionEngine {
     const db = kit_make_db(run_async, all_async);
     let savedCount = 0;
 
-    for (const fact of facts) {
-      if (!fact.content || fact.content.trim().length < 10) continue;
+    // Wrap in transaction so partial failures roll back all saves
+    await db.query("BEGIN");
+    try {
+      for (const fact of facts) {
+        if (!fact.content || fact.content.trim().length < 10) continue;
 
-      try {
-        await rememberDurableMemory(db, {
-          content: fact.content,
-          user_id: "system",
-          project_id: undefined,
-          metadata: {
-            sector: fact.sector || "semantic",
-            decay_rate: DEFAULT_PHENOTYPE_DECAY_RATE,
-            source: "compaction_engine"
-          },
-        });
-        savedCount++;
-      } catch (err) {
-        logger.warn({ module: 'compactionEngine', model: COMPACTION_MODEL, content: fact.content }, 'Failed to save compaction fact');
+        try {
+          await rememberDurableMemory(db, {
+            content: fact.content,
+            user_id: "system",
+            project_id: undefined,
+            metadata: {
+              sector: fact.sector || "semantic",
+              decay_rate: DEFAULT_PHENOTYPE_DECAY_RATE,
+              source: "compaction_engine"
+            },
+          });
+          savedCount++;
+        } catch (err) {
+          logger.warn({ module: 'compactionEngine', model: COMPACTION_MODEL, content: fact.content }, 'Failed to save compaction fact — will roll back');
+          await db.query("ROLLBACK");
+          return savedCount; // Return partial count (0) since rolled back
+        }
       }
+      await db.query("COMMIT");
+    } catch (err) {
+      await db.query("ROLLBACK");
+      logger.error({ module: 'compactionEngine', model: COMPACTION_MODEL, err }, 'Transaction failed in saveExtractedFacts');
+      return 0;
     }
 
     return savedCount;
