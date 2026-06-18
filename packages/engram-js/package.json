@@ -18,7 +18,7 @@
     "test": "npm run build && tsx --test tests/*.test.ts ../../MDRS/*.test.ts ../../benchmark/tests/*.test.ts",
     "start": "node dist/server.js",
     "migrate": "tsx src/database/migrate.ts",
-    "migration-report": "tsx src/database/legacymigrationreport.ts",
+    "migration-report": "tsx src/database/legacyMigrationReport.ts",
     "release-smoke": "npm run build && node dist/releaseSmoke.js"
   },
   "dependencies": {

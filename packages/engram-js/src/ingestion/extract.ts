@@ -5,6 +5,7 @@
 
 import type { ExtractionCandidateInput } from "../durable/repository";
 import { buildExtractionCandidateInput } from "../durable/ingestion";
+import { chunkTextForCandidates } from "./chunking";
 
 export class OptionalExtractorUnavailable extends Error {
   constructor(
@@ -160,4 +161,62 @@ export function extractionToCandidateInput(input: {
     },
     contracts: input.contracts,
   });
+}
+
+/**
+ * Split oversized ingestion content into paragraph-aware chunks and emit
+ * one `ExtractionCandidateInput` per chunk. When the input already fits
+ * within `target_chars`, returns a single-element array (so callers can
+ * branch on length without duplicating the no-chunk path).
+ *
+ * Each returned candidate has its own `content`. Chunk provenance is
+ * captured in `metadata.chunk`: { index, count, start, end, total_chars }.
+ * The shared event_id and source metadata are preserved across all chunks.
+ */
+export function extractionToCandidateInputs(
+  input: {
+    event_id: string;
+    user_id?: string;
+    project_id?: string;
+    source?: {
+      kind?: string;
+      uri?: string;
+      id?: string;
+      observed_at?: string | Date;
+    };
+    content: ExtractedDocumentContent;
+    metadata?: Record<string, unknown>;
+    contracts?: Record<string, unknown>;
+  },
+  options: { target_chars?: number } = {},
+): ExtractionCandidateInput[] {
+  const text = input.content.text;
+  const chunks = chunkTextForCandidates(text, options);
+  if (chunks.length <= 1) {
+    return [extractionToCandidateInput(input)];
+  }
+
+  const totalChars = text.length;
+  return chunks.map((chunk) =>
+    buildExtractionCandidateInput({
+      event_id: input.event_id,
+      user_id: input.user_id,
+      project_id: input.project_id,
+      source: input.source,
+      content: chunk.text,
+      metadata: {
+        ...input.metadata,
+        ...input.content.metadata,
+        chunk: {
+          index: chunk.index,
+          count: chunks.length,
+          start: chunk.start,
+          end: chunk.end,
+          total_chars: totalChars,
+          estimated_tokens: chunk.estimated_tokens,
+        },
+      },
+      contracts: input.contracts,
+    }),
+  );
 }

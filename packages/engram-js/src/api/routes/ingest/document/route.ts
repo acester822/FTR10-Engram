@@ -8,9 +8,10 @@ import {
   OptionalExtractorUnavailable,
   extractDocumentContent,
   extractUrlContent,
-  extractionToCandidateInput,
+  extractionToCandidateInputs,
 } from "../../../../ingestion/extract";
 import { bad, fail, obj, type doc_req, type route_ctx } from "../../_kit";
+import { env } from "../../../../configuration/index";
 
 export const ingest_document_route = (app: any, ctx: route_ctx) => {
   app.post("/ingest/document", async (req: any, res: any) => {
@@ -51,9 +52,13 @@ export const ingest_document_route = (app: any, ctx: route_ctx) => {
         contracts: body.contracts,
         observed_at: body.observed_at,
       });
-      const candidate = await createExtractionCandidate(
-        ctx.db,
-        extractionToCandidateInput({
+
+      // Split oversized documents into paragraph-aware chunks so each
+      // candidate fits within embedding context and stays individually
+      // reviewable via /ingest/candidates/{accept,reject}. The shared
+      // event_id ties all chunk candidates back to the same source event.
+      const candidateInputs = extractionToCandidateInputs(
+        {
           event_id: event.id,
           user_id: body.user_id,
           project_id: body.project_id,
@@ -61,9 +66,25 @@ export const ingest_document_route = (app: any, ctx: route_ctx) => {
           content,
           metadata: body.metadata,
           contracts: body.contracts,
-        }),
+        },
+        { target_chars: env.ingest_chunk_target_chars },
       );
-      return res.json({ adapter: "durable-postgres", event, candidate });
+
+      const candidates = [];
+      for (const input of candidateInputs) {
+        candidates.push(await createExtractionCandidate(ctx.db, input));
+      }
+
+      if (candidates.length === 1) {
+        return res.json({ adapter: "durable-postgres", event, candidate: candidates[0] });
+      }
+      return res.json({
+        adapter: "durable-postgres",
+        event,
+        candidates,
+        chunked: true,
+        chunk_count: candidates.length,
+      });
     } catch (e: unknown) {
       if (e instanceof OptionalExtractorUnavailable)
         return res.status(422).json({

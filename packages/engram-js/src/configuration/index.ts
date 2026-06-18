@@ -78,4 +78,5 @@ export const env = {
   local_model_path: str(process.env.EG_LOCAL_MODEL_PATH),
   vec_dim: num(process.env.EG_VEC_DIM, 1536),
   max_payload_size: num(process.env.EG_MAX_PAYLOAD_SIZE, 1_000_000),
+  ingest_chunk_target_chars: num(process.env.EG_INGEST_CHUNK_TARGET_CHARS, 3000),
 };
