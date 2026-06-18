@@ -17,6 +17,20 @@ const num = (v: string | undefined, d: number) => {
 };
 const bool = (v: string | undefined) => ["1", "true", "yes", "on"].includes(str(v).toLowerCase());
 
+// ── Default model names — all models are configurable via EG_MODEL_* env vars ──
+
+const DEFAULT_GENERATIVE_MODEL   = str(process.env.EG_MODEL_GENERATIVE,  "qwen3.5:2b");
+const DEFAULT_GENERATIVE_FALLBACK = str(process.env.EG_MODEL_GENERATIVE_FALLBACK, "qwen2.5:3b");
+const DEFAULT_EMBEDDING_MODEL    = str(process.env.EG_MODEL_EMBEDDING,   "qwen3-embedding:0.6b");
+const DEFAULT_EMBEDDING_FACET    = (facet: string) => {
+  const key = `EG_MODEL_EMBED_${facet.toUpperCase()}`;
+  return str(process.env[key], DEFAULT_EMBEDDING_MODEL);
+};
+const DEFAULT_EMBEDDING_FALLBACK = str(process.env.EG_MODEL_EMBEDDING_FALLBACK, "bge-m3")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 export const env = {
   port: num(process.env.EG_PORT, 8080),
   api_key: process.env.EG_API_KEY,
@@ -30,8 +44,8 @@ export const env = {
   storage_backend: str(process.env.EG_STORAGE, "postgres").toLowerCase(),
   sqlite_path: str(process.env.EG_SQLITE_PATH, "./engram.sqlite"),
   valkey_url: str(process.env.EG_REDIS_URL, "redis://localhost:6379"),
-  emb_kind: str(process.env.EG_EMBEDDINGS, "synthetic"),
-  embedding_fallback: str(process.env.EG_EMBEDDING_FALLBACK, "synthetic")
+  emb_kind: str(process.env.EG_EMBEDDINGS, "ollama"),
+   embedding_fallback: str(process.env.EG_MODEL_EMBEDDING_FALLBACK, "bge-m3")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean),
@@ -46,7 +60,21 @@ export const env = {
   siray_key: process.env.EG_SIRAY_API_KEY || process.env.EG_SIRAY_API_TOKEN || "",
   siray_base_url: str(process.env.EG_SIRAY_BASE_URL, "https://api.siray.ai/v1"),
   ollama_url: str(process.env.EG_OLLAMA_URL, "http://localhost:11434"),
-  llm_url: str(process.env.EG_UPSTREAM_LLM_URL, ""),
+  // ── Generative models ──
+   generative_model: DEFAULT_GENERATIVE_MODEL,
+   fallback_model: DEFAULT_GENERATIVE_FALLBACK,
+
+   // ── Embedding model (primary) ──
+   embed_model_primary: DEFAULT_EMBEDDING_MODEL,
+
+   // Per-facet embedding overrides — EG_MODEL_EPOCHISODIC / EG_MODEL_SEMANTIC etc.
+   get embed_model_episodic(): string { return DEFAULT_EMBEDDING_FACET("episodic"); },
+   get embed_model_semantic(): string { return DEFAULT_EMBEDDING_FACET("semantic"); },
+   get embed_model_procedural(): string { return DEFAULT_EMBEDDING_FACET("procedural"); },
+   get embed_model_emotional(): string { return DEFAULT_EMBEDDING_FACET("emotional"); },
+   get embed_model_reflective(): string { return DEFAULT_EMBEDDING_FACET("reflective"); },
+
+   llm_url: str(process.env.EG_UPSTREAM_LLM_URL, ""),
   local_model_path: str(process.env.EG_LOCAL_MODEL_PATH),
   vec_dim: num(process.env.EG_VEC_DIM, 1536),
   max_payload_size: num(process.env.EG_MAX_PAYLOAD_SIZE, 1_000_000),

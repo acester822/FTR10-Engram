@@ -1,54 +1,24 @@
-### USER
-The other part of what I want Engram to do is memory compaction, it should be thinning requests to the llm's to eliminate unneeded fluff as well as compacting conversations on the fly to keep context down no matter the length of the session. Thoughts on how to accomplish this?
+# Compaction Engine
+
+### Flow: sanitize → compact → inject genome/phenotype → forward to LLM
 
 ### ASSISTANT
-This is the exact right evolution for an agentic memory system. If you don't compact context, long sessions will inevitably hit token limits, cause "lost in the middle" degradation, and waste massive amounts of VRAM/compute on redundant tool outputs and LLM pleasantries.
+Here is the fully updated `compactionEngine.ts` that implements all four architectural refinements we agreed upon:
 
-To accomplish this, we will implement a **Rolling Summary + Raw Tail** architecture, augmented by **Aggressive Thinning**. 
+1. **Semantic Memory Integration**: Extracts facts alongside the summary and saves them to the Phenotype DB.
+2. **Message Count Triggering**: Keeps the fast O(1) trigger, with aggressive thinning to prevent overflow.
+3. **Incremental Compaction**: Returns a clean `[System Summary] + [Raw Tail]` structure that never grows.
+4. **Hard Truncation Fallback**: If the LLM fails, it drops old history entirely instead of risking overflow.
 
-Here is the blueprint for how Engram will handle this seamlessly.
-
----
-
-### 🧠 The Compaction Strategy
-
-Instead of sending the entire 50-turn conversation to the upstream LLM, Engram will dynamically restructure the payload *before* forwarding it:
-
-1. **The Raw Tail:** Always keep the last $N$ messages (e.g., 6 messages / 3 turns) completely raw. This ensures the LLM has perfect, detailed context for the *immediate* task.
-2. **The Thinned History:** Take everything *older* than the Raw Tail. Strip out verbose LLM pleasantries ("Sure, I can help with that!"), redundant tool call outputs, and massive file dumps.
-3. **The Rolling Summary:** Pass this thinned history to a fast, local model (like `qwen2.5:3b`) with a strict prompt: *"Compress this history into a dense, bulleted list of key decisions, code changes, and user preferences. Omit all fluff."*
-4. **The Reconstruction:** `[System Prompt] + [Compacted Summary] + [Raw Tail] + [New User Prompt]`.
-
-This guarantees the context size never exceeds a strict maximum, no matter if the session is 10 turns or 1,000 turns.
-
----
-
-### Step 1: Add Compaction Config to `.env`
-
-Add these variables to control the compaction behavior:
-
-```env
-# Memory Compaction Settings
-# Model used for summarizing old context (must be fast and local)
-COMPACTION_MODEL=qwen2.5:3b
-
-# Trigger compaction when total messages exceed this number
-COMPACTION_TRIGGER=12
-
-# Always keep this many recent messages completely raw (must be an even number for full turns)
-MAX_RAW_TURNS=6
-```
-
----
-
-### Step 2: Create the Compaction Engine
-
-Create a new file: `packages/engram-js/src/services/compactionEngine.ts`
+### Updated `packages/engram-js/src/services/compactionEngine.ts`
 
 ```typescript
 import { env } from "../configuration";
+import { make_db as kit_make_db, run_async, all_async } from "../api/routes/_kit";
+import { rememberDurableMemory } from "../durable/repository";
+import { DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
 
-const COMPACTION_MODEL = process.env.COMPACTION_MODEL || "qwen2.5:3b";
+const COMPACTION_MODEL = process.env.COMPACTION_MODEL || "qwen2.5:7b"; // Bumped to 7b for better extraction
 const COMPACTION_TRIGGER = parseInt(process.env.COMPACTION_TRIGGER || "12", 10);
 const MAX_RAW_TURNS = parseInt(process.env.MAX_RAW_TURNS || "6", 10);
 
@@ -60,59 +30,77 @@ interface Message {
   name?: string;
 }
 
+interface CompactionResult {
+  messages: Message[];
+  extractedFactCount: number;
+}
+
+interface ExtractedFact {
+  content: string;
+  sector: "semantic" | "procedural" | "episodic" | "emotional" | "reflective";
+}
+
 export class CompactionEngine {
   /**
    * Checks if compaction is needed and performs it if so.
-   * Returns the optimized message array.
+   * Returns the optimized message array and the count of facts saved to the DB.
    */
-  public async compactIfNeeded(messages: Message[]): Promise<Message[]> {
+  public async compactIfNeeded(messages: Message[]): Promise<CompactionResult> {
     // 1. Check if we need to compact
     if (messages.length <= COMPACTION_TRIGGER) {
-      return messages;
- (messages.length - MAX_RAW_TURNS);
+      return { messages, extractedFactCount: 0 };
+    }
+
+    // 2. Isolate: Split into old history and recent raw tail
+    const oldMessages = messages.slice(0, messages.length - MAX_RAW_TURNS);
     const recentMessages = messages.slice(-MAX_RAW_TURNS);
 
-    console.log(`[Engram] ⚙️ Triggering context compaction. Thinning ${oldMessages.length} messages...`);
+    console.log(`[Engram] ⚙️ Triggering context compaction. Thinning ${oldMessages.length} old messages...`);
 
     // 3. Aggressive Thinning (Heuristic pre-processing)
     const thinnedHistory = this.thinMessages(oldMessages);
 
-    // 4. Summarize via Local LLM
-    const summary = await this.generateSummary(thinnedHistory);
+    // 4. Summarize & Extract Facts via Local LLM (Single call for efficiency)
+    const { summary, extractedFacts } = await this.generateSummaryAndExtract(thinnedHistory);
 
-    // 5. Reconstruct the payload
+    // 5. Save extracted facts to Phenotype DB (Recursive Learning Loop)
+    let savedCount = 0;
+    if (extractedFacts.length > 0) {
+      savedCount = await this.saveExtractedFacts(extractedFacts);
+      console.log(`[Engram] 💾 Compaction extracted and saved ${savedCount} new phenotype memories.`);
+    }
+
+    // 6. Reconstruct the payload: [System Summary] + [Raw Tail]
     const compactedSystemMessage: Message = {
       role: "system",
       content: `[COMPACTED SESSION SUMMARY]\n${summary}\n[END COMPACTED SUMMARY]`,
     };
 
-    return [compactedSystemMessage, ...recentMessages];
+    return {
+      messages: [compactedSystemMessage, ...recentMessages],
+      extractedFactCount: savedCount,
+    };
   }
 
   /**
-   * Heuristically removes fluff before sending to the summarizer LLM.
+   * Heuristically removes fluff and truncates massive outputs before sending to the LLM.
    */
   private thinMessages(messages: Message[]): Message[] {
     return messages
       .map((msg) => {
-        // Thin verbose assistant pleasantries
-        if (msg.role === "assistant" && typeof msg.content === "string") {
-          const lower = msg.content.toLowerCase();
-          if (
-            lower.includes("sure, i can help") ||
-            lower.includes("let me know if you need") ||
-            lower.includes("here is the code")
-          ) {
-            // Keep it, but the summarizer will compress it further. 
-            // We mainly want to truncate massive tool outputs.
-          }
-        }
-
         // Truncate massive tool outputs (e.g., full file reads)
         if (msg.role === "tool" && typeof msg.content === "string" && msg.content.length > 2000) {
           return {
             ...msg,
             content: `${msg.content.substring(0, 1500)}\n\n... [TRUNCATED FOR COMPACTION: ${msg.content.length - 1500} chars omitted] ...`,
+          };
+        }
+
+        // Truncate massive assistant responses
+        if (msg.role === "assistant" && typeof msg.content === "string" && msg.content.length > 3000) {
+          return {
+            ...msg,
+            content: `${msg.content.substring(0, 2500)}\n\n... [TRUNCATED FOR COMPACTION] ...`,
           };
         }
 
@@ -129,9 +117,9 @@ export class CompactionEngine {
   }
 
   /**
-   * Calls the local Ollama instance to generate a dense summary.
+   * Calls the local Ollama instance to generate a dense summary AND extract facts in a single pass.
    */
-  private async generateSummary(thinnedHistory: Message[]): Promise<string> {
+  private async generateSummaryAndExtract(thinnedHistory: Message[]): Promise<{ summary: string; extractedFacts: ExtractedFact[] }> {
     const historyText = thinnedHistory
       .map((m) => {
         const role = m.role.toUpperCase();
@@ -141,17 +129,37 @@ export class CompactionEngine {
       .join("\n---\n");
 
     const prompt = `
-You are an elite conversation compressor. Your job is to distill the following chat history into a highly dense, bulleted summary.
-RULES:
-1. EXTRACT: Key user preferences, architectural decisions, file paths modified, and bugs fixed.
-2. OMIT: All pleasantries, conversational fluff, repeated tool calls, and verbose explanations.
-3. FORMAT: Use concise bullet points. Be extremely brief. Max 300 words.
-4. TONE: Objective, factual, and dense.
+You are an elite conversation compressor and fact extractor. Your job is to analyze the following chat history and output a JSON object with two fields: "summary" and "facts".
+
+RULES FOR SUMMARY:
+1. Distill the history into a highly dense, bulleted summary.
+2. EXTRACT: Key user preferences, architectural decisions, file paths modified, and bugs fixed.
+3. OMIT: All pleasantries, conversational fluff, repeated tool calls, and verbose explanations.
+4. Max 300 words. Tone: Objective, factual, and dense.
+
+RULES FOR FACTS:
+1. Extract any NEW, DURABLE facts that are worth remembering for future sessions.
+2. Focus on: user preferences, project architecture decisions, recurring bugs, and workflow patterns.
+3. Do NOT extract transient facts (e.g., "the user asked to run echo hello").
+4. Categorize each fact into a sector: semantic, procedural, episodic, emotional, or reflective.
+
+OUTPUT SCHEMA:
+Return ONLY a valid JSON object. No markdown, no explanations.
+{
+  "summary": "The compacted summary text...",
+  "facts": [
+    {
+      "content": "The extracted fact",
+      "sector": "procedural"
+    }
+  ]
+}
+If no facts are worth saving, return an empty array for "facts".
 
 CONVERSATION HISTORY:
 ${historyText}
 
-COMPACTED SUMMARY:
+JSON OUTPUT:
 `.trim();
 
     try {
@@ -162,22 +170,67 @@ COMPACTED SUMMARY:
           model: COMPACTION_MODEL,
           prompt: prompt,
           stream: false,
+          format: "json", // Force valid JSON output
           options: {
-            temperature: 0.1, // Keep it highly deterministic and factual
-            num_predict: 500, // Cap the output length
+            temperature: 0.1,
+            num_predict: 800,
           },
         }),
       });
 
-      if (!response.ok) throw new Error(`Compaction LLM failed: ${response.status}`);
+      if (!response.ok) throw new Error(`Compaction LLM returned status ${response.status}`);
       
       const data = await response.json();
-      return data.response.trim();
+      const rawResponse = (data.response || "").replace(/^```json\s*|\s*```$/g, "").trim();
+      
+      const parsed = JSON.parse(rawResponse);
+      
+      return {
+        summary: parsed.summary || "No summary generated.",
+        extractedFacts: Array.isArray(parsed.facts) ? parsed.facts : [],
+      };
     } catch (error) {
-      console.error("[Engram] ❌ Compaction summarization failed:", error);
-      // Fallback: If compaction fails, just return the thinned history as a raw block to prevent data loss
-      return "ERROR: Compaction failed. Fallback to raw thinned history:\n" + historyText.substring(0, 2000);
+      console.error("[Engram] ❌ Compaction summarization/extraction failed:", error);
+      
+      // FALLBACK: Hard truncation. Drop the old history entirely to prevent overflow.
+      // We only keep a tiny note that compaction failed.
+      const fallbackSummary = `[COMPACTION ERROR] The previous ${thinnedHistory.length} messages were dropped due to a compaction engine failure. Only the most recent ${MAX_RAW_TURNS} messages are available.`;
+      
+      return {
+        summary: fallbackSummary,
+        extractedFacts: [], // No facts extracted on failure
+      };
     }
+  }
+
+  /**
+   * Saves extracted facts to the Phenotype DB.
+   */
+  private async saveExtractedFacts(facts: ExtractedFact[]): Promise<number> {
+    const db = kit_make_db(run_async, all_async);
+    let savedCount = 0;
+
+    for (const fact of facts) {
+      if (!fact.content || fact.content.trim().length < 10) continue; // Skip trivial facts
+
+      try {
+        await rememberDurableMemory(db, {
+          content: fact.content,
+          user_id: "system",
+          project_id: undefined,
+          metadata: { 
+            sector: fact.sector || "semantic", 
+            decay_rate: DEFAULT_PHENOTYPE_DECAY_RATE,
+            source: "compaction_engine" // Tag these as coming from compaction
+          },
+        });
+        savedCount++;
+      } catch (err) {
+        console.warn(`[Engram] Failed to save compaction fact: ${fact.content}`, err);
+      }
+    }
+
+    return savedCount;
   }
 }
 
@@ -186,107 +239,38 @@ export const compactionEngine = new CompactionEngine();
 
 ---
 
-### Step 3: Integrate into the Proxy Route
+### How to Integrate This into `route.ts`
 
-Update your `packages/engram-js/src/api/routes/chat/completions/route.ts` to run compaction *before* injecting the Engram Genome/Phenotype context.
+Now that `compactIfNeeded` returns an object with both the messages and the extracted fact count, you need to update your `route.ts` to handle this new return type.
 
-Find the section where you build the messages, and update it to this:
+Find the section where you call the compaction engine and update it:
 
 ```typescript
-import { compactionEngine } from "../../../../services/compactionEngine"; // Add this import
+// Old:
+// let processedMessages = body.messages;
+// if (body.messages.length > parseInt(process.env.COMPACTION_TRIGGER || "12", 10)) {
+//   processedMessages = await compactionEngine.compactIfNeeded(body.messages);
+// }
 
-// ... inside the route handler ...
+// New:
+let processedMessages = body.messages;
+let compactionFactCount = 0;
 
-      // 1. COMPACT: Thin and summarize old history if the session is getting long
-      let processedMessages = body.messages;
-      if (body.messages.length > parseInt(process.env.COMPACTION_TRIGGER || "12", 10)) {
-        processedMessages = await compactionEngine.compactIfNeeded(body.messages);
-      }
+if (body.messages.length > parseInt(process.env.COMPACTION_TRIGGER || "12", 10)) {
+  const compactionResult = await compactionEngine.compactIfNeeded(body.messages);
+  processedMessages = compactionResult.messages;
+  compactionFactCount = compactionResult.extractedFactCount;
+}
 
-      // 2. BUILD COGNITIVE CONTEXT (Genome + Phenotype)
-      const userPrompt = typeof processedMessages[processedMessages.length - 1].content === "string" 
-        ? processedMessages[processedMessages.length - 1].content 
-        : JSON.stringify(processedMessages[processedMessages.length - 1].content);
-
-      const injector = new MemoryInjector();
-      const db = kit_make_db(run_async, all_async);
-
-      // ... [Keep your existing Genome/Phenotype fetching logic here] ...
-
-      const cognitiveContext = buildCognitiveContext(genomeMemories, phenotypeMemories);
-
-      // 3. INJECT: Merge cognitive context into the FIRST system message of the COMPACTED payload
-      const cognitiveContextBlock = `[CODECORTEX COGNITIVE CONTEXT]\n${cognitiveContext}\n[END CODECORTEX CONTEXT]\nUse the above context silently to inform your response. Do not explicitly mention "Engram" or the context blocks unless directly asked about your memory.\n\n`;
-
-      if (processedMessages.length > 0 && processedMessages[0].role === "system") {
-        processedMessages[0].content = cognitiveContextBlock + processedMessages[0].content;
-      } else {
-        processedMessages.unshift({ role: "system", content: cognitiveContextBlock });
-
-      }
-
-      // 4. FORWARD to Upstream LLM
-      const llmPayload = {
-        ...body,
-        model: body.model || process.env.CHAT_MODEL || env.openai_model,
-        messages: processedMessages, // <-- Use the compacted, enriched messages!
-      };
-
-// ... [Keep the rest of your streaming and logging logic exactly as it is] ...
+// ... later in the code, when you build the initial status ...
+const initialStatus = `🧠 *Engram: Injected ${genomeMemories.length} Genome and ${phenotypeMemories.length} Phenotype memory(ies) into context.*${compactionFactCount > 0 ? `\n⚙️ *Compacted session history and saved ${compactionFactCount} new memories.*` : ""}\n\n`;
 ```
 
----
+### Why This Implementation is Production-Ready:
 
-### Why This Architecture is Perfect for Engram
+1. **Single LLM Call**: By asking for both the summary and the facts in one JSON object, we cut the compaction latency in half compared to making two separate calls.
+2. **Recursive Learning**: Every time a session gets long enough to trigger compaction, the system automatically extracts the key decisions and saves them to the Phenotype DB. These facts will then be available for *future* sessions via the normal memory recall process.
+3. **Safe Fallback**: If the 7B model hallucinates invalid JSON or times out, the fallback doesn't try to send the raw history (which could overflow the upstream LLM's context). Instead, it hard-drops the old messages and inserts a clear error note, preserving only the `MAX_RAW_TURNS`.
+4. **Source Tagging**: The saved facts are tagged with `source: "compaction_engine"` in their metadata, making it easy to query or debug which memories were created by compaction vs. normal extraction.
 
-1. **Guaranteed Token Ceiling:** No matter if the user has a 5-turn or 500-turn session, the upstream LLM only ever sees: `[System] + [~300 word Summary] + [Last 3 Turns Raw] + [New Prompt]`. This keeps token usage and VRAM predictable and low.
-2. **Zero "Lost in the Middle":** By keeping the `MAX_RAW_TURNS` completely unmodified, the LLM retains perfect, granular context for the *current* task (e.g., the exact error message from the last tool call), while the older context is safely compressed.
-3. **Aggressive Fluff Removal:** The `thinMessages` heuristic pre-truncates massive tool outputs (like reading a 5,000-line file), and the LLM summarizer is explicitly instructed to ignore pleasantries and repeated actions.
-4. **Local & Private:** The compaction step uses your local `COMPACTION_MODEL` (e.g., `qwen2.5:3b`), which runs in milliseconds on the CPU. It does not touch the MSI Raider's VRAM or incur any cloud API costs.
-
-### How to Test It
-1. Add the `.env` variables and restart the server.
-2. Open Kilo and start a long conversation. Ask it to read a large file, make a change, ask a follow-up, make another change, etc., at least 6-7 times.
-3. Watch your server logs. On the 7th or 8th turn, you will see:
-   `[Engram] ⚙️ Triggering context compaction. Thinning X messages...`
-4. The response will remain lightning fast, and the upstream LLM will still know exactly what you are talking about, because the summary was injected into the system prompt.
-
-### USER
-Roughly, how many tokens would you estimate to be the max request size using that code?
-
-### ASSISTANT
-Based on the code in `route.ts` and the example payload in `toolcall.txt`, here is a rough estimate of the **maximum request size (input tokens)** for a single turn.
-
-For a typical session with the full Kilo toolset loaded, you are looking at roughly **10,000 to 15,000 input tokens**. 
-
-Here is the breakdown of where those tokens come from:
-
-### 1. Tool Definitions (The Biggest Chunk): ~6,000 – 9,000 tokens
-Looking at `toolcall.txt`, the `tools` array is massive. It contains definitions for 60+ tools (`bash`, `read`, `edit`, `glob`, `grep`, `playwright`, `chrome-devtools`, `apify`, etc.). 
-* Each tool definition averages 100–150 tokens.
-* This is sent on **every single request** so the LLM knows what it can call.
-
-### 2. System Prompt (Kilo + Engram): ~2,500 – 3,000 tokens
-* **Kilo's Base Prompt:** The extensive personality, rules, security, and operational safety guidelines (~2,000–2,500 tokens).
-* **Engram Context:** The injected `[CODECORTEX COGNITIVE CONTEXT]` block with Genome and Phenotype memories (~200–400 tokens).
-
-### 3. Conversation History: ~1,500 – 4,000 tokens
-* **With Compaction (Recommended):** The `compactionEngine` summarizes old turns into a dense ~300-word block (~400 tokens) and keeps only the last 3 turns raw (~1,000–1,500 tokens). Total: **~1,500–2,000 tokens**.
-* **Without Compaction (At trigger limit):** If compaction hasn't kicked in yet (e.g., exactly 12 messages / 6 turns with tool calls and results), this can reach **~3,000–4,000 tokens**.
-
-### 4. Current User Prompt + Environment: ~300 – 800 tokens
-* The user's actual question plus the `<environment_details>` block (open files, working directory, etc.).
-
----
-
-### Total Estimated Input Tokens: ~10,300 – 16,800 tokens
-
-### What about Output Tokens?
-Your `.env` or request config likely has `"max_tokens": 16384` (as seen in `toolcall.txt`). 
-* **Total Context Window Usage:** ~15,000 (input) + ~4,000 (average output) = **~19,000 tokens**.
-* This easily fits within the context windows of modern models like Qwen 2.5 (32k/128k), GLM-4, or Claude.
-
-### How Engram Protects You from Token Bloat
-Without the **Compaction Engine** we added, a 20-turn coding session with file reads and tool outputs could easily push the history to **30,000+ tokens**, risking context window limits and "lost in the middle" degradation. 
-
-Because `route.ts` now runs `compactionEngine.compactIfNeeded()` before forwarding, the history portion is strictly capped, ensuring your request size stays predictably in that **10k–15k token range** no matter how long the session lasts.
+Let me know if you want to tweak the extraction prompt or adjust the truncation thresholds!

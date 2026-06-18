@@ -1,17 +1,28 @@
 /*
  - filename: packages/engram-js/src/database/models.ts
- - what is the file used for: resolves embedding model names from .env vars with hardcoded defaults as fallback
+ - what is the file used for: resolves embedding model names from .env vars with config-driven defaults as fallback — no hardcoded models
 */
+
+import { env } from "../configuration/index";
 
 interface model_cfg {
   [facet: string]: Record<string, string>;
 }
 let cfg: model_cfg | null = null;
 
+// Provider-level default models (used when no env override exists for a facet/provider pair).
+// These are the "universal defaults" — each can be overridden via EG_<PROVIDER>_MODEL.
+const PROVIDER_DEFAULTS: Record<string, string> = {
+  openai: "text-embedding-3-small",
+  gemini: "models/gemini-embedding-001",
+  aws:    "amazon.titan-embed-text-v2:0",
+  siray:  "text-embedding-3-small",
+};
+
 export const load_models = (): model_cfg => {
   if (cfg) return cfg;
 
-  // Build config from .env vars — starts with hardcoded defaults, then env overrides apply
+  // Build config from .env vars — starts with env-driven defaults, then env overrides apply
   const facets = ["episodic", "semantic", "procedural", "emotional", "reflective"];
   const providers = ["ollama", "openai", "gemini", "aws", "siray", "local"];
 
@@ -31,61 +42,20 @@ export const load_models = (): model_cfg => {
         cfg[facet][provider] = process.env[providerKey];
         continue;
       }
-      // Fallback to hardcoded defaults
-      cfg[facet][provider] = get_defaults()[facet]?.[provider] || "bge-m3";
+      // Env-driven per-facet default: EG_MODEL_EMBED_<FACET>
+      const facetEnvVar = `EG_MODEL_EMBED_${facet.toUpperCase()}`;
+      if (process.env[facetEnvVar]) {
+        cfg[facet][provider] = process.env[facetEnvVar];
+        continue;
+      }
+      // Provider-level default (config-driven)
+      cfg[facet][provider] = PROVIDER_DEFAULTS[provider] || env.embed_model_primary;
     }
   }
 
   console.error("[MODELS] Using env-based model configuration");
   return cfg;
 };
-
-const get_defaults = (): model_cfg => ({
-  episodic: {
-    ollama: "bge-m3",
-    openai: "text-embedding-3-small",
-    gemini: "models/gemini-embedding-001",
-    aws: "amazon.titan-embed-text-v2:0",
-    siray: "text-embedding-3-small",
-    local: "bge-m3",
-  },
-  semantic: {
-    ollama: "bge-m3",
-    openai: "text-embedding-3-small",
-    gemini: "models/gemini-embedding-001",
-    aws: "amazon.titan-embed-text-v2:0",
-    siray: "text-embedding-3-small",
-    local: "bge-m3",
-  },
-  procedural: {
-    ollama: "nomic-embed-text",
-    openai: "text-embedding-3-small",
-    gemini: "models/gemini-embedding-001",
-    aws: "amazon.titan-embed-text-v2:0",
-    local: "bge-m3",
-  },
-  emotional: {
-    ollama: "all-MiniLM-L6-v2",
-    openai: "text-embedding-3-small",
-    gemini: "models/gemini-embedding-001",
-    aws: "amazon.titan-embed-text-v2:0",
-    local: "bge-m3",
-  },
-  reflective: {
-    ollama: "bge-m3",
-    openai: "text-embedding-3-small",
-    gemini: "models/gemini-embedding-001",
-    aws: "amazon.titan-embed-text-v2:0",
-    local: "bge-m3",
-  },
-});
-
-const env_key = (provider: string, facet?: string) =>
-  ["OM", provider, facet, "MODEL"]
-    .filter(Boolean)
-    .join("_")
-    .replace(/[^A-Z0-9_]/gi, "_")
-    .toUpperCase();
 
 export function resolveEmbeddingModel(
   facet: string,
@@ -95,29 +65,29 @@ export function resolveEmbeddingModel(
     models?: model_cfg;
   } = {},
 ): string {
-  const env = options.env || process.env;
+  const env_ = options.env || process.env;
   const normalizedProvider = provider.trim().toLowerCase();
   const normalizedFacet = facet.trim().toLowerCase();
   const facetOverride =
-    env[env_key(normalizedProvider, normalizedFacet)] ||
-    env[
+    env_[
       `EG_${normalizedProvider.toUpperCase()}_${normalizedFacet.toUpperCase()}_MODEL`
     ];
   if (facetOverride) return facetOverride;
 
   const providerOverride =
-    env[env_key(normalizedProvider)] ||
-    env[`EG_${normalizedProvider.toUpperCase()}_MODEL`];
+    env_[`EG_${normalizedProvider.toUpperCase()}_MODEL`];
   if (providerOverride) return providerOverride;
 
-  if (env.EG_EMBED_MODEL) return env.EG_EMBED_MODEL;
+  // EG_EMBED_MODEL overrides everything
+  if (env_.EG_EMBED_MODEL) return env_.EG_EMBED_MODEL;
 
-  const cfg = options.models || load_models();
+  const cfg_ = options.models || load_models();
+  // Fallback chain: facet → semantic → openai → universal default
   return (
-    cfg[normalizedFacet]?.[normalizedProvider] ||
-    cfg.semantic?.[normalizedProvider] ||
-    cfg.semantic?.openai ||
-    "bge-m3"
+    cfg_[normalizedFacet]?.[normalizedProvider] ||
+    cfg_.semantic?.[normalizedProvider] ||
+    cfg_.semantic?.openai ||
+    env.embed_model_primary               // universal default
   );
 }
 

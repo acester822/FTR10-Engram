@@ -8,7 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 const port = Number(process.env.EG_RELEASE_SMOKE_PORT || 18080);
 process.env.EG_PORT ||= String(port);
-process.env.EG_EMBEDDINGS ||= "synthetic";
+process.env.EG_EMBEDDINGS ||= "ollama";
 process.env.EG_REQUIRE_API_KEY ||= "false";
 
 type Json = Record<string, any>;

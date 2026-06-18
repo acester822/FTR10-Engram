@@ -23,7 +23,7 @@ export const send_telemetry = async () => {
     const payload = {
       name: os.hostname(),
       os: os.platform(),
-      embeddings: env.emb_kind || "synthetic",
+      embeddings: env.emb_kind || "ollama",
       metadata: "postgres",
       version: ver(),
       ram,

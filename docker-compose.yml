@@ -1,5 +1,4 @@
 services:
-  # ── PostgreSQL (primary memory storage) ──────────────────────────────
   postgres:
     image: pgvector/pgvector:0.8.2-pg16-trixie
     restart: unless-stopped
@@ -22,7 +21,6 @@ services:
     networks:
       - ftr10-engram
 
-  # ── Redis (optional cache / valkey storage) ──────────────────────────
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -33,7 +31,6 @@ services:
     networks:
       - ftr10-engram
 
-  # ── Ollama (local LLM engine) ────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
     container_name: engram-ollama
@@ -41,84 +38,45 @@ services:
     ports:
       - "11434:11434"
     volumes:
-      - ollama_data:/root/.ollama
+      - ./models:/root/.ollama
     environment:
-      - OLLAMA_HOST=0.0.0.0:11434
-      # Pin all models indefinitely — never unload from RAM/VRAM
-      - OLLAMA_KEEP_ALIVE=-1
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_NUM_PARALLEL: 1
     networks:
       - ftr10-engram
     healthcheck:
       test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 20s
 
-  # ── Engram Server ────────────────────────────────────────────────
+  model-loader:
+    image: node:20-alpine
+    restart: "no"
+    volumes:
+      - ./scripts:/scripts:ro
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      HOT_MODEL: qwen3.5:2b
+    networks:
+      - ftr10-engram
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/scripts/load-models.sh"]
+
   engram:
     build:
       context: ./packages/engram-js
       dockerfile: Dockerfile
     ports:
       - "8098:8080"
+    env_file:
+      - .env
     environment:
-      EG_PORT: ${EG_PORT:-8080}
-
-      # PostgreSQL (primary storage)
       EG_PG_HOST: postgres
-      EG_PG_PORT: 5432
-      EG_PG_DB: ${EG_PG_DB:-engram}
-      EG_PG_USER: ${EG_PG_USER:-postgres}
-      EG_PG_PASSWORD: ${EG_PG_PASSWORD:-postgres}
-      EG_PG_SCHEMA: ${EG_PG_SCHEMA:-public}
-      EG_PG_SSL: disable
-
-      # Storage backend (postgres, sqlite, valkey/redis)
-      EG_STORAGE: postgres
-      EG_SQLITE_PATH: /data/engram.sqlite
-
-      # Embedding provider & model overrides
-      EG_EMBEDDINGS: ollama
-      EG_EMBEDDING_FALLBACK: ollama
-      EG_VEC_DIM: ${EG_VEC_DIM:-1536}
-
-      # Vector store (postgres, qdrant, pinecone, weaviate, chroma, milvus)
-      EG_VECTOR_STORE: postgres
-      EG_VECTOR_COLLECTION: engram_memories
-
-     # Ollama (local embeddings & LLM)
-      OLLAMA_URL: http://ollama:11434
       EG_OLLAMA_URL: http://ollama:11434
-
-      # Embedding model overrides (per-facet)
-      EG_OPENAI_MODEL: ${EG_OPENAI_MODEL:-text-embedding-3-small}
-      EG_GEMINI_MODEL: ${EG_GEMINI_MODEL:-models/gemini-embedding-001}
-      EG_OLLAMA_MODEL: bge-m3
-
-      # Per-facet Ollama embedding overrides (recommended models)
-      EG_OLLAMA_EPISODIC_MODEL: bge-m3
-      EG_OLLAMA_SEMANTIC_MODEL: bge-m3
-      EG_OLLAMA_PROCEDURAL_MODEL: nomic-embed-text
-      EG_OLLAMA_EMOTIONAL_MODEL: all-MiniLM-L6-v2
-      EG_OLLAMA_REFLECTIVE_MODEL: bge-m3
-
-      # LLM for consolidation / extraction
-      EG_UPSTREAM_LLM_URL: http://10.10.10.41:8080/v1
-      EG_CONSOLIDATION_MODEL: qwen2.5:14b
-      EG_EXTRACTION_MODEL: qwen2.5:7b
-
-      # Auth & telemetry
-      EG_API_KEY: ${EG_API_KEY:-}
-      EG_REQUIRE_API_KEY: ${EG_REQUIRE_API_KEY:-false}
-      EG_LOG_AUTH: ${EG_LOG_AUTH:-false}
-      EG_TELEMETRY: ${EG_TELEMETRY:-true}
-
-      # Server limits
-      EG_MAX_PAYLOAD_SIZE: ${EG_MAX_PAYLOAD_SIZE:-1000000}
-      EG_RATE_LIMIT_ENABLED: ${EG_RATE_LIMIT_ENABLED:-false}
-      EG_RATE_LIMIT_WINDOW_MS: ${EG_RATE_LIMIT_WINDOW_MS:-60000}
-      EG_RATE_LIMIT_MAX_REQUESTS: ${EG_RATE_LIMIT_MAX_REQUESTS:-100}
-
     volumes:
       - server_data:/data
     networks:
@@ -130,25 +88,10 @@ services:
         condition: service_started
       ollama:
         condition: service_healthy
+      model-loader:
+        condition: service_completed_successfully
     restart: unless-stopped
-    entrypoint: >
-      sh -c "
-        echo 'Waiting for Ollama to be reachable...' &&
-        while ! node -e \"fetch('http://ollama:11434/api/version').catch(()=>process.exit(1))\" 2>/dev/null; do sleep 1; done &&
-        echo 'Ollama is ready.' &&
-        echo 'Pulling qwen2.5:7b...' &&
-        node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'qwen2.5:7b',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
-        echo 'Pulling bge-m3...' &&
-        node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'bge-m3',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
-        echo 'Pulling qwen2.5:14b...' &&
-        node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'qwen2.5:14b',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
-        echo 'Pulling nomic-embed-text...' &&
-        node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'nomic-embed-text',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
-        echo 'Pulling all-MiniLM-L6-v2...' &&
-        node -e \"fetch('http://ollama:11434/api/pull',{method:'POST',body:JSON.stringify({name:'all-MiniLM-L6-v2',stream:false})}).catch(()=>{})\" 2>/dev/null || true &&
-        echo 'Starting Engram proxy...' &&
-        npm run start
-      "
+    command: ["npm", "run", "start"]
     healthcheck:
       test:
         [
@@ -162,7 +105,6 @@ services:
       retries: 3
       start_period: 60s
 
-  # ── Web GUI ──────────────────────────────────────────────────────────
   ui:
     build:
       context: ./apps/web
@@ -182,7 +124,6 @@ volumes:
   postgres_data:
   redis_data:
   server_data:
-  ollama_data:
 
 networks:
   ftr10-engram:

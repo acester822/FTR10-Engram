@@ -7,11 +7,12 @@ import crypto from "node:crypto";
 import { env } from "../configuration";
 import { make_db as kit_make_db, run_async, all_async } from "../api/routes/_kit";
 import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
+import { logger } from "../utils/logger";
 
 // ── Configuration ─────────────────────────────────────────────────────
 
-const CONSOLIDATION_MODEL = process.env.EG_CONSOLIDATION_MODEL || "qwen2.5:14b";
-const SYNTHESIS_MODEL = "qwen2.5:7b"; // Smaller model for content synthesis fallback
+const CONSOLIDATION_MODEL = env.generative_model;
+const SYNTHESIS_MODEL   = env.fallback_model; // Fallback when the consolidation LLM omits new_content in merge/update actions
 const CONSOLIDATION_BATCH_SIZE = 15; // Max groups to process per cycle
 const MIN_MEMORIES_TO_CONSOLIDATE = 3; // Don't consolidate unless we have at least 3 related memories
 
@@ -88,7 +89,7 @@ export class ConsolidationEngine {
 
       return grouped;
     } catch (err) {
-      console.error("[Engram] Failed to fetch consolidation groups:", err);
+      logger.error({ module: 'consolidationEngine', err }, 'Failed to fetch consolidation groups');
       return new Map();
     }
   }
@@ -121,8 +122,9 @@ Synthesized Memory:`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: SYNTHESIS_MODEL,
-          prompt: prompt,
+          prompt: `${prompt}\n\n/no_think`, // Disable thinking for generative tasks
           stream: false,
+          think: false, // Native API parameter to disable thinking
           options: { temperature: 0.1, num_predict: 200 },
         }),
       });
@@ -187,8 +189,9 @@ If no actions are needed, return exactly: []
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: CONSOLIDATION_MODEL,
-          prompt: prompt,
+          prompt: `${prompt}\n\n/no_think`, // Disable thinking for generative tasks
           stream: false,
+          think: false, // Native API parameter to disable thinking
           format: {
             type: "array",
             items: {
@@ -217,8 +220,14 @@ If no actions are needed, return exactly: []
 
       const data = await response.json();
       const cleanJson = (data.response || "").replace(/^```json\s*|\s*```$/g, "").trim();
+      let parsed: any = JSON.parse(cleanJson);
 
-      return JSON.parse(cleanJson) as ConsolidationAction[];
+      // Normalize: if LLM returned a single object instead of an array, wrap it
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return [parsed] as ConsolidationAction[];
+      }
+
+      return parsed as ConsolidationAction[];
     } catch (error) {
       console.error("[Engram] ❌ Consolidation LLM failed:", error);
       return [];
@@ -234,7 +243,7 @@ If no actions are needed, return exactly: []
 
     for (const action of actions) {
       try {
-        console.log(`[Engram] ⚙️ Executing ${action.action.toUpperCase()}: ${action.reason}`);
+        logger.info({ module: 'consolidationEngine', action: action.action, reason: action.reason }, `Executing ${action.action.toUpperCase()}`);
 
         if (action.action === "delete") {
           const placeholders = action.target_ids.map((_, i) => `$${i + 1}`).join(",");
@@ -246,11 +255,11 @@ If no actions are needed, return exactly: []
 
           if (!content) {
             const targetCandidates = action.target_ids.map(id => candidateMap.get(id)).filter(Boolean);
-            console.warn(`[Engram] ⚠️ ${action.action} missing new_content — synthesizing from source memories...`);
+            logger.warn({ module: 'consolidationEngine', action: action.action }, `${action.action} missing new_content — synthesizing from source memories`);
             content = await this.synthesizeContent(targetCandidates as MemoryCandidate[]);
 
             if (!content) {
-              console.error(`[Engram] ❌ Synthesis failed for ${action.action}, skipping action.`);
+              logger.error({ module: 'consolidationEngine', action: action.action }, `Synthesis failed for ${action.action}, skipping action`);
               continue;
             }
           }
@@ -292,11 +301,11 @@ If no actions are needed, return exactly: []
               [newSector, decayRate, targetId]
             );
 
-            console.log(`[Engram] ✅ Promoted memory ${targetId} to genome.`);
+            logger.info({ module: 'consolidationEngine', memoryId: targetId }, `Promoted memory to genome`);
           }
         }
       } catch (err) {
-        console.error(`[Engram] Failed to execute action:`, action, err);
+        logger.error({ module: 'consolidationEngine', action, err }, 'Failed to execute consolidation action');
         // Continue to next action even if one fails
       }
     }
@@ -306,11 +315,11 @@ If no actions are needed, return exactly: []
    * Main entry point to trigger consolidation.
    */
   public async runConsolidation(): Promise<void> {
-    console.log("[Engram] 🔄 Starting memory consolidation cycle...");
+    logger.info({ module: 'consolidationEngine' }, 'Starting memory consolidation cycle');
 
     const groups = await this.fetchConsolidationGroups();
     if (groups.size === 0) {
-      console.log("[Engram] ✅ No memories require consolidation at this time.");
+      logger.info({ module: 'consolidationEngine' }, 'No memories require consolidation at this time');
       return;
     }
 
@@ -328,7 +337,7 @@ If no actions are needed, return exactly: []
       processedGroups++;
     }
 
-    console.log(`[Engram] 🎉 Consolidation cycle complete. Processed ${processedGroups} groups, executed ${totalActions} actions.`);
+    logger.info({ module: 'consolidationEngine', processedGroups, totalActions }, 'Consolidation cycle complete');
   }
 
   /**
@@ -351,7 +360,7 @@ If no actions are needed, return exactly: []
 
     timer.unref?.(); // Don't prevent process exit
 
-    console.log("[Engram] Consolidation engine scheduled (every 30 mins).");
+   logger.info({ module: 'consolidationEngine', intervalMs: 1800000 }, 'Consolidation engine scheduled');
   }
 }
 

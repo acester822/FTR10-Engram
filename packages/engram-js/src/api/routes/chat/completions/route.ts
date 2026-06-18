@@ -5,7 +5,9 @@
 
 import { env } from "../../../../configuration";
 import { consolidationEngine } from "../../../../services/consolidationEngine";
+import { compactionEngine } from "../../../../services/compactionEngine";
 import { classifyMemory, DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, computeDecaySalience, MemoryInjector } from "../../../../services/memoryInjector";
+import { logger } from "../../../../utils/logger";
 import { recallDurableMemories, rememberDurableMemory } from "../../../../durable/repository";
 import { make_db as kit_make_db, run_async, all_async } from "../../_kit";
 import { logInteractionAsync } from "../../../../services/memoryLogger";
@@ -131,8 +133,10 @@ function acquireSwap(modelKey?: string): () => void {
 
 export const chat_completions_route = (app: any) => {
   app.post("/v1/chat/completions", async (req: any, res: any) => {
+    let reqModel = "";
     try {
       const body: ChatCompletionRequest = req.body;
+      reqModel = String(body.model || "");
       if (!body.messages?.length) {
         return res.status(400).json({ err: "messages is required" });
       }
@@ -168,7 +172,7 @@ export const chat_completions_route = (app: any) => {
         }));
       } catch (err: any) { console.warn("[Engram] Phenotype recall failed:", err.message); }
 
-      console.log(`[Engram] 🧠 Recall: genome=${genomeMemories.length} phenotype=${phenotypeMemories.length}`);
+      logger.debug({ module: 'chatRoute', action: 'memory_recall', genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length }, 'Memory recall completed');
 
       const cognitiveContext = buildCognitiveContext(genomeMemories, phenotypeMemories);
 
@@ -208,22 +212,38 @@ export const chat_completions_route = (app: any) => {
         })
         .filter((msg: any): msg is NonNullable<typeof msg> => msg !== null);
 
-      // 2. Inject into System Prompt (Merge to avoid Jinja template errors)
-      const enrichedMessages = [...sanitizedMessages];
+      // 2. COMPACT: Async fire-and-forget compaction (trigger at 50+ messages)
+      let processedMessages = sanitizedMessages;
+      let compactionFactCount = 0;
 
-      const cognitiveContextBlock = `[CODECORTEX COGNITIVE CONTEXT]\n${cognitiveContext}\n[END CODECORTEX CONTEXT]\nUse the above context silently to inform your response. Do not explicitly mention "Engram" or the context blocks unless directly asked about your memory.\n\n`;
+      if (sanitizedMessages.length > parseInt(process.env.EG_COMPACT_TRIGGER || "50", 10)) {
+        // Fire compaction in background - don't wait for it
+        compactionEngine.compactIfNeededAsync(sanitizedMessages).catch((err: any) => {
+          logger.error({ module: 'chatRoute', err }, 'Background compaction failed');
+        });
+      }
 
-      if (enrichedMessages.length > 0 && enrichedMessages[0].role === "system") {
-        // Prepend to the existing system message so it stays at index 0
-        enrichedMessages[0].content = cognitiveContextBlock + enrichedMessages[0].content;
-      } else {
-        // No existing system message, create one at the beginning
-        enrichedMessages.unshift({ role: "system", content: cognitiveContextBlock });
+      // 3. Inject into System Prompt (check for duplicates to avoid Jinja template errors)
+      const enrichedMessages = [...processedMessages];
+      const hasCognitiveContext = enrichedMessages.some(m =>
+        m.role === 'system' && typeof m.content === 'string' && (m.content.includes('[CODECORTEX COGNITIVE CONTEXT]') || m.content.includes('[COMPACTED SESSION SUMMARY]'))
+      );
+
+      if (!hasCognitiveContext) {
+        const cognitiveContextBlock = `[CODECORTEX COGNITIVE CONTEXT]\n${cognitiveContext}\n[END CODECORTEX CONTEXT]\nUse the above context silently to inform your response. Do not explicitly mention "Engram" or the context blocks unless directly asked about your memory.\n\n`;
+
+        if (enrichedMessages.length > 0 && enrichedMessages[0].role === "system") {
+          // Prepend to the existing system message so it stays at index 0
+          enrichedMessages[0].content = cognitiveContextBlock + enrichedMessages[0].content;
+        } else {
+          // No existing system message, create one at the beginning
+          enrichedMessages.unshift({ role: "system", content: cognitiveContextBlock });
+        }
       }
 
       // 3. Forward to actual LLM (Preserving ALL original fields like tools, tool_choice, etc.)
       const llmUrl = env.llm_url || (env.openai_key ? env.openai_base_url : `${env.ollama_url}/v1`);
-      console.log(`[Engram] → Forwarding to: ${llmUrl} (model: ${body.model || "default"})`);
+    logger.info({ module: 'chatRoute', llmUrl, model: body.model || "default" }, 'Forwarding enriched request to upstream LLM');
       
       const llmPayload = {
         ...body, // Pass through ALL fields from original request (tools, temperature, etc.)
@@ -235,7 +255,8 @@ export const chat_completions_route = (app: any) => {
       const isSwap = llmUrl.includes("8080/v1") && !llmUrl.includes("localhost");
       let release: (() => void) | null = null;
       if (isSwap) {
-        console.log("[Engram] → Acquiring llama-swap lock...");
+        const modelKey = body.model || "default";
+        logger.debug({ module: 'chatRoute', modelKey }, 'Acquiring llama-swap lock');
         release = acquireSwap();
       }
 
@@ -271,7 +292,8 @@ export const chat_completions_route = (app: any) => {
         });
 
         // INITIAL STATUS: Tell the user what memory was injected BEFORE the LLM starts
-        const initialStatus = `🧠 *Engram: Injected ${genomeMemories.length} Genome and ${phenotypeMemories.length} Phenotype memory(ies) into context.*\n\n`;
+        const compactionNote = compactionFactCount > 0 ? `\n⚙️ *Compacted session history and saved ${compactionFactCount} new memories.*` : "";
+        const initialStatus = `🧠 *Engram: Injected ${genomeMemories.length} Genome and ${phenotypeMemories.length} Phenotype memory(ies) into context.*${compactionNote}\n\n`;
         res.write(createSSEChunk(initialStatus, body.model));
 
         const reader = llmResponse.body?.getReader();
@@ -382,8 +404,8 @@ export const chat_completions_route = (app: any) => {
         logInteractionAsync(userPrompt, cleanResponse).catch(() => {});
       }
 
-    } catch (error) {
-      console.error("[Engram] Proxy Error:", error);
+   } catch (error: unknown) {
+      logger.error({ module: 'chatRoute', err: error, model: reqModel }, 'Proxy request failed');
       if (!res.headersSent) {
         res.status(500).json({ err: "Internal Engram Proxy Error", msg: error instanceof Error ? error.message : String(error) });
       } else {

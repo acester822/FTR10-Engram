@@ -18,7 +18,11 @@ const auth_config = {
   rate_limit_window_ms: env.rate_limit_window_ms,
   rate_limit_max_requests: env.rate_limit_max_requests,
 };
-const PUBLIC_ENDPOINTS = new Set(["/health"]);
+const PUBLIC_ENDPOINTS = new Set([
+  "/health",
+  "/api/performance/system",
+  "/api/performance/ollama",
+]);
 
 function is_public_endpoint(path: string): boolean {
   return PUBLIC_ENDPOINTS.has(path);
