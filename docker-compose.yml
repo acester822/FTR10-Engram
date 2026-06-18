@@ -77,8 +77,10 @@ services:
     environment:
       EG_PG_HOST: postgres
       EG_OLLAMA_URL: http://ollama:11434
+      TZ: America/Chicago
     volumes:
       - server_data:/data
+      - ./logs:/home/ftr/Apps/Engram/logs
     networks:
       - ftr10-engram
     depends_on:

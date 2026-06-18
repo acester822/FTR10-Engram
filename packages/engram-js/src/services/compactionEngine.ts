@@ -57,14 +57,14 @@ export class CompactionEngine {
     // Check cooldown to prevent rapid-fire compaction
     const now = Date.now();
     if (now - this.lastCompactionTime < this.COMPACTION_COOLDOWN_MS) {
-      logger.debug({ module: 'compactionEngine' }, 'Skipping compaction - cooldown active');
+      logger.debug({ module: 'compactionEngine', model: COMPACTION_MODEL }, 'Skipping compaction - cooldown active');
       return;
     }
 
     // Create a hash of message count + last message to detect changes
     const hash = `${messages.length}:${messages[messages.length - 1]?.content?.slice(0, 50)}`;
     if (hash === this.lastCompactedHash) {
-      logger.debug({ module: 'compactionEngine' }, 'Skipping compaction - no new messages');
+      logger.debug({ module: 'compactionEngine', model: COMPACTION_MODEL }, 'Skipping compaction - no new messages');
       return;
     }
 
@@ -74,7 +74,7 @@ export class CompactionEngine {
     try {
       await this.performCompaction(messages);
     } catch (error) {
-      logger.error({ module: 'compactionEngine', err: error }, 'Background compaction failed');
+      logger.error({ module: 'compactionEngine', model: COMPACTION_MODEL, err: error }, 'Background compaction failed');
     }
   }
 
@@ -102,13 +102,13 @@ export class CompactionEngine {
     if (extractedFacts.length > 0) {
       savedCount = await this.saveExtractedFacts(extractedFacts);
       logger.info(
-        { module: 'compactionEngine', count: savedCount },
+        { module: 'compactionEngine', model: COMPACTION_MODEL, count: savedCount },
         'Compaction extracted and saved new phenotype memories'
       );
     }
 
     logger.info(
-      { module: 'compactionEngine', summaryLength: summary.length },
+      { module: 'compactionEngine', model: COMPACTION_MODEL, summaryLength: summary.length },
       'Background compaction complete'
     );
   }
@@ -285,7 +285,7 @@ export class CompactionEngine {
         });
         savedCount++;
       } catch (err) {
-        logger.warn({ module: 'compactionEngine', content: fact.content }, 'Failed to save compaction fact');
+        logger.warn({ module: 'compactionEngine', model: COMPACTION_MODEL, content: fact.content }, 'Failed to save compaction fact');
       }
     }
 

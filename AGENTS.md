@@ -23,6 +23,7 @@
 docker-compose up --build
 ```
 Docker auto-pulls models on startup: `qwen3.5:2b` (generative tasks), `qwen2.5:3b` (fallback), `qwen3-embedding:0.6b`, `bge-m3`.
+External port: **8098** (internal container port: 8080).
 
 ## Project Flows:
 ```mermaid
@@ -77,10 +78,10 @@ flowchart TD
 ```
 
 ### Compaction Flow (new):
-When conversation exceeds `EG_COMPACT_TRIGGER` messages (default: 12), the compaction engine triggers:
+When conversation exceeds `EG_COMPACT_TRIGGER` messages (default: 50), the compaction engine triggers:
 1. **Isolate** — split into old history + recent raw tail (`MAX_RAW_TURNS`, default: 6)
-2. **Thin** — truncate tool outputs >2000 chars, assistant responses >3000 chars; remove consecutive duplicate tool calls
-3. **Summarize & Extract** — single LLM call (model: `EG_COMPACT_MODEL`, default: `qwen3.5:2b`) generates both a dense summary and durable facts in JSON
+2. **Thin** — truncate tool outputs >800 chars, assistant responses >1200 chars, user messages >1000 chars; remove consecutive duplicate tool calls
+3. **Summarize & Extract** — single LLM call (model: `EG_MODEL_GENERATIVE`, default: `qwen3.5:2b`) generates both a dense summary and durable facts in JSON
 4. **Save Facts** — extracted facts tagged with `source: "compaction_engine"` are saved to Phenotype DB via the recursive learning loop
 5. **Reconstruct** — returns `[COMPACTED SESSION SUMMARY]` as system message + raw tail that never grows
 
@@ -96,12 +97,11 @@ Background cron job runs every 30 minutes:
 ### Model Selection Guide:
 | Task | Model | Config Var | Why |
 |---|---|---|---|
-| **Generative (All)** | qwen3.5:2b | `EG_EXTRACTION_MODEL` / `EG_COMPACT_MODEL` / `EG_CONSOLIDATION_MODEL` | Primary generative model — MUST be running at all times, thinking DISABLED |
-| **Embedding** | qwen3-embedding:0.6b | `EG_EMBED_MODEL` | Primary embedding; multi-facet with bge-m3 fallback |
-| **Embedding (Procedural)** | nomic-embed-text | `EG_OLLAMA_PROCEDURAL_MODEL` | Code-focused embeddings |
-| **Embedding (Emotional)** | all-MiniLM-L6-v2 | `EG_OLLAMA_EMOTIONAL_MODEL` | Ultra-lightweight CPU model |
-| **Generative (All Tasks)** | qwen3.5:2b | `EG_EXTRACTION_MODEL` / `EG_COMPACT_MODEL` / `EG_CONSOLIDATION_MODEL` | Primary generative — MUST stay running, thinking DISABLED |
-| **Fallback** | qwen2.5:3b | — | Backup for generative tasks if primary fails |
+| **Generative (All)** | qwen3.5:2b | `EG_MODEL_GENERATIVE` | Primary generative model — MUST be running at all times, thinking DISABLED |
+| **Embedding** | qwen3-embedding:0.6b | `EG_MODEL_EMBEDDING` | Primary embedding; multi-facet with bge-m3 fallback |
+| **Embedding (Procedural)** | qwen3-embedding:0.6b | `EG_MODEL_EMBED_PROCEDURAL` | Code-focused embeddings |
+| **Embedding (Emotional)** | qwen3-embedding:0.6b | `EG_MODEL_EMBED_EMOTIONAL` | Ultra-lightweight CPU model |
+| **Fallback** | qwen2.5:3b | `EG_MODEL_GENERATIVE_FALLBACK` | Backup for generative tasks if primary fails |
 
 Per-facet embedding routing uses a cascading resolution chain in `models.ts`: per-facet override → provider-wide override → global fallback → hardcoded defaults → universal `bge-m3`.
 

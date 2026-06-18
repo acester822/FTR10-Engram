@@ -1,76 +1,109 @@
 /*
  - filename: packages/engram-js/src/utils/logger.ts
- - what is the file used for: Centralized high-performance JSON logger using Pino. Outputs structured NDJSON in production (Docker) and colorized pretty output locally. Optimized for Grafana Loki ingestion.
+ - what is the file used for: Centralized Pino logger — pretty stdout + NDJSON file.
+    Exports readLog() / clearLog() for the dashboard API.
  */
 
 import pino from 'pino';
 import fs from "node:fs";
 import path from "node:path";
 
-const isProduction = process.env.EG_NODE_ENV === 'production' || process.env.NODE_ENV === 'production';
+// ── Log file path ──────────────────────────────────────────────────────────────
+
+const LOG_DIR = process.env.EG_LOG_DIR || path.resolve(process.cwd(), "..", "..", "logs");
+const LOG_FILE = path.join(LOG_DIR, "engram.log");
+const MAX_LINES = parseInt(process.env.EG_LOG_MAX_LINES || "3000", 10);
+
+// ── Pino logger with multi-stream (stdout pretty + file NDJSON) ────────────────
+
+const prettyStream = pino.transport({
+  target: 'pino-pretty',
+  options: {
+    colorize: true,
+    translateTime: 'SYS:standard',
+    ignore: 'pid,hostname',
+  },
+});
+
+// Ensure directory exists BEFORE opening file stream
+const fileStreamAvailable = (() => {
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    const stream = pino.destination({ dest: LOG_FILE, sync: true });
+    return stream;
+  } catch {
+    console.warn(`[logger] Cannot write to ${LOG_FILE} — file logging disabled`);
+    return null;
+  }
+})();
+
+const streams = [
+  { stream: prettyStream, level: 'info' },
+];
+if (fileStreamAvailable) {
+  streams.push({ stream: fileStreamAvailable, level: 'info' });
+}
+
+const multi = pino.multistream(streams);
 
 export const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
-  
+
   formatters: {
     level: (label: string) => ({ level: label }),
   },
-  
-  // Always use pretty transport for readable output.
-  // Set EG_PINO_PRETTY=false to disable and get raw JSON instead.
-  transport: process.env.EG_PINO_PRETTY === 'false'
-    ? undefined 
-    : {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'SYS:standard',
-          ignore: 'pid,hostname',
-        },
-      },
-});
+}, multi);
 
-// ── Rolling log file (EG_LOG_FILE + EG_LOG_MAX_LINES) ────────────────────────
+// ── File helpers for dashboard API ─────────────────────────────────────────────
 
-const LOG_FILE = process.env.EG_LOG_FILE || "";
-const MAX_LINES = parseInt(process.env.EG_LOG_MAX_LINES || "3000", 10);
-
-if (LOG_FILE) {
-  const logDir = path.dirname(LOG_FILE);
-  if (logDir && logDir !== ".") fs.mkdirSync(logDir, { recursive: true });
-
-  let buffer: string[] = [];
-  let dirty = false;
-
-  function flush() {
-    if (!dirty || buffer.length === 0) return;
-    try {
-      const tail = buffer.slice(-MAX_LINES).join("\n") + "\n";
-      fs.writeFileSync(LOG_FILE, tail);
-    } catch {}
-    buffer = [];
-    dirty = false;
-  }
-
-  // Write every line to disk (debounced via flush on idle)
-  function append(line: string) {
-    buffer.push(line);
-    if (!dirty) {
-      dirty = true;
-      setImmediate(flush);
+/** Read all lines from the log file, keeping only the last MAX_LINES. */
+export function readLog(): string[] {
+  try {
+    const content = fs.readFileSync(LOG_FILE, "utf-8");
+    if (!content.trim()) return [];
+    const lines = content.split("\n").filter(Boolean);
+    // Truncate to MAX_LINES on disk if it grew too large
+    if (lines.length > MAX_LINES) {
+      fs.writeFileSync(LOG_FILE, lines.slice(-MAX_LINES).join("\n") + "\n", "utf-8");
+      return lines.slice(-MAX_LINES);
     }
+    return lines;
+  } catch {
+    return [];
   }
+}
 
-  // Hook into pino's built-in sink so we capture everything Pino emits.
-  // Pino calls `logger.write()` for each log record — intercept it.
-  const originalWrite = logger.write.bind(logger);
-  logger.write = (record: any) => {
-    try {
-      append(JSON.stringify(record));
-    } catch {}
-    return originalWrite(record);
-  };
+/** Truncate the log file to empty. */
+export function clearLog(): void {
+  try {
+    fs.writeFileSync(LOG_FILE, "", "utf-8");
+  } catch { /* best-effort */ }
+}
 
-  // Graceful shutdown: flush remaining buffer
-  process.on("exit", () => flush());
+/** Parse a single NDJSON log line into a structured object. */
+export function parseLogLine(line: string): {
+  level: string;
+  time: string;
+  msg: string;
+  module?: string;
+  [key: string]: any;
+} | null {
+  try {
+    const parsed = JSON.parse(line);
+    return {
+      level: parsed.level ? getLevelLabel(parsed.level) : "unknown",
+      time: parsed.time || new Date().toISOString(),
+      msg: parsed.msg || "",
+      module: parsed.module,
+      raw: parsed,
+    };
+  } catch {
+    // Not JSON — return as plain message
+    return { level: "info", time: "", msg: line };
+  }
+}
+
+function getLevelLabel(code: number): string {
+  const map: Record<number, string> = { 10: "trace", 20: "debug", 30: "info", 40: "warn", 50: "error", 60: "fatal" };
+  return map[code] || "unknown";
 }

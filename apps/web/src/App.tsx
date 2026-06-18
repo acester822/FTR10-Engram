@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge } from "lucide-react";
+import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 const API_BASE = "/api/dashboard";
@@ -27,7 +27,7 @@ interface Stats {
   by_tier: Record<string, number>;
 }
 
-type Tab = "dashboard" | "memories" | "logs" | "performance";
+type Tab = "dashboard" | "memories" | "serverLogs" | "performance";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard" as Tab);
@@ -77,11 +77,11 @@ export default function App() {
             Memory Explorer
           </NavButton>
           <NavButton
-            active={activeTab === "logs"}
-            onClick={() => setActiveTab("logs")}
-            icon={<FileText size={20} />}
+            active={activeTab === "serverLogs"}
+            onClick={() => setActiveTab("serverLogs")}
+            icon={<Terminal size={20} />}
           >
-            Interaction Logs
+            Server Logs
           </NavButton>
           <NavButton
             active={activeTab === "performance"}
@@ -104,7 +104,7 @@ export default function App() {
           <DashboardView stats={stats} onRefresh={fetchStats} />
         )}
        {activeTab === "memories" && <MemoriesView />}
-        {activeTab === "logs" && <LogsView />}
+        {activeTab === "serverLogs" && <ServerLogsView />}
         {activeTab === "performance" && <PerformanceMonitor />}
       </main>
     </div>
@@ -454,67 +454,188 @@ function MemoriesView() {
   );
 }
 
-function LogsView() {
-  const [logs, setLogs] = useState([]);
+function ServerLogsView() {
+  const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [levelFilter, setLevelFilter] = useState<string>("all");
 
-  useEffect(() => {
-    fetch(`${API_BASE}/logs`)
-      .then((res) => res.json())
-      .then((data) => {
-        setLogs(data.logs || []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+  const fetchLogs = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/log`);
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data.lines || []);
+      }
+    } catch {
+      // silently ignore
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  if (loading) return <div className="text-slate-500">Loading interaction logs...</div>;
+  useEffect(() => {
+    fetchLogs();
+  }, [fetchLogs]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(fetchLogs, 3000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, fetchLogs]);
+
+  const handleClear = async () => {
+    if (!confirm("Clear the server log file?")) return;
+    try {
+      await fetch(`${API_BASE}/log/clear`, { method: "POST" });
+      fetchLogs();
+    } catch {
+      alert("Failed to clear log");
+    }
+  };
+
+  // Parse and filter log lines
+  const filteredLogs = logs.filter((line) => {
+    if (levelFilter === "all") return true;
+    try {
+      const parsed = JSON.parse(line);
+      const label = getLevelLabel(parsed.level);
+      return label === levelFilter;
+    } catch {
+      return true; // non-JSON lines always show
+    }
+  });
+
+  if (loading) return <div className="text-slate-500">Loading server logs...</div>;
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-slate-800">Interaction & Extraction Logs</h2>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        {logs.length === 0 ? (
-          <p className="text-center text-slate-400 py-8">No interaction logs available.</p>
-        ) : (
-          <div className="space-y-6">
-            {logs.map((log: Memory, idx: number) => (
-              <div key={log.id} className="flex gap-4 relative pb-6 last:pb-0">
-                {/* Timeline connector */}
-                {idx !== logs.length - 1 && (
-                  <div className="absolute left-3.5 top-8 bottom-[-24px] w-0.5 bg-gray-200" />
-                )}
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-slate-800">Server Logs</h2>
+        <div className="flex gap-3">
+          <button
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+              autoRefresh
+                ? "bg-blue-100 text-blue-700 border border-blue-300"
+                : "bg-gray-100 text-gray-600 border border-gray-300"
+            }`}
+          >
+            <RefreshCw size={14} className={autoRefresh ? "animate-spin" : ""} />
+            Auto-refresh
+          </button>
+          <button
+            onClick={handleClear}
+            className="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-600 border border-red-300 rounded-lg text-sm hover:bg-red-100 transition-colors"
+          >
+            <Trash2 size={14} />
+            Clear
+          </button>
+        </div>
+      </div>
 
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 z-10 ${
-                    log.is_genome === 1 ? "bg-amber-100 text-amber-600" : "bg-blue-100 text-blue-600"
-                  }`}
-                >
-                  {log.is_genome === 1 ? <Skull size={14} /> : <Activity size={14} />}
-                </div>
+      {/* Level filter */}
+      <div className="flex gap-2">
+        {["all", "info", "warn", "error", "fatal"].map((level) => (
+          <button
+            key={level}
+            onClick={() => setLevelFilter(level)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
+              levelFilter === level
+                ? "bg-slate-800 text-white"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            {level}
+          </button>
+        ))}
+        <span className="ml-auto text-xs text-slate-400 self-center">
+          {filteredLogs.length} / {logs.length} lines
+        </span>
+      </div>
 
-                <div className="flex-1">
-                  <div className="flex justify-between items-start mb-1">
-                    <span className="text-sm font-semibold text-slate-800 capitalize">
-                      {log.sector || "unknown"} Memory{" "}
-                      {log.is_genome === 1 ? "(Genome)" : "(Phenotype)"}
-                    </span>
-                    <span className="text-xs text-slate-400">
-                      {log.created_at ? formatDistanceToNow(new Date(log.created_at), { addSuffix: true }) : (log.recorded_at ? formatDistanceToNow(new Date(log.recorded_at), { addSuffix: true }) : "N/A")}
-                    </span>
-                  </div>
-                  <p className="text-sm text-slate-600 bg-gray-50 p-3 rounded-lg border border-gray-100 whitespace-pre-wrap">
-                    {escapeHtml(log.content)}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">ID: {log.id}</p>
+      {/* Log output */}
+      <div className="bg-slate-900 rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="max-h-[600px] overflow-y-auto font-mono text-xs p-4 space-y-0.5">
+          {filteredLogs.length === 0 ? (
+            <p className="text-center text-slate-500 py-8">No log entries matching filter.</p>
+          ) : (
+            filteredLogs.map((line, idx) => {
+              const parsed = tryParseLogLine(line);
+              const levelColor = levelToColor(parsed.level);
+              return (
+                <div key={idx} className="flex gap-2 hover:bg-slate-800/50 rounded px-1 -mx-1 py-0.5">
+                  <span className="text-slate-500 shrink-0">{parsed.time}</span>
+                  <span className={`font-bold shrink-0 w-12 text-right ${levelColor}`}>
+                    [{parsed.level.toUpperCase()}]
+                  </span>
+                  <span className="text-slate-300 break-all whitespace-pre-wrap">{parsed.msg}</span>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              );
+            })
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+// ── Log parsing helpers ────────────────────────────────────────────────────────
+
+interface ParsedLogLine {
+  level: string;
+  time: string;
+  msg: string;
+}
+
+function formatLogMessage(parsed: any, fallback: string): string {
+  const module = parsed.module || "";
+  const model = parsed.model || "";
+  const llmUrl = parsed.llmUrl || "";
+  const msg = parsed.msg || "";
+
+  if (module && llmUrl && model) {
+    return `[${module}] ${msg} → [${llmUrl}] [${model}]`;
+  }
+  if (module && model) {
+    return `[${module}] [${model}] ${msg}`;
+  }
+  if (module) {
+    return `[${module}] ${msg}`;
+  }
+  return msg || fallback;
+}
+
+function tryParseLogLine(line: string): ParsedLogLine {
+  try {
+    const parsed = JSON.parse(line);
+    return {
+      level: getLevelLabel(parsed.level) || "info",
+      time: parsed.time
+        ? new Date(parsed.time).toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })
+        : "",
+      msg: formatLogMessage(parsed, line),
+    };
+  } catch {
+    return { level: "info", time: "", msg: line };
+  }
+}
+
+function getLevelLabel(code: number): string {
+  const map: Record<number, string> = { 10: "trace", 20: "debug", 30: "info", 40: "warn", 50: "error", 60: "fatal" };
+  return map[code] || "info";
+}
+
+function levelToColor(level: string): string {
+  switch (level) {
+    case "trace": return "text-slate-400";
+    case "debug": return "text-blue-400";
+    case "info": return "text-green-400";
+    case "warn": return "text-yellow-400";
+    case "error": return "text-red-400";
+    case "fatal": return "text-red-300 font-bold";
+    default: return "text-slate-400";
+  }
 }
 
 function escapeHtml(str: string): string {

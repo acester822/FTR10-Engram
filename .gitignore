@@ -37,6 +37,7 @@ yarn.lock
 Thumbnails.db
 .DS_Store?
 ._*
+.kilo/
 
 # Engram specific
 data/
@@ -44,3 +45,6 @@ storage/
 tmp/
 .cache/
 models/
+working_files/
+new_code/
+Old/

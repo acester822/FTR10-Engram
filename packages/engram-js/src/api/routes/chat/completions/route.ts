@@ -7,6 +7,7 @@ import { env } from "../../../../configuration";
 import { consolidationEngine } from "../../../../services/consolidationEngine";
 import { compactionEngine } from "../../../../services/compactionEngine";
 import { classifyMemory, DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, computeDecaySalience, MemoryInjector } from "../../../../services/memoryInjector";
+import { buildInjectionStatus, buildExtractionStatus, stripEngramStatus, isEngramStatus } from "../../../../services/engramStatus";
 import { logger } from "../../../../utils/logger";
 import { recallDurableMemories, rememberDurableMemory } from "../../../../durable/repository";
 import { make_db as kit_make_db, run_async, all_async } from "../../_kit";
@@ -172,7 +173,7 @@ export const chat_completions_route = (app: any) => {
         }));
       } catch (err: any) { console.warn("[Engram] Phenotype recall failed:", err.message); }
 
-      logger.debug({ module: 'chatRoute', action: 'memory_recall', genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length }, 'Memory recall completed');
+      logger.debug({ module: 'chatRoute', model: body.model || "default", action: 'memory_recall', genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length }, 'Memory recall completed');
 
       const cognitiveContext = buildCognitiveContext(genomeMemories, phenotypeMemories);
 
@@ -180,26 +181,14 @@ export const chat_completions_route = (app: any) => {
       const sanitizedMessages = body.messages
         .map((msg: any) => {
           if (msg.role === 'assistant' && typeof msg.content === 'string') {
-            let cleanContent = msg.content;
-            
-            // Create fresh regex instances for each message (no shared state!)
-            const injectedRe = /🧠 \*?Engram:\s*\*?Injected \d+ Genome and \d+ Phenotype memory\(ies\) into context\.\*\n?/g;
-            const extractionRe = /\n?---?\s*🧠 \*?Engram:\s*\*?Extraction complete\. Stored \d+ new memory\(ies\)\.\*/g;
-            const statusRe = /🧠\s*\*?Engram:\s*(Injected|Extraction complete)[^\n]*/g;
-            
-            // Remove all status messages
-            cleanContent = cleanContent.replace(injectedRe, '');
-            cleanContent = cleanContent.replace(extractionRe, '');
-            cleanContent = cleanContent.replace(statusRe, '');
-            
-            const trimmed = cleanContent.trim();
-            
+            const cleanContent = stripEngramStatus(msg.content);
+
             // Drop messages that are now empty
-            if (!trimmed) return null;
-            
-            return { ...msg, content: trimmed };
+            if (!cleanContent) return null;
+
+            return { ...msg, content: cleanContent };
           }
-          
+
           // Strip reasoning_content from assistant messages
           if (msg.role === 'assistant' && (msg.reasoning_content || msg.reasoning)) {
             const cleaned = { ...msg };
@@ -207,7 +196,7 @@ export const chat_completions_route = (app: any) => {
             delete cleaned.reasoning;
             return cleaned;
           }
-          
+
           return msg;
         })
         .filter((msg: any): msg is NonNullable<typeof msg> => msg !== null);
@@ -219,7 +208,7 @@ export const chat_completions_route = (app: any) => {
       if (sanitizedMessages.length > parseInt(process.env.EG_COMPACT_TRIGGER || "50", 10)) {
         // Fire compaction in background - don't wait for it
         compactionEngine.compactIfNeededAsync(sanitizedMessages).catch((err: any) => {
-          logger.error({ module: 'chatRoute', err }, 'Background compaction failed');
+          logger.error({ module: 'chatRoute', model: body.model || "default", err }, 'Background compaction failed');
         });
       }
 
@@ -256,7 +245,7 @@ export const chat_completions_route = (app: any) => {
       let release: (() => void) | null = null;
       if (isSwap) {
         const modelKey = body.model || "default";
-        logger.debug({ module: 'chatRoute', modelKey }, 'Acquiring llama-swap lock');
+        logger.debug({ module: 'chatRoute', model: modelKey, modelKey }, 'Acquiring llama-swap lock');
         release = acquireSwap();
       }
 
@@ -292,8 +281,7 @@ export const chat_completions_route = (app: any) => {
         });
 
         // INITIAL STATUS: Tell the user what memory was injected BEFORE the LLM starts
-        const compactionNote = compactionFactCount > 0 ? `\n⚙️ *Compacted session history and saved ${compactionFactCount} new memories.*` : "";
-        const initialStatus = `🧠 *Engram: Injected ${genomeMemories.length} Genome and ${phenotypeMemories.length} Phenotype memory(ies) into context.*${compactionNote}\n\n`;
+        const initialStatus = buildInjectionStatus(genomeMemories.length, phenotypeMemories.length, compactionFactCount || undefined);
         res.write(createSSEChunk(initialStatus, body.model));
 
         const reader = llmResponse.body?.getReader();
@@ -337,7 +325,7 @@ export const chat_completions_route = (app: any) => {
               const regularContent = delta.content || '';
 
               // 🛑 FILTER: Skip our own status chunks so they never enter the accumulated transcript
-              if (!regularContent.includes('🧠 *Engram:') && !reasoningContent.includes('🧠 *Engram:')) {
+              if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
                 fullLlmResponseText += reasoningContent + regularContent;
               }
             } catch { /* ignore partial JSON */ }
@@ -349,7 +337,7 @@ export const chat_completions_route = (app: any) => {
         const logResult = await logInteractionAsync(userPrompt, fullLlmResponseText);
 
         // 6. FINAL STATUS: Tell the user what was learned AFTER the LLM finishes
-        const finalStatus = `\n\n---\n🧠 *Engram: Extraction complete. Stored ${logResult.storedCount} new memory(ies).*`;
+        const finalStatus = buildExtractionStatus(logResult.storedCount);
         res.write(createSSEChunk(finalStatus, body.model));
 
         // 7. CLOSE STREAM

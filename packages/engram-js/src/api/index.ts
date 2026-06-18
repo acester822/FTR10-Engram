@@ -13,22 +13,20 @@ import { send_telemetry } from "../configuration/telemetry";
 import { createHttpApp } from "./httpApp";
 import { consolidationEngine } from "../services/consolidationEngine";
 import { run_migrations } from "../database/migrate";
-import { appendLogLine as rollingLog } from "../utils/rollingLog";
+import { logger } from "../utils/logger";
 
 export function createApp() {
   const app = createHttpApp({ max_payload_size: env.max_payload_size });
 
-  // Rolling log middleware — records every request/response to the log file
-  app.use((req: any, res: any, next: any) => {
-    rollingLog(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-    
-    const origEnd = res.end.bind(res);
-    res.end = function (...args: any[]) {
-      rollingLog(
-        `[${new Date().toISOString()}] ${req.method} ${req.url} → ${res.statusCode}`,
-      );
-      return origEnd(...args);
-    };
+  // Request logging middleware — structured via Pino (debug level to avoid flooding logs)
+   app.use((req: any, res: any, next: any) => {
+     logger.debug({ method: req.method, url: req.url, module: 'http' }, `${req.method} ${req.url}`);
+
+     const origEnd = res.end.bind(res);
+     res.end = function (...args: any[]) {
+       logger.debug({ method: req.method, url: req.url, status: res.statusCode, module: 'http' }, `${req.method} ${req.url} → ${res.statusCode}`);
+       return origEnd(...args);
+     };
 
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader(
@@ -62,7 +60,7 @@ export async function startServer() {
   try {
     await run_migrations();
   } catch (err) {
-    console.error("[SERVER] Migration failed, but continuing:", err);
+    logger.error({ module: 'server' }, `Migration failed, but continuing: ${err}`);
   }
 
   const app = createApp();
@@ -70,9 +68,9 @@ export async function startServer() {
   // 🧠 START THE HIPPOCAMPUS — background consolidation cron (deferred to avoid startup crash)
   setTimeout(() => { consolidationEngine.start?.(); }, 2000);
 
-  console.log(`[SERVER] Starting on port ${env.port}`);
+  logger.info({ module: 'server', port: env.port }, `Starting on port ${env.port}`);
   app.listen(env.port, () => {
-    console.log(`[SERVER] Running on http://localhost:${env.port}`);
+    logger.info({ module: 'server' }, `Running on http://localhost:${env.port}`);
     send_telemetry().catch(() => {});
   });
 

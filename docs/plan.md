@@ -2538,7 +2538,8 @@ app.post('/v1/chat/completions', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
 
     // 4. INITIAL STATUS: Tell the user what memory was injected BEFORE the LLM starts
-    const initialStatus = `🧠 *Engram: Injected ${genomeCount} Genome and ${phenotypeCount} Phenotype memory(ies) into context.*\n\n`;
+    const initialStatus = buildInjectionStatus(genomeCount, phenotypeCount);
+    // Outputs: 🧬 *Engram: 10 Genome | 0 Phenotype memories loaded.*
     res.write(createSSEChunk(initialStatus, model));
 
     // 5. FORWARD & STREAM: Send to LLM and pipe response back to user
@@ -2584,7 +2585,8 @@ app.post('/v1/chat/completions', async (req, res) => {
     const logResult = await logInteractionAsync(userPrompt, fullResponseText);
 
     // 7. FINAL STATUS: Tell the user what was learned AFTER the LLM finishes
-    const finalStatus = `\n\n---\n🧠 *Engram: Extraction complete. Stored ${logResult.storedCount} new memory(ies).*`;
+    const finalStatus = buildExtractionStatus(logResult.storedCount);
+    // Outputs: 🧬 *Engram: Extraction complete — stored 3 memories.*
     res.write(createSSEChunk(finalStatus, model));
 
     // 8. CLOSE STREAM
@@ -2614,12 +2616,12 @@ Because we are using standard OpenAI SSE formatting, **any tool** the user confi
 
 When the user asks a question in Cline, Continue, or a terminal CLI, the chat window will output:
 
-> 🧠 *Engram: Injected 2 Genome and 1 Phenotype memory(ies) into context.*
-> 
+> 🧬 *Engram: 2 Genome | 1 Phenotype memories loaded.*
+>
 > Here is the functional React component you requested. I made sure to use async/await for the data fetching, as that aligns with your preferred coding style... [LLM Response continues]
-> 
+>
 > ---
-> 🧠 *Engram: Extraction complete. Stored 1 new memory(ies).*
+> 🧬 *Engram: Extraction complete — stored 1 memory.*
 
 ### Why This Architecture is the Ultimate Solution
 1. **Zero UI Lock-in:** You don't need to maintain a custom VS Code webview. If the user wants to use a new IDE or a CLI tool tomorrow, it just works.

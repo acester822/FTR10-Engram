@@ -523,7 +523,7 @@ async function gatherChatLocalContext(): Promise<string> {
 }
 
 function renderDynamicCognitiveTrace(stream: vscode.ChatResponseStream, trace: CognitiveTrace) {
-	let markdown = '\n\n---\n<details>\n<summary>🧠 <b>Engram Memory Trace</b> (Click to expand)</summary>\n<br>\n';
+	let markdown = '\n\n---\n<details>\n<summary>🧬 <b>Engram Memory Trace</b> (Click to expand)</summary>\n<br>\n';
 	if (trace.genome && trace.genome.length > 0) {
 		markdown += '<b>✅ Genome (Immutable Directives):</b>\n<ul>\n';
 		trace.genome.forEach(fact => { markdown += `  <li>${escapeHtml(fact)}</li>\n`; });
@@ -558,7 +558,7 @@ export function registerChatParticipant(context: vscode.ExtensionContext) {
 			{ role: 'user', content: request.prompt },
 		];
 
-		stream.progress('🧠 Querying Engram cognitive engine...');
+		stream.progress('🧬 Querying Engram cognitive engine...');
 
 		let dynamicTrace: CognitiveTrace | null = null;
 

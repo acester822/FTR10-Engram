@@ -46,8 +46,8 @@ export class ConsolidationEngine {
   private async fetchConsolidationGroups(): Promise<Map<string | null, MemoryCandidate[]>> {
     const db = kit_make_db(run_async, all_async);
 
-    // Fetch older phenotype memories that have been accessed at least once,
-    // or any memory older than 7 days. Grouped by consolidation_hash.
+    // Fetch memories older than 7 days that have been accessed at least once.
+    // Grouped by consolidation_hash.
     const query = `
       SELECT id, content,
              COALESCE((metadata->>'sector')::text, 'semantic') as sector,
@@ -56,8 +56,9 @@ export class ConsolidationEngine {
              recorded_at,
              consolidation_hash
       FROM "public"."memories"
-      WHERE memory_tier != 'archived'
-        AND recorded_at < NOW() - INTERVAL '7 days'
+       WHERE memory_tier != 'archived'
+         AND recorded_at < NOW() - INTERVAL '7 days'
+       AND COALESCE((metadata->>'access_count')::int, 0) >= 1
       ORDER BY consolidation_hash ASC, recorded_at ASC
     `;
 
@@ -89,7 +90,7 @@ export class ConsolidationEngine {
 
       return grouped;
     } catch (err) {
-      logger.error({ module: 'consolidationEngine', err }, 'Failed to fetch consolidation groups');
+      logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Failed to fetch consolidation groups');
       return new Map();
     }
   }
@@ -243,7 +244,7 @@ If no actions are needed, return exactly: []
 
     for (const action of actions) {
       try {
-        logger.info({ module: 'consolidationEngine', action: action.action, reason: action.reason }, `Executing ${action.action.toUpperCase()}`);
+        logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action, reason: action.reason }, `Executing ${action.action.toUpperCase()}`);
 
         if (action.action === "delete") {
           const placeholders = action.target_ids.map((_, i) => `$${i + 1}`).join(",");
@@ -255,11 +256,11 @@ If no actions are needed, return exactly: []
 
           if (!content) {
             const targetCandidates = action.target_ids.map(id => candidateMap.get(id)).filter(Boolean);
-            logger.warn({ module: 'consolidationEngine', action: action.action }, `${action.action} missing new_content — synthesizing from source memories`);
+            logger.warn({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action }, `${action.action} missing new_content — synthesizing from source memories`);
             content = await this.synthesizeContent(targetCandidates as MemoryCandidate[]);
 
             if (!content) {
-              logger.error({ module: 'consolidationEngine', action: action.action }, `Synthesis failed for ${action.action}, skipping action`);
+              logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action }, `Synthesis failed for ${action.action}, skipping action`);
               continue;
             }
           }
@@ -301,11 +302,11 @@ If no actions are needed, return exactly: []
               [newSector, decayRate, targetId]
             );
 
-            logger.info({ module: 'consolidationEngine', memoryId: targetId }, `Promoted memory to genome`);
+            logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, memoryId: targetId }, `Promoted memory to genome`);
           }
         }
       } catch (err) {
-        logger.error({ module: 'consolidationEngine', action, err }, 'Failed to execute consolidation action');
+        logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action, err }, 'Failed to execute consolidation action');
         // Continue to next action even if one fails
       }
     }
@@ -315,11 +316,11 @@ If no actions are needed, return exactly: []
    * Main entry point to trigger consolidation.
    */
   public async runConsolidation(): Promise<void> {
-    logger.info({ module: 'consolidationEngine' }, 'Starting memory consolidation cycle');
+    logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL }, 'Starting memory consolidation cycle');
 
     const groups = await this.fetchConsolidationGroups();
     if (groups.size === 0) {
-      logger.info({ module: 'consolidationEngine' }, 'No memories require consolidation at this time');
+      logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL }, 'No memories require consolidation at this time');
       return;
     }
 
@@ -337,7 +338,7 @@ If no actions are needed, return exactly: []
       processedGroups++;
     }
 
-    logger.info({ module: 'consolidationEngine', processedGroups, totalActions }, 'Consolidation cycle complete');
+    logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, processedGroups, totalActions }, 'Consolidation cycle complete');
   }
 
   /**
@@ -360,7 +361,7 @@ If no actions are needed, return exactly: []
 
     timer.unref?.(); // Don't prevent process exit
 
-   logger.info({ module: 'consolidationEngine', intervalMs: 1800000 }, 'Consolidation engine scheduled');
+   logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, intervalMs: 1800000 }, 'Consolidation engine scheduled');
   }
 }
 

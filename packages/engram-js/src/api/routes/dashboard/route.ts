@@ -9,7 +9,7 @@ import { all_async as pg_all, run_async as pg_run } from "../../../database/conn
 import os from "os";
 import http from "http";
 import { execFile } from "child_process";
-import { appendLogLine as rollingLog, read as readRollingLog, clear as clearRollingLog } from "../../../utils/rollingLog";
+import { readLog, clearLog } from "../../../utils/logger";
 
 function execFileAsync(cmd: string, args: string[]): Promise<[string, string]> {
   return new Promise((resolve, reject) => {
@@ -512,20 +512,20 @@ export const dashboard_route = (app: any) => {
     }
   });
 
-  // GET /api/dashboard/log — read the rolling log file contents
+  // GET /api/dashboard/log — read the Pino log file contents
   app.get("/api/dashboard/log", (_req: any, res: any) => {
     try {
-      const lines = readRollingLog();
+      const lines = readLog();
       return res.json({ success: true, lines });
     } catch (e: unknown) {
       fail(res, "dashboard_log_failed", e);
     }
   });
 
-  // POST /api/dashboard/log/clear — clear the rolling log file
+  // POST /api/dashboard/log/clear — clear the Pino log file
   app.post("/api/dashboard/log/clear", (_req: any, res: any) => {
     try {
-      clearRollingLog();
+      clearLog();
       return res.json({ success: true, message: "Log cleared" });
     } catch (e: unknown) {
       fail(res, "dashboard_log_clear_failed", e);

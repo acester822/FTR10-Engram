@@ -26,7 +26,7 @@ export async function logInteractionAsync(
 
     // Skip extraction for very short responses (nothing meaningful to extract)
     if (llmResponseText.trim().length < 50) {
-      logger.debug({ module: 'memoryLogger' }, 'Skipping extraction - response too short');
+      logger.debug({ module: 'memoryLogger', model: EXTRACTION_MODEL }, 'Skipping extraction - response too short');
       return { storedCount: 0 };
     }
 
@@ -141,7 +141,7 @@ If no facts are worth saving, return exactly: []
       }
 
       if (!extractedMemories.length) {
-        logger.info({ module: 'memoryLogger' }, 'No new significant memories extracted');
+        logger.info({ module: 'memoryLogger', model: EXTRACTION_MODEL }, 'No new significant memories extracted');
         return { storedCount: 0 };
       }
 
@@ -162,17 +162,17 @@ If no facts are worth saving, return exactly: []
           metadata: { sector: mem.sector || "semantic", decay_rate: decayRate, is_genome: Boolean(mem.is_genome) },
         });
 
-        logger.info({ module: 'memoryLogger', sector: mem.sector || 'semantic', content: mem.content.substring(0, 60) }, `Saved ${mem.sector || 'semantic'} memory`);
+        logger.info({ module: 'memoryLogger', model: EXTRACTION_MODEL, sector: mem.sector || 'semantic', content: mem.content.substring(0, 60) }, `Saved ${mem.sector || 'semantic'} memory`);
       }
       
       const storedCount = extractedMemories.filter((m: any) => m?.content && typeof m.content === 'string' && m.content.trim().length >= 5).length;
-      logger.info({ module: 'memoryLogger', count: storedCount }, `Saved ${storedCount} new memories`);
+      logger.info({ module: 'memoryLogger', model: EXTRACTION_MODEL, count: storedCount }, `Saved ${storedCount} new memories`);
       return { storedCount };
     } finally { 
       clearTimeout(timeoutId); 
     }
   } catch (error) {
-    logger.error({ module: 'memoryLogger', err: error }, 'Async memory logging failed');
+    logger.error({ module: 'memoryLogger', model: EXTRACTION_MODEL, err: error }, 'Async memory logging failed');
     return { storedCount: 0 }; // Return 0 on error
   }
 }

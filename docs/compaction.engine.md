@@ -263,7 +263,9 @@ if (body.messages.length > parseInt(process.env.COMPACTION_TRIGGER || "12", 10))
 }
 
 // ... later in the code, when you build the initial status ...
-const initialStatus = `🧠 *Engram: Injected ${genomeMemories.length} Genome and ${phenotypeMemories.length} Phenotype memory(ies) into context.*${compactionFactCount > 0 ? `\n⚙️ *Compacted session history and saved ${compactionFactCount} new memories.*` : ""}\n\n`;
+// Uses buildInjectionStatus() from services/engramStatus.ts for consistent formatting
+const initialStatus = buildInjectionStatus(genomeMemories.length, phenotypeMemories.length, compactionFactCount || undefined);
+// Outputs: 🧬 *Engram: 10 Genome | 0 Phenotype memories loaded.*
 ```
 
 ### Why This Implementation is Production-Ready:
