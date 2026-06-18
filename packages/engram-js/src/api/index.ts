@@ -13,11 +13,23 @@ import { send_telemetry } from "../configuration/telemetry";
 import { createHttpApp } from "./httpApp";
 import { consolidationEngine } from "../services/consolidationEngine";
 import { run_migrations } from "../database/migrate";
+import { appendLogLine as rollingLog } from "../utils/rollingLog";
 
 export function createApp() {
   const app = createHttpApp({ max_payload_size: env.max_payload_size });
 
+  // Rolling log middleware — records every request/response to the log file
   app.use((req: any, res: any, next: any) => {
+    rollingLog(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    
+    const origEnd = res.end.bind(res);
+    res.end = function (...args: any[]) {
+      rollingLog(
+        `[${new Date().toISOString()}] ${req.method} ${req.url} → ${res.statusCode}`,
+      );
+      return origEnd(...args);
+    };
+
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader(
       "Access-Control-Allow-Methods",
