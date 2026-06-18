@@ -354,19 +354,21 @@ export const chat_completions_route = (app: any) => {
         // (Awaiting it here ensures we can send the final status before closing the stream)
         const logResult = await logInteractionAsync(userPrompt, fullLlmResponseText);
 
-        // 6. FINAL STATUS: Tell the user what was learned AFTER the LLM finishes
+        // 6. FINAL STATUS + TRACE: Send extraction status with trace embedded in the same SSE chunk
         const finalStatus = buildExtractionStatus(logResult.storedCount);
-        res.write(createSSEChunk(finalStatus, body.model));
-
-        // 7. CLOSE STREAM
-        res.write('data: [DONE]\n\n');
-
-        // Send trace after [DONE] so client Zod validation doesn't choke on non-OpenAI fields
         const tracePayload = JSON.stringify({
           genome: genomeMemories.map((m) => m.content),
           phenotype: phenotypeMemories.map((m) => ({ sector: m.sector, content: m.content, score: Number(m.score.toFixed(2)) })),
         });
-        res.write(`event: engram_trace\ndata: ${tracePayload}\n\n`);
+        // Embed _trace in the delta so the client's SDK parser extracts it before [DONE]
+        const enrichedChunk = {
+          ...JSON.parse(createSSEChunk(finalStatus, body.model).slice(6)),
+          choices: [{ index: 0, delta: { content: finalStatus, _trace: JSON.parse(tracePayload) }, finish_reason: null }],
+        };
+        res.write(`data: ${JSON.stringify(enrichedChunk)}\n\n`);
+
+        // CLOSE STREAM — must be last before res.end()
+        res.write('data: [DONE]\n\n');
 
         res.end();
       } else {
