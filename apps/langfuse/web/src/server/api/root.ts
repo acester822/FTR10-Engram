@@ -59,6 +59,7 @@ import { notificationPreferencesRouter } from "@/src/server/api/routers/notifica
 import { onboardingRouter } from "@/src/features/onboarding/server/onboardingRouter";
 import { webCalloutsRouter } from "@/src/features/web-callouts/server/router";
 import { inAppAgentRouter } from "@/src/ee/features/in-app-agent/server/router";
+import { engramRouter } from "@/src/features/engram/server/engramRouter";
 
 /**
  * This is the primary router for your server.
@@ -126,6 +127,7 @@ export const appRouter = createTRPCRouter({
   notificationPreferences: notificationPreferencesRouter,
   webCallouts: webCalloutsRouter,
   inAppAgent: inAppAgentRouter,
+  engram: engramRouter,
 });
 
 // export type definition of API

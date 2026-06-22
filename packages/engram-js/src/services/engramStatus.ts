@@ -33,7 +33,10 @@ export function buildInjectionStatus(
  * Tells the user what new memories were learned from the interaction.
  */
 export function buildExtractionStatus(storedCount: number): string {
-  return `\n\n---\n🧬 *Engram: Extraction complete — stored ${storedCount} memories.*`;
+  if (storedCount > 0) {
+    return `\n\n---\n🧬 *Engram: Extraction complete — stored ${storedCount} memories.*`;
+  }
+  return `\n\n---\n🧬 *Engram: Session saved.*`;
 }
 
 /**
@@ -60,6 +63,8 @@ export const ENGRAM_STATUS_REGEXES: RegExp[] = [
   /🧬 \*?Engram:\s*\d+ Genome \| \d+ Phenotype memories? loaded\.\*\n?/g,
   // New extraction format: 🧬 *Engram: Extraction complete — stored X memories.*
   /\n?---?\s*🧬 \*?Engram:\s*Extraction complete — stored \d+ memories?\.\*/g,
+  // New session saved format: 🧬 *Engram: Session saved.*
+  /\n?---?\s*🧬 \*?Engram:\s*Session saved\.\*/g,
   // Compaction note: ⚙️ *Compacted session — saved X memories.*
   /\n⚙️ \*?Compacted session — saved \d+ memories?\.\*/g,
   // Old injection format (backward compat): 🧠 *Engram: Injected X Genome and Y Phenotype memory(ies) into context.*

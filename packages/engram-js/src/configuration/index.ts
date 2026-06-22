@@ -74,6 +74,7 @@ export function validateEnv(): void {
 export const env = {
   port: num(process.env.EG_PORT, 8080),
   api_key: process.env.EG_API_KEY,
+  internal_api_key: process.env.EG_INTERNAL_API_KEY,
   require_api_key:
     bool(process.env.EG_REQUIRE_API_KEY) ||
     process.env.NODE_ENV === "production" ||
@@ -84,7 +85,7 @@ export const env = {
   storage_backend: str(process.env.EG_STORAGE, "postgres").toLowerCase(),
   sqlite_path: str(process.env.EG_SQLITE_PATH, "./engram.sqlite"),
   valkey_url: str(process.env.EG_REDIS_URL, "redis://localhost:6379"),
-  emb_kind: str(process.env.EG_EMBEDDINGS, "ollama"),
+  emb_kind: str(process.env.EG_EMBEDDINGS, "openai"),
    embedding_fallback: str(process.env.EG_MODEL_EMBEDDING_FALLBACK, "bge-m3")
     .split(",")
     .map((s) => s.trim())
@@ -92,17 +93,21 @@ export const env = {
   openai_key: process.env.EG_OPENAI_API_KEY || "",
   openai_base_url: str(process.env.EG_OPENAI_BASE_URL, "https://api.openai.com/v1"),
   openai_model: process.env.EG_OPENAI_MODEL,
-  ollama_model: str(process.env.EG_OLLAMA_MODEL),
   gemini_key: process.env.EG_GEMINI_API_KEY || "",
   aws_region: str(process.env.EG_AWS_REGION),
   aws_access_key_id: str(process.env.EG_AWS_ACCESS_KEY_ID),
   aws_secret_access_key: str(process.env.EG_AWS_SECRET_ACCESS_KEY),
   siray_key: process.env.EG_SIRAY_API_KEY || process.env.EG_SIRAY_API_TOKEN || "",
   siray_base_url: str(process.env.EG_SIRAY_BASE_URL, "https://api.siray.ai/v1"),
-  ollama_url: str(process.env.EG_OLLAMA_URL, "http://localhost:11434"),
-  // ── Generative models ──
-   generative_model: DEFAULT_GENERATIVE_MODEL,
-   fallback_model: DEFAULT_GENERATIVE_FALLBACK,
+  generative_url: str(process.env.EG_GENERATIVE_URL, ""),
+  generative_model: DEFAULT_GENERATIVE_MODEL,
+  fallback_model: DEFAULT_GENERATIVE_FALLBACK,
+
+   // ── Langfuse observability ──
+   langfuse_enabled: bool(process.env.EG_LANGFUSE_ENABLED),
+   langfuse_host: str(process.env.EG_LANGFUSE_HOST, "http://localhost:3000"),
+   langfuse_secret_key: str(process.env.EG_LANGFUSE_SECRET_KEY),
+   langfuse_public_key: str(process.env.EG_LANGFUSE_PUBLIC_KEY),
 
    // ── Embedding model (primary) ──
    embed_model_primary: DEFAULT_EMBEDDING_MODEL,
@@ -119,4 +124,15 @@ export const env = {
   vec_dim: num(process.env.EG_VEC_DIM, 1536),
   max_payload_size: num(process.env.EG_MAX_PAYLOAD_SIZE, 1_000_000),
   ingest_chunk_target_chars: num(process.env.EG_INGEST_CHUNK_TARGET_CHARS, 3000),
+
+  // ── Auto-search via searxNcrawl ──
+  auto_search_enabled: bool(process.env.EG_AUTO_SEARCH_ENABLED),
+  auto_search_max_results: num(process.env.EG_AUTO_SEARCH_MAX_RESULTS, 3),
+  auto_search_min_confidence: (() => {
+    const v = num(process.env.EG_AUTO_SEARCH_MIN_CONFIDENCE, 40);
+    return Math.max(0, Math.min(1, v / 100));
+  })(),
+  auto_search_url: str(process.env.EG_AUTO_SEARCH_URL, "http://localhost:9555"),
+  auto_search_domains: str(process.env.EG_AUTO_SEARCH_DOMAINS, "").split(",").map((s) => s.trim()).filter(Boolean),
+  auto_search_max_chars: num(process.env.EG_AUTO_SEARCH_MAX_CHARS, 2000),
 };

@@ -472,6 +472,10 @@ export const env = createEnv({
     AWS_SECRET_ACCESS_KEY: z.string().optional(),
     LANGFUSE_AWS_BEDROCK_REGION: z.string().optional(),
     LANGFUSE_IN_APP_AGENT_AWS_PROFILE: z.string().optional(),
+
+    // Engram
+    ENGRAM_DATABASE_URL: z.string().url(),
+    EG_INTERNAL_API_KEY: z.string().optional(),
   },
 
   /**
@@ -533,8 +537,10 @@ export const env = createEnv({
     AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
     LANGFUSE_AWS_BEDROCK_REGION: process.env.LANGFUSE_AWS_BEDROCK_REGION,
     LANGFUSE_IN_APP_AGENT_AWS_PROFILE:
-      process.env.LANGFUSE_IN_APP_AGENT_AWS_PROFILE,
-    LANGFUSE_TEAM_SLACK_WEBHOOK: process.env.LANGFUSE_TEAM_SLACK_WEBHOOK,
+       process.env.LANGFUSE_IN_APP_AGENT_AWS_PROFILE,
+     ENGRAM_DATABASE_URL: process.env.ENGRAM_DATABASE_URL,
+     EG_INTERNAL_API_KEY: process.env.EG_INTERNAL_API_KEY,
+     LANGFUSE_TEAM_SLACK_WEBHOOK: process.env.LANGFUSE_TEAM_SLACK_WEBHOOK,
     LANGFUSE_NEW_USER_SIGNUP_WEBHOOK:
       process.env.LANGFUSE_NEW_USER_SIGNUP_WEBHOOK,
     LANGFUSE_ADMIN_ACCESS_WEBHOOK: process.env.LANGFUSE_ADMIN_ACCESS_WEBHOOK,

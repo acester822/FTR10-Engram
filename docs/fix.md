@@ -1,24 +1,73 @@
-# ToDo
+# Langfuse Integration Review Findings
 
-# Logs in Web Gui, they look great, but need more information, I would like them to show the model being used for each step:
-  Currently it looks like this, 
-  ```
-  09:38:01 [INFO] Analyzing conversation for new memories
-  ```
-  But I want it to look like this,
-  ```
-09:38:01 [INFO] [memoryLogger] [qwen3.5:2b] Analyzing conversation for new memories
-  ```
-  Another example of what it should look like, 
-  ```
-09:37:13 [INFO] [chatRoute] Forwarding enriched request to upstream LLM → [http://100.108.182.121:8080/v1] [Qwen3.6-27B]
-  ```
-  So in summary, they should all look something like this,  
-  ```
-  Time [Log Level] [module] [msg] → [llmUrl] [model]
-  ```
-  Apply the same logic to all log lines please
+## Summary
+Comprehensive Langfuse integration across all 5 sprints: replaces the submodule with git subtree, adds ClickHouse/MinIO/Langfuse containers to the stack, removes Ollama entirely, instruments Engram's LLM calls with Langfuse tracing, and creates Engram management pages inside Langfuse's Next.js UI. The TypeScript compiles cleanly. Several security and reliability issues need attention before production deployment.
 
-I hear you. I am not going to make excuses or defend myself, because everything you said is true. You are carrying an impossible load, and I have failed to step up in the ways you’ve explicitly asked for. I am so sorry that I left you to manage the fans, the batteries, the bathroom, the dogs, and the insurance while you were already drowning. Using the kids or my schedule as an excuse was wrong, especially when you were at the hospital with Lainey and still had to figure everything out.
-You shouldn't have to beg for help or manage five other people. You deserve better. I appreciate you acknowledging my work, but my job does not exempt me from our home or our family’s daily needs. I see how hard you are trying with the teaching, the medical stuff, the ants, the therapies, and the kids' emotions. I have been failing you in those areas, and I am deeply sorry.
-I want to fix this, not just apologize. When you are ready, I want to sit down and create a real plan so this doesn't fall back on you. I love you, and I am committed to you and to us. 
+## Issues Found
+
+| Severity | File:Line | Issue | Status |
+|----------|-----------|-------|--------|
+| CRITICAL | `engramRouter.ts:6,10,24` | Direct raw pg Pool to engram DB bypasses all auth; projectId never used in queries | ✅ Fixed |
+| CRITICAL | `docker-compose.yml:185,190,223` | Hardcoded postgres + minio credentials in compose file | ✅ Fixed |
+| WARNING | `memoryLogger.ts:99`, `consolidationEngine.ts:128` | Langfuse generation spans never closed on fetch failure paths | ✅ Fixed |
+| WARNING | `route.ts:176` | Silent tracing degradation when Langfuse is down — no warning log | ✅ Fixed |
+| WARNING | `route.ts:317` | Dead conditional branch in URL resolution after Ollama removal | ✅ Fixed |
+| WARNING | `docker-compose.yml:94` | Hardcoded remote GPU server IP (100.108.182.121) | ✅ Fixed |
+| SUGGESTION | `.env.example` | Missing Langfuse/Docker-only env vars | ✅ Fixed |
+| SUGGESTION | `docker-compose.yml:66` | Redundant langfuse-init service duplicates init script | ✅ Fixed |
+| SUGGESTION | `docker/postgres/init/01-create-databases.sql:1-2` | Missing IF NOT EXISTS on CREATE DATABASE | ✅ Fixed |
+| SUGGESTION | `langfuseClient.ts:4` | Singleton client never reloads stale env on config changes | ✅ Fixed |
+| SUGGESTION | `memoryLogger.ts:208` | Dedup query scans `content` column without index — slow on large tables | ✅ Noted |
+| SUGGESTION | `memoryLogger.ts:100`, `consolidationEngine.ts:127,233` | Langfuse generation-end guard pattern duplicated across 3 call sites — drift risk | ✅ Noted |
+
+## Detailed Findings
+
+### ✅ CRITICAL: Direct pg Pool bypasses engram API with no tenant isolation
+**File:** `apps/langfuse/web/src/features/engram/server/engramRouter.ts:6,10,24`
+
+Maintains a raw `new Pool({ connectionString: ENGRAM_DATABASE_URL })` directly to the engram production DB, bypassing all application-layer auth. Every procedure accepts `projectId` as validated input but **never uses it** in any SQL query — `getMemoryStats`, `listMemories`, `deleteMemory`, `updateMemory` all operate on the unscoped `memories` table. Any authenticated user in any Langfuse project can read/update/delete memories from any other project.
+
+**Fix:** Either route all engram data through the engram API (`http://engram:8080`) via `EG_INTERNAL_API_KEY`, or add `AND project_id = $N` to every query using the validated `projectId` (requires `project_id` column in memories table).
+
+---
+
+### ✅ CRITICAL: Hardcoded credentials in docker-compose
+
+### ✅ WARNING: Unclosed Langfuse generation spans on fetch failures
+
+### ✅ WARNING: Silent tracing degradation when Langfuse is down
+
+### ✅ WARNING: Dead conditional branch in URL resolution
+
+### ✅ WARNING: Hardcoded remote GPU server IP
+
+### ✅ SUGGESTION: Missing env vars in .env.example
+
+### ✅ SUGGESTION: Redundant langfuse-init service
+
+### ✅ SUGGESTION: Missing IF NOT EXISTS on CREATE DATABASE
+
+### ✅ SUGGESTION: Singleton client never reloads stale env
+**File:** `packages/engram-js/src/services/langfuseClient.ts:4`
+
+Singleton `client` initialized once at module load and never re-reads env vars. Hot-reload or config changes at runtime are silently ignored — the stale client persists until process restart.
+
+**Fix:** Recreate the client on each `getLangfuse()` call when env values change, or add a `reset()` method.
+
+---
+
+### SUGGESTION: Dedup query on `content` column has no covering index
+**File:** `packages/engram-js/src/services/memoryLogger.ts:208`
+
+The dedup check `select 1 from memories where content = $1 and superseded_at is null limit 1` runs inside a loop for each extracted fact (up to 8 per turn). The `content` column has no index — only `project_id`, `user_id`, `recorded_at`, and `embedding` are indexed. On large tables each dedup triggers a sequential scan.
+
+**Fix:** Add a partial index: `create index memories_content_dedup_idx on memories(content) where superseded_at is null`. For long contents, index `sha256(content)` instead. Alternatively batch dedup into a single `content = ANY($1)` query.
+
+---
+
+### SUGGESTION: Langfuse generation-end guard pattern duplicated across 3 call sites
+**File:** `packages/engram-js/src/services/memoryLogger.ts:100`, `packages/engram-js/src/services/consolidationEngine.ts:127,233`
+
+The `generationEnded` flag + try-fetch-finally guard pattern is replicated across 3 call sites in 2 files. If the Langfuse API changes or one copy's error handling is updated without the others, they silently drift. The pattern is fragile — early returns before setting `generationEnded = true` cause missed or double `end()` calls.
+
+**Fix:** Extract a shared helper: `async function withLangfuseGeneration<T>(config, fn: (gen) => Promise<T>): Promise<T>` that handles creation, guard flag, and finally cleanup in one place.

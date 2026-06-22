@@ -14,6 +14,8 @@ import { retryFetch } from "../../../../utils/retry";
 import { recallDurableMemories, rememberDurableMemory } from "../../../../durable/repository";
 import { make_db as kit_make_db, run_async, all_async } from "../../_kit";
 import { logInteractionAsync } from "../../../../services/memoryLogger";
+import { autoSearch } from "../../../../services/autoSearch";
+import { getLangfuse } from "../../../../services/langfuseClient";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -49,8 +51,8 @@ function sanitizeMemoryContent(content: string): string {
   return content.replace(/\[END?\s*ENGRAM[^\]]*\]/gi, '[ENGRAM CONTENT — REDACTED]');
 }
 
-/** Build cognitive context from genome + phenotype memories */
-function buildCognitiveContext(genome: GenomeMemory[], phenotype: PhenotypeMemory[]): string {
+/** Build cognitive context from genome + phenotype memories + optional web results */
+function buildCognitiveContext(genome: GenomeMemory[], phenotype: PhenotypeMemory[], webResults?: string): string {
   let ctx = "[ENGRAM COGNITIVE CONTEXT]\n";
 
   if (genome.length > 0) {
@@ -75,6 +77,10 @@ function buildCognitiveContext(genome: GenomeMemory[], phenotype: PhenotypeMemor
       }
       ctx += "\n";
     }
+  }
+
+  if (webResults) {
+    ctx += webResults;
   }
 
   ctx += "[END ENGRAM CONTEXT]\n";
@@ -121,6 +127,7 @@ function createSSEChunk(content: string, model: string = 'engram-proxy') {
 
 // Dedup guard: prevent multiple in-flight extractions for the same prompt
 const _logInFlight = new Set<string>();
+let _langfuseWarned = false;
 
 // ── llama-swap lock (serialize requests per model group) ───────────────
 
@@ -166,6 +173,19 @@ export const chat_completions_route = (app: any) => {
         body.user_id = req.auth_user_id;
       }
 
+      // Langfuse trace for this chat completion
+      const lf = getLangfuse();
+      if (!lf && !_langfuseWarned) {
+        logger.warn({ module: 'chatRoute' }, 'Langfuse client unavailable — tracing data is being dropped');
+        _langfuseWarned = true;
+      }
+      const trace = lf?.trace({
+        name: "chat-completion",
+        userId: body.user_id,
+        metadata: { model: body.model, project_id: body.project_id },
+      });
+      const memoryRecallSpan = trace?.span({ name: "memory-recall" });
+
       // Extract user's last message first
       const userMessage = body.messages[body.messages.length - 1];
       const userPrompt = typeof userMessage.content === "string" ? userMessage.content : JSON.stringify(userMessage.content);
@@ -204,8 +224,44 @@ export const chat_completions_route = (app: any) => {
       } catch (err: any) { logger.warn({ module: 'chatRoute', err: err.message }, 'Phenotype recall failed'); }
 
       logger.debug({ module: 'chatRoute', model: body.model || "default", action: 'memory_recall', genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length }, 'Memory recall completed');
+      memoryRecallSpan?.end();
 
-      const cognitiveContext = buildCognitiveContext(genomeMemories, phenotypeMemories);
+      // Create abort signal tied to client disconnect (must be before auto-search which references it)
+      const abortController = new AbortController();
+      req.on('close', () => {
+        if (!res.writableFinished) {
+          abortController.abort();
+        }
+      });
+
+      // 1.2 AUTO-SEARCH: Detect knowledge gaps and fetch online content via searxNcrawl
+      let webContextBlock = "";
+      let autoSearchCount = 0;
+      const autoSearchSpan = trace?.span({ name: "auto-search" });
+      if (env.auto_search_enabled) {
+        const topScore = phenotypeMemories.length > 0 ? phenotypeMemories[0].score : 0;
+
+        if (autoSearch.shouldSearch(topScore, userPrompt)) {
+          const queries = await autoSearch.generateQueries(userPrompt, { signal: abortController.signal });
+
+          if (queries.length > 0) {
+            res.write(createSSEChunk("🌐 Searching web for context...", body.model));
+
+            const searchResults = await autoSearch.search(queries, { signal: abortController.signal });
+            const fetchedResults = await autoSearch.fetchContent(searchResults, { signal: abortController.signal });
+
+            autoSearchCount = fetchedResults.length;
+            if (fetchedResults.length > 0) {
+              webContextBlock = autoSearch.formatContext(fetchedResults);
+              res.write(createSSEChunk(`🔍 Retrieved ${fetchedResults.length} sources`, body.model));
+            }
+          }
+        }
+      }
+
+      autoSearchSpan?.end({ output: { searchCount: autoSearchCount } });
+
+      const cognitiveContext = buildCognitiveContext(genomeMemories, phenotypeMemories, webContextBlock);
 
       // 1.5 Sanitize previous messages to remove Engram status artifacts
       const sanitizedMessages = body.messages
@@ -231,21 +287,23 @@ export const chat_completions_route = (app: any) => {
         })
         .filter((msg: any): msg is NonNullable<typeof msg> => msg !== null);
 
-      // 2. COMPACT: Async fire-and-forget compaction (trigger at 50+ messages)
+      // 2. COMPACT: Compact old messages into summary when history is long
       let processedMessages = sanitizedMessages;
       let compactionFactCount = 0;
+      const compactionSpan = trace?.span({ name: "compaction" });
 
-      if (sanitizedMessages.length > parseInt(process.env.EG_COMPACT_TRIGGER || "50", 10)) {
-        // Fire compaction in background - don't wait for it
-        compactionEngine.compactIfNeededAsync(sanitizedMessages).catch((err: any) => {
-          logger.error({ module: 'chatRoute', model: body.model || "default", err }, 'Background compaction failed');
-        });
+      if (sanitizedMessages.length > parseInt(process.env.EG_COMPACT_TRIGGER || "25", 10)) {
+        const result = await compactionEngine.compactIfNeeded(sanitizedMessages);
+        processedMessages = result.messages;
+        compactionFactCount = result.extractedFactCount;
       }
+
+      compactionSpan?.end({ output: { factCount: compactionFactCount } });
 
       // 3. Inject into System Prompt (check for duplicates to avoid Jinja template errors)
       const enrichedMessages = [...processedMessages];
       const hasCognitiveContext = enrichedMessages.some(m =>
-        m.role === 'system' && typeof m.content === 'string' && (m.content.includes('[ENGRAM COGNITIVE CONTEXT]') || m.content.includes('[COMPACTED SESSION SUMMARY]'))
+        m.role === 'system' && typeof m.content === 'string' && m.content.includes('[ENGRAM COGNITIVE CONTEXT]')
       );
 
       if (!hasCognitiveContext) {
@@ -261,7 +319,7 @@ export const chat_completions_route = (app: any) => {
       }
 
       // 3. Forward to actual LLM (Preserving ALL original fields like tools, tool_choice, etc.)
-      const llmUrl = env.llm_url || (env.openai_key ? env.openai_base_url : `${env.ollama_url}/v1`);
+      const llmUrl = env.llm_url || env.openai_base_url || "";
     logger.info({ module: 'chatRoute', llmUrl, model: body.model || "default" }, 'Forwarding enriched request to upstream LLM');
       
       const llmPayload = {
@@ -279,6 +337,14 @@ export const chat_completions_route = (app: any) => {
         release = acquireSwap();
       }
 
+      const llmGeneration = trace?.generation({
+        name: "llm-call",
+        model: body.model || process.env.EG_CHAT_MODEL || env.openai_model,
+        modelParameters: { temperature: body.temperature ?? undefined } as any,
+        input: llmPayload,
+        metadata: { module: "chatRoute" },
+      });
+
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (env.openai_key) headers["Authorization"] = `Bearer ${env.openai_key}`;
 
@@ -288,6 +354,7 @@ export const chat_completions_route = (app: any) => {
           method: "POST",
           headers,
           body: JSON.stringify(llmPayload),
+          signal: abortController.signal,
         }, {
           retries: 2,
           baseDelayMs: 1000,
@@ -311,8 +378,15 @@ export const chat_completions_route = (app: any) => {
         (res as any)._streaming = true;
 
         // INITIAL STATUS: Tell the user what memory was injected BEFORE the LLM starts
-        const initialStatus = buildInjectionStatus(genomeMemories.length, phenotypeMemories.length, compactionFactCount || undefined);
-        res.write(createSSEChunk(initialStatus, body.model));
+        const injectionParts: string[] = [];
+        if (genomeMemories.length > 0) injectionParts.push(`🧬 ${genomeMemories.length} genome`);
+        if (phenotypeMemories.length > 0) injectionParts.push(`🧠 ${phenotypeMemories.length} memories`);
+        if (compactionFactCount > 0) injectionParts.push(`📦 ${compactionFactCount} facts`);
+        if (autoSearchCount > 0) injectionParts.push(`🌐 ${autoSearchCount} sources`);
+        const initialStatus = injectionParts.length > 0
+          ? `Injected ${injectionParts.join(", ")}`
+          : "No memories injected";
+        res.write(createSSEChunk(`🧠 ${initialStatus}`, body.model));
 
         const reader = llmResponse.body?.getReader();
         if (!reader) {
@@ -323,11 +397,17 @@ export const chat_completions_route = (app: any) => {
         let fullLlmResponseText = ""; // Accumulate for async logging
 
         while (true) {
+          // Stop reading if client disconnected
+          if (res.destroyed || res.writableEnded) break;
+
           const { done, value } = await reader.read();
           if (done) break;
 
           // ✅ Decode FIRST, then write the string (not raw bytes)
           const chunkText = decoder.decode(value, { stream: true });
+
+          // Skip write if client already gone
+          if (res.destroyed || res.writableEnded) break;
           res.write(chunkText);
           for (const line of chunkText.split("\n")) {
             if (!line.startsWith("data: ")) continue;
@@ -343,22 +423,29 @@ export const chat_completions_route = (app: any) => {
               const regularContent = delta.content || '';
 
               // 🛑 FILTER: Skip our own status chunks so they never enter the accumulated transcript
-              if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
+if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
                 fullLlmResponseText += reasoningContent + regularContent;
               }
             } catch { /* ignore partial JSON */ }
           }
         }
 
-        // 5. LOG & EXTRACT: Wait for the background process to finish 
-        // (Awaiting it here ensures we can send the final status before closing the stream)
-        const logResult = await logInteractionAsync(userPrompt, fullLlmResponseText);
+        llmGeneration?.end({
+          output: fullLlmResponseText,
+          usage: { promptTokens: 0, completionTokens: fullLlmResponseText.length },
+        });
 
-        // 6. FINAL STATUS + TRACE: Send extraction status with trace embedded in the same SSE chunk
-        const finalStatus = buildExtractionStatus(logResult.storedCount);
+        // 5. LOG & EXTRACT: Fire-and-forget — don't block the SSE stream closing
+        logInteractionAsync(userPrompt, fullLlmResponseText).catch((err: any) => {
+          logger.error({ module: 'chatRoute', err }, 'Background extraction failed');
+        });
+
+        // 6. FINAL STATUS + TRACE: Send immediately without waiting for extraction
+        const finalStatus = buildExtractionStatus(0); // Count reported async; 0 shown here to keep stream fast
         const tracePayload = JSON.stringify({
           genome: genomeMemories.map((m) => m.content),
           phenotype: phenotypeMemories.map((m) => ({ sector: m.sector, content: m.content, score: Number(m.score.toFixed(2)) })),
+          ...(autoSearchCount > 0 ? { web: { count: autoSearchCount } } : {}),
         });
         // Embed _trace in the delta so the client's SDK parser extracts it before [DONE]
         const enrichedChunk = {
@@ -402,6 +489,7 @@ export const chat_completions_route = (app: any) => {
         const tracePayload = JSON.stringify({
           genome: genomeMemories.map((m) => m.content),
           phenotype: phenotypeMemories.map((m) => ({ sector: m.sector, content: m.content, score: Number(m.score.toFixed(2)) })),
+          ...(autoSearchCount > 0 ? { web: { count: autoSearchCount } } : {}),
         });
 
         if (!parsedResponse || typeof parsedResponse !== "object") {

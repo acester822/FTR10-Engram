@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
+
+// Local type alias — @types/react doesn't resolve in this monorepo setup with bundler moduleResolution
+type ReactNode = any;
 import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -114,8 +117,8 @@ export default function App() {
 type NavButtonProps = {
   active: boolean;
   onClick: () => void;
-  icon: React.ReactNode;
-  children: React.ReactNode;
+  icon: ReactNode;
+  children: ReactNode;
 };
 
 function NavButton({
@@ -244,7 +247,7 @@ function DashboardView({
 type StatCardProps = {
   title: string;
   value: number;
-  icon: React.ReactNode;
+  icon: ReactNode;
 };
 
 function StatCard({ title, value, icon }: StatCardProps) {
@@ -374,7 +377,7 @@ function MemoriesView() {
                       onChange={(e) => setEditForm({ ...editForm, content: e.target.value })}
                     />
                   ) : (
-                    <p className="text-sm text-slate-800 line-clamp-2 whitespace-pre-wrap">{escapeHtml(m.content)}</p>
+                    <p className="text-sm text-slate-800 line-clamp-2 whitespace-pre-wrap">{m.content}</p>
                   )}
                 </td>
                 <td className="px-6 py-4">
@@ -455,10 +458,10 @@ function MemoriesView() {
 }
 
 function ServerLogsView() {
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState([] as string[]);
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [levelFilter, setLevelFilter] = useState<string>("all");
+  const [levelFilter, setLevelFilter] = useState("all" as string);
 
   const fetchLogs = useCallback(async () => {
     try {
@@ -495,7 +498,7 @@ function ServerLogsView() {
   };
 
   // Parse and filter log lines
-  const filteredLogs = logs.filter((line) => {
+  const filteredLogs = logs.filter((line: string) => {
     if (levelFilter === "all") return true;
     try {
       const parsed = JSON.parse(line);
@@ -560,7 +563,7 @@ function ServerLogsView() {
           {filteredLogs.length === 0 ? (
             <p className="text-center text-slate-500 py-8">No log entries matching filter.</p>
           ) : (
-            filteredLogs.map((line, idx) => {
+            filteredLogs.map((line: string, idx: number) => {
               const parsed = tryParseLogLine(line);
               const levelColor = levelToColor(parsed.level);
               return (
@@ -685,7 +688,28 @@ interface PerfHistoryPoint {
   mem: number;
 }
 
-const HISTORY_MAX = 60; // ~5 minutes at 5s poll interval
+const HISTORY_MAX = 180; // 15 minutes at 5s poll interval
+const HISTORY_STORAGE_KEY = "engram_perf_history";
+
+function loadHistory(): PerfHistoryPoint[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const points: PerfHistoryPoint[] = JSON.parse(raw);
+    const cutoff = Date.now() - 15 * 60 * 1000; // 15 minutes TTL
+    return points.filter(p => p.ts >= cutoff).slice(-HISTORY_MAX);
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(points: PerfHistoryPoint[]) {
+  try {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(points));
+  } catch {
+    // storage full or unavailable — silently ignore
+  }
+}
 
 function formatBytes(bytes: number): string {
   if (!bytes) return "0 B";
@@ -711,7 +735,7 @@ function formatDurationAgo(ts: number): string {
 }
 
 function MetricCard({ icon, label, value, sublabel, color }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
   sublabel?: string;
@@ -856,12 +880,12 @@ function SparklineChart({ data, label, color }: {
 }
 
 function PerformanceMonitor() {
-  const [sysMetrics, setSysMetrics] = useState<SystemMetrics | null>(null);
-  const [ollamaMetrics, setOllamaMetrics] = useState<OllamaMetrics | null>(null);
-  const [ollamaStats, setOllamaStats] = useState<any>(null);
-  const [history, setHistory] = useState<PerfHistoryPoint[]>([]);
+  const [sysMetrics, setSysMetrics] = useState(null as SystemMetrics | null);
+  const [ollamaMetrics, setOllamaMetrics] = useState(null as OllamaMetrics | null);
+  const [ollamaStats, setOllamaStats] = useState(null as any);
+  const [history, setHistory] = useState([] as PerfHistoryPoint[]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(null as string | null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -880,10 +904,11 @@ function PerformanceMonitor() {
 
       // Push history point
       if (sysData.cpu_percent != null) {
-        setHistory((prev: PerfHistoryPoint[]) => [
-          ...prev,
-          { ts: Date.now(), cpu: sysData.cpu_percent, mem: sysData.memory_percent ?? 0 },
-        ].slice(-HISTORY_MAX));
+        setHistory((prev: PerfHistoryPoint[]) => {
+          const next = [...prev, { ts: Date.now(), cpu: sysData.cpu_percent, mem: sysData.memory_percent ?? 0 }].slice(-HISTORY_MAX);
+          saveHistory(next);
+          return next;
+        });
       }
 
       // Extract model cache for active models display
@@ -971,7 +996,7 @@ function PerformanceMonitor() {
       </div>
 
       {/* CPU + Memory Sparkline Chart */}
-      <SparklineChart data={history} label="CPU &amp; Memory (5 min window)" color="blue" />
+      <SparklineChart data={history} label="CPU &amp; Memory (15 min window)" color="blue" />
 
       {/* System Metrics */}
       <h3 className="text-lg font-semibold text-white mb-4">System</h3>

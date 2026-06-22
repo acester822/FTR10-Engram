@@ -70,8 +70,7 @@ async function embed_with_provider(
       return await emb_openai(t, s);
     case "gemini":
       return (await emb_gemini({ [s]: t }))[s];
-    case "ollama":
-      return await emb_ollama(t, s);
+ 
     case "aws":
       return await emb_aws(t, s);
     case "local":
@@ -151,7 +150,6 @@ const task_map: Record<string, string> = {
 const knownProviders = [
   "openai",
   "gemini",
-  "ollama",
   "aws",
   "local",
   "synthetic",
@@ -234,16 +232,6 @@ async function emb_gemini(
   return prom;
 }
 
-async function emb_ollama(t: string, s: string): Promise<number[]> {
-  const m = get_model(s, "ollama");
-  const r = await fetchWithTimeout(`${env.ollama_url}/api/embeddings`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ model: m, prompt: t }),
-  });
-  if (!r.ok) throw new Error(`Ollama: ${r.status}`);
-  return resize_vec(((await r.json()) as any).embedding, env.vec_dim);
-}
 async function emb_aws(t: string, s: string): Promise<number[]> {
   if (!env.aws_region) throw new Error("AWS_REGION missing");
   if (!env.aws_access_key_id) throw new Error("AWS_ACCESS_KEY_ID missing");
@@ -471,10 +459,6 @@ export const getEmbeddingInfo = () => {
     i.configured = !!env.siray_key;
     i.base_url = env.siray_base_url;
     i.models = modelsForProvider("siray");
-  } else if (env.emb_kind === "ollama") {
-    i.configured = true;
-    i.url = env.ollama_url;
-    i.models = modelsForProvider("ollama");
   } else if (env.emb_kind === "local") {
     i.configured = !!env.local_model_path;
     i.path = env.local_model_path;

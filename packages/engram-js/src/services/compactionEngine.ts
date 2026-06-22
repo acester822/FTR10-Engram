@@ -1,24 +1,14 @@
-/*
- - filename: packages/engram-js/src/services/compactionEngine.ts
- - what is the file used for: Async context compaction that runs in background, summarizes only the most recent 15 messages, and saves extracted facts to Phenotype DB
- */
-
 import { env } from "../configuration";
-import { make_db as kit_make_db, run_async, all_async, transaction } from "../api/routes/_kit";
+import { make_db as kit_make_db, run_async, all_async } from "../api/routes/_kit";
 import { rememberDurableMemory } from "../durable/repository";
 import { DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
 import { logger } from "../utils/logger";
+import { getLangfuse } from "./langfuseClient";
 
-// ── Configuration ─────────────────────────────────────────────────────
-
-const COMPACTION_MODEL = env.generative_model;
-const COMPACTION_TRIGGER     = parseInt(String(process.env.EG_COMPACT_TRIGGER), 10) || 50;
-const MAX_RAW_TURNS          = parseInt(String(process.env.EG_MAX_RAW_TURNS), 10) || 6;
-const MAX_MESSAGES_TO_COMPACT = parseInt(String(process.env.EG_COMPACT_MAX_MESSAGES), 10) || 8;
-const COMPACTION_PROMPT_MAX_CHARS = parseInt(String(process.env.EG_COMPACT_PROMPT_MAX_CHARS), 10) || 1200;
-const COMPACTION_TIMEOUT_MS  = (parseInt(String(process.env.EG_COMPACT_TIMEOUT_SEC), 10) || 60) * 1000;
-
-// ── Types ─────────────────────────────────────────────────────────────
+const COMPACTION_TRIGGER     = parseInt(String(process.env.EG_COMPACT_TRIGGER), 10) || 25;
+const MAX_RAW_TURNS          = parseInt(String(process.env.EG_MAX_RAW_TURNS), 10) || 8;
+const COMPACTION_PROMPT_MAX_CHARS = parseInt(String(process.env.EG_COMPACT_PROMPT_MAX_CHARS), 10) || 800;
+const COMPACTION_TIMEOUT_MS  = (parseInt(String(process.env.EG_COMPACT_TIMEOUT_SEC), 10) || 15) * 1000;
 
 export interface Message {
   role: string;
@@ -38,114 +28,91 @@ interface ExtractedFact {
   sector: "semantic" | "procedural" | "episodic" | "emotional" | "reflective";
 }
 
-// ── Compaction Engine ─────────────────────────────────────────────────
-
 export class CompactionEngine {
   private lastCompactedHash: string | null = null;
   private lastCompactionTime: number = 0;
-  private readonly COMPACTION_COOLDOWN_MS = parseInt(String(process.env.EG_COMPACTION_COOLDOWN_MS), 10) || 60_000; // Don't compact more than once per minute
+  private readonly COMPACTION_COOLDOWN_MS = parseInt(String(process.env.EG_COMPACTION_COOLDOWN_MS), 10) || 10_000;
 
-  /**
-   * Async compaction - runs in background, doesn't block the response
-   */
-  public async compactIfNeededAsync(messages: Message[]): Promise<void> {
-    // Check if we should even try to compact
+  public async compactIfNeeded(messages: Message[]): Promise<CompactionResult> {
     if (messages.length <= COMPACTION_TRIGGER) {
-      return;
+      return { messages, extractedFactCount: 0 };
     }
 
-    // Check cooldown to prevent rapid-fire compaction
     const now = Date.now();
-    if (now - this.lastCompactionTime < this.COMPACTION_COOLDOWN_MS) {
-      logger.debug({ module: 'compactionEngine', model: COMPACTION_MODEL }, 'Skipping compaction - cooldown active');
-      return;
-    }
-
-    // Create a hash of message count + last message to detect changes
     const hash = `${messages.length}:${messages[messages.length - 1]?.content?.slice(0, 50)}`;
-    if (hash === this.lastCompactedHash) {
-      logger.debug({ module: 'compactionEngine', model: COMPACTION_MODEL }, 'Skipping compaction - no new messages');
-      return;
+    if (hash === this.lastCompactedHash && now - this.lastCompactionTime < this.COMPACTION_COOLDOWN_MS) {
+      logger.debug({ module: 'compactionEngine' }, 'Skipping compaction — cooldown + hash match');
+      return { messages, extractedFactCount: 0 };
     }
 
-    this.lastCompactionTime = now;
     this.lastCompactedHash = hash;
+    this.lastCompactionTime = now;
 
     try {
-      await this.performCompaction(messages);
+      return await this.performCompaction(messages);
     } catch (error) {
-      logger.error({ module: 'compactionEngine', model: COMPACTION_MODEL, err: error }, 'Background compaction failed');
+      logger.error({ module: 'compactionEngine', err: error }, 'Compaction failed — dropping old history');
+      const recentMessages = messages.slice(-MAX_RAW_TURNS);
+      return { messages: recentMessages, extractedFactCount: 0 };
     }
   }
 
-  /**
-   * Performs the actual compaction
-   */
-  private async performCompaction(messages: Message[]): Promise<void> {
-    // Only take the last N messages to compact (not all old history)
-    const messagesToCompact = messages.slice(-MAX_MESSAGES_TO_COMPACT);
-    
+  private async performCompaction(messages: Message[]): Promise<CompactionResult> {
+    const oldMessages = messages.slice(0, messages.length - MAX_RAW_TURNS);
+    const recentMessages = messages.slice(-MAX_RAW_TURNS);
+
     logger.info(
-      { module: 'compactionEngine', messageCount: messagesToCompact.length, model: COMPACTION_MODEL, ollamaUrl: env.ollama_url },
-      'Starting background compaction'
+      { module: 'compactionEngine', oldCount: oldMessages.length, recentCount: recentMessages.length, model: env.generative_model },
+      'Compacting session history'
     );
 
-    const thinnedHistory = this.thinMessages(messagesToCompact);
-    logger.info(
-      { module: 'compactionEngine', model: COMPACTION_MODEL, messageCount: thinnedHistory.length },
-      'Sending to compaction LLM'
-    );
-
+    const thinnedHistory = this.thinMessages(oldMessages);
     const { summary, extractedFacts } = await this.generateSummaryAndExtract(thinnedHistory);
 
     let savedCount = 0;
     if (extractedFacts.length > 0) {
       savedCount = await this.saveExtractedFacts(extractedFacts);
       logger.info(
-        { module: 'compactionEngine', model: COMPACTION_MODEL, count: savedCount },
-        'Compaction extracted and saved new phenotype memories'
+        { module: 'compactionEngine', count: savedCount },
+        'Compaction saved facts'
       );
     }
 
+    if (!summary || summary.length < 10) {
+      logger.warn({ module: 'compactionEngine' }, 'Compaction summary too short — dropping old history silently');
+      return { messages: recentMessages, extractedFactCount: savedCount };
+    }
+
+    const compactedSystemMessage: Message = {
+      role: "system",
+      content: `[COMPACTED SESSION SUMMARY]\n${summary}\n[END COMPACTED SUMMARY]`,
+    };
+
     logger.info(
-      { module: 'compactionEngine', model: COMPACTION_MODEL, summaryLength: summary.length },
-      'Background compaction complete'
+      { module: 'compactionEngine', summaryLength: summary.length, resultCount: 1 + recentMessages.length },
+      'Compaction complete'
     );
+
+    return {
+      messages: [compactedSystemMessage, ...recentMessages],
+      extractedFactCount: savedCount,
+    };
   }
 
-  /**
-   * Aggressively thins messages to reduce token count
-   */
   private thinMessages(messages: Message[]): Message[] {
     return messages
       .map((msg) => {
-        // Truncate tool outputs to 800 chars max
         if (msg.role === "tool" && typeof msg.content === "string" && msg.content.length > 800) {
-          return {
-            ...msg,
-            content: `${msg.content.substring(0, 800)}\n... [TRUNCATED]`,
-          };
+          return { ...msg, content: `${msg.content.substring(0, 800)}\n... [TRUNCATED]` };
         }
-
-        // Truncate assistant responses to 1200 chars max
         if (msg.role === "assistant" && typeof msg.content === "string" && msg.content.length > 1200) {
-          return {
-            ...msg,
-            content: `${msg.content.substring(0, 1200)}\n... [TRUNCATED]`,
-          };
+          return { ...msg, content: `${msg.content.substring(0, 1200)}\n... [TRUNCATED]` };
         }
-
-        // Truncate user messages to 1000 chars max
         if (msg.role === "user" && typeof msg.content === "string" && msg.content.length > 1000) {
-          return {
-            ...msg,
-            content: `${msg.content.substring(0, 1000)}\n... [TRUNCATED]`,
-          };
+          return { ...msg, content: `${msg.content.substring(0, 1000)}\n... [TRUNCATED]` };
         }
-
         return msg;
       })
-      // Remove consecutive duplicate tool calls
       .filter((msg, index, arr) => {
         if (index > 0 && msg.role === "tool" && arr[index - 1].role === "tool") {
           return index === arr.length - 1 || arr[index + 1]?.role !== "tool";
@@ -154,14 +121,8 @@ export class CompactionEngine {
       });
   }
 
-    /**
-   * Generates summary and extracts facts in a single LLM call.
-   * Uses /api/generate for lower overhead and explicit CPU option control.
-   */
   private async generateSummaryAndExtract(thinnedHistory: Message[]): Promise<{ summary: string; extractedFacts: ExtractedFact[] }> {
-    // Build a very compact history — only role + first/last 80 chars of content
     const compactLines = thinnedHistory
-      .slice(-MAX_MESSAGES_TO_COMPACT)
       .map((m) => {
         if (typeof m.content === "string") {
           if (m.content.length <= 160) return `${m.role}: ${m.content}`;
@@ -175,106 +136,82 @@ export class CompactionEngine {
       })
       .join("\n");
 
-    const prompt = `Summarize the last few messages in 80 words max. Extract key decisions, file paths, bugs fixed, and user preferences.\n\n${compactLines}\n\nRespond with JSON: {"summary":"...","facts":[{"content":"...","sector":"procedural"}]}`;
+    const prompt = `Summarize preceding messages in 60 words max. Extract key decisions, file paths, bugs, preferences.\n\n${compactLines}\n\nRespond JSON: {"summary":"...","facts":[{"content":"...","sector":"procedural"}]}`;
 
-    // Hard cap on prompt size
-    const cappedPrompt = prompt.length > COMPACTION_PROMPT_MAX_CHARS 
+    const cappedPrompt = prompt.length > COMPACTION_PROMPT_MAX_CHARS
       ? prompt.substring(0, COMPACTION_PROMPT_MAX_CHARS) + "\n... [PROMPT TRUNCATED]"
       : prompt;
 
-    const generateUrl = `${env.ollama_url}/api/generate`;
-    logger.info(
-      { module: 'compactionEngine', model: COMPACTION_MODEL, url: generateUrl, promptChars: cappedPrompt.length },
-      'Sending compaction request'
-    );
+    let rawResponse: string;
+    let generation: any;
 
     try {
+      const chatUrl = `${env.generative_url}/chat/completions`;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), COMPACTION_TIMEOUT_MS);
 
-      // FIX: Switched to /api/generate for direct options control and lower overhead
-      const response = await fetch(generateUrl, {
+      const lf = getLangfuse();
+      generation = lf?.generation({
+        name: "compaction-summarize",
+        model: env.generative_model,
+        modelParameters: { temperature: 0.1 },
+        input: cappedPrompt,
+        metadata: { module: "compactionEngine" },
+      });
+
+      const response = await fetch(chatUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: COMPACTION_MODEL,
-          prompt: `${cappedPrompt}\n\n/no_think`, 
+          model: env.generative_model,
+          messages: [
+            { role: "system", content: "You are a data extraction engine. Return only valid JSON." },
+            { role: "user", content: `${cappedPrompt}\n\n/no_think` }
+          ],
           stream: false,
-          think: false, 
-          // FIX: Removed response_format: { type: "json_object" } to save CPU grammar overhead.
-          options: {
-            temperature: 0.1,
-            num_predict: 256, // Keep output generation short
-            num_ctx: 2048,    // CRITICAL FIX: Prevents Ollama from allocating an 8k KV cache in RAM
-            num_batch: 512    // Speeds up prompt processing on multi-core CPUs
-          }
+          temperature: 0.1,
+          max_tokens: 128,
         }),
         signal: controller.signal,
       });
-
       clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error(
-          { module: 'compactionEngine', status: response.status, model: COMPACTION_MODEL, url: generateUrl, error: errorText.substring(0, 500) },
-          'Compaction LLM returned non-OK status'
-        );
-        throw new Error(`Compaction LLM returned status ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`Compaction LLM returned status ${response.status}`);
       const data = await response.json();
-      
-      // FIX: Parse using /api/generate response structure (data.response)
-      const rawResponse = (data.response || "").replace(/^```json\s*|\s*```$/g, "").trim();
+      rawResponse = ((data.choices?.[0]?.message?.content || "") as string).replace(/^```json\s*|\s*```$/g, "").trim();
+
+      generation?.end({
+        output: rawResponse,
+        usage: {
+          promptTokens: data.usage?.prompt_tokens,
+          completionTokens: data.usage?.completion_tokens,
+        },
+      });
 
       if (!rawResponse) {
-        logger.error(
-          { module: 'compactionEngine', model: COMPACTION_MODEL, url: generateUrl, rawLength: (data.response || '').length },
-          'Compaction LLM returned empty response'
-        );
         return { summary: "", extractedFacts: [] };
       }
 
-      let parsed;
-      try {
-        parsed = JSON.parse(rawResponse);
-      } catch (parseErr) {
-        logger.error(
-          { module: 'compactionEngine', model: COMPACTION_MODEL, url: generateUrl, rawResponse: rawResponse.substring(0, 500) },
-          'Compaction LLM returned invalid JSON'
-        );
-        return { summary: "", extractedFacts: [] };
-      }
-
-      logger.info(
-        { module: 'compactionEngine', model: COMPACTION_MODEL, summaryLength: (parsed.summary || '').length, factCount: Array.isArray(parsed.facts) ? parsed.facts.length : 0 },
-        'Compaction LLM response received'
-      );
-
+      let parsed = JSON.parse(rawResponse);
       return {
         summary: parsed.summary || "",
         extractedFacts: Array.isArray(parsed.facts) ? parsed.facts : [],
       };
-    } catch (error) {
-      logger.error({ module: 'compactionEngine', err: error, model: COMPACTION_MODEL, url: generateUrl }, 'Compaction LLM call failed');
+    } catch (error: any) {
+      generation?.end({ error });
+      logger.error({ module: 'compactionEngine', err: error }, 'Compaction LLM call failed');
       return { summary: "", extractedFacts: [] };
     }
   }
 
-  /**
-   * Saves extracted facts to Phenotype DB
-   */
   private async saveExtractedFacts(facts: ExtractedFact[]): Promise<number> {
     const db = kit_make_db(run_async, all_async);
     let savedCount = 0;
 
-    // Wrap in transaction so partial failures roll back all saves
     await db.query("BEGIN");
     try {
       for (const fact of facts) {
         if (!fact.content || fact.content.trim().length < 10) continue;
-
         try {
           await rememberDurableMemory(db, {
             content: fact.content,
@@ -288,15 +225,15 @@ export class CompactionEngine {
           });
           savedCount++;
         } catch (err) {
-          logger.warn({ module: 'compactionEngine', model: COMPACTION_MODEL, content: fact.content }, 'Failed to save compaction fact — will roll back');
+          logger.warn({ module: 'compactionEngine', content: fact.content }, 'Failed to save compaction fact — rolling back');
           await db.query("ROLLBACK");
-          return savedCount; // Return partial count (0) since rolled back
+          return savedCount;
         }
       }
       await db.query("COMMIT");
     } catch (err) {
       await db.query("ROLLBACK");
-      logger.error({ module: 'compactionEngine', model: COMPACTION_MODEL, err }, 'Transaction failed in saveExtractedFacts');
+      logger.error({ module: 'compactionEngine', err }, 'Transaction failed in saveExtractedFacts');
       return 0;
     }
 

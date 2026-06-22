@@ -7,7 +7,6 @@ import { consolidationEngine } from "../../../services/consolidationEngine";
 import { bad, fail, run_async, all_async } from "../_kit";
 import { all_async as pg_all, run_async as pg_run } from "../../../database/connection";
 import os from "os";
-import http from "http";
 import { execFile } from "child_process";
 import { readLog, clearLog } from "../../../utils/logger";
 
@@ -44,70 +43,7 @@ interface PerfMetrics {
     load_avg5: number;
     load_avg15: number;
   };
-  ollama: {
-    model_cache: Array<{
-      model: string;
-      key: string;
-      embedding: number;
-      llm: boolean;
-      last_used: string;
-      ttl: string;
-      size: number;
-      details?: {
-        project_id: string;
-        parent_model: string;
-        license: string[];
-        format: string;
-        family: string;
-        full_name: string;
-        parameter_size: string;
-        quantization_level: string;
-      };
-    }>;
-    gpu?: Array<{
-      id: number;
-      device_index: number;
-      name: string;
-      block_count: number;
-      memory_total: number;
-      memory_used: number;
-      power_limit: number;
-      power_usage: number;
-      temperature: number;
-      performance_mode: number;
-      gpu_utilization: number;
-      memory_utilization: number;
-      process: Array<{
-        pid: number;
-        name: string;
-        memory_usage: number;
-        gpu_utilization: number;
-        memory_utilization: number;
-      }>;
-    }>;
-  };
-}
-
-function fetchOllamaStats(): Promise<any> {
-  return new Promise((resolve) => {
-    const ollamaUrl = process.env.EG_OLLAMA_URL || "http://localhost:11434";
-    const url = new URL("/api/stats", ollamaUrl);
-    const req = http.get(url, { timeout: 3000 }, (res) => {
-      let body = "";
-      res.on("data", (chunk) => (body += chunk));
-      res.on("end", () => {
-        try {
-          resolve(JSON.parse(body));
-        } catch {
-          resolve(null);
-        }
-      });
-    });
-    req.on("error", () => resolve(null));
-  });
-}
-
-async function getDiskMetrics(): Promise<{ total_gb: number; used_gb: number; free_gb: number; usage_percent: number }> {
+}async function getDiskMetrics(): Promise<{ total_gb: number; used_gb: number; free_gb: number; usage_percent: number }> {
   try {
     // Use `df` to parse filesystem usage for the root mount point
     const [stdout] = await execFileAsync("df", ["/"]);
@@ -390,12 +326,11 @@ export const dashboard_route = (app: any) => {
     }
   });
 
-  // GET /api/dashboard/perf — server + Ollama performance metrics
+  // GET /api/dashboard/perf — server performance metrics
   app.get("/api/dashboard/perf", async (_req: any, res: any) => {
     try {
-      const [serverMetrics, ollamaRaw] = await Promise.all([
+      const [serverMetrics] = await Promise.all([
         getServerMetrics(),
-        fetchOllamaStats(),
       ]);
 
       // Enrich server metrics with disk data
@@ -407,15 +342,7 @@ export const dashboard_route = (app: any) => {
 
       const metrics: PerfMetrics = {
         server: serverMetrics,
-        ollama: { model_cache: [] },
       };
-
-      if (ollamaRaw && ollamaRaw.model_cache) {
-        metrics.ollama.model_cache = ollamaRaw.model_cache as PerfMetrics["ollama"]["model_cache"];
-      }
-      if (ollamaRaw?.gpu) {
-        metrics.ollama.gpu = ollamaRaw.gpu;
-      }
 
       return res.json({ success: true, data: metrics });
     } catch (e: unknown) {
@@ -444,71 +371,6 @@ export const dashboard_route = (app: any) => {
       });
     } catch (e: unknown) {
       fail(res, "perf_system_failed", e);
-    }
-  });
-
-  // GET /api/performance/ollama — Ollama model cache & GPU stats
-  app.get("/api/performance/ollama", async (_req: any, res: any) => {
-    try {
-      const ollamaUrl = process.env.EG_OLLAMA_URL || "http://localhost:11434";
-
-      // Fetch /api/stats from Ollama (model cache + GPU usage)
-      const statsRes = await new Promise<any>((resolve) => {
-        const url = new URL("/api/stats", ollamaUrl);
-        const req = http.get(url, { timeout: 3000 }, (s) => {
-          let body = "";
-          s.on("data", (chunk: any) => (body += chunk));
-          s.on("end", () => { try { resolve(JSON.parse(body)); } catch { resolve(null); } });
-        });
-        req.on("error", () => resolve(null));
-      });
-
-      // Fetch /api/tags to get loaded model details
-      const tagsRes = await new Promise<any>((resolve) => {
-        const url = new URL("/api/tags", ollamaUrl);
-        const req = http.get(url, { timeout: 3000 }, (s) => {
-          let body = "";
-          s.on("data", (chunk: any) => (body += chunk));
-          s.on("end", () => { try { resolve(JSON.parse(body)); } catch { resolve(null); } });
-        });
-        req.on("error", () => resolve(null));
-      });
-
-      // Build total VRAM from GPU stats if available
-      let totalVramMb = 0;
-      let usedVramMb = 0;
-      if (statsRes?.gpu) {
-        for (const gpu of statsRes.gpu) {
-          totalVramMb += (gpu.memory_total || 0);
-          usedVramMb += (gpu.memory_used || 0);
-        }
-      }
-
-      // Build model list from Ollama tags API
-      const models: Array<{ model: string; size_bytes?: number; digest?: string; details?: { parent_model?: string; name?: string; parameter_size?: string; quantization_level?: string } }> = [];
-      if (tagsRes?.models) {
-        for (const m of tagsRes.models as any[]) {
-          models.push({
-            model: m.name || m.model,
-            size_bytes: m.size,
-            digest: m.digest,
-            details: {
-              parent_model: m.parent_model,
-              name: m.name,
-              parameter_size: m.details?.parameter_size,
-              quantization_level: m.details?.quantization_level,
-            },
-          });
-        }
-      }
-
-      return res.json({
-        total_vram_total_mb: Math.round(totalVramMb / (1024 * 1024)),
-        total_vram_used_mb: Math.round(usedVramMb / (1024 * 1024)),
-        models,
-      });
-    } catch (e: unknown) {
-      fail(res, "perf_ollama_failed", e);
     }
   });
 

@@ -118,7 +118,7 @@ describe('CompactionEngine – thinMessages', () => {
   });
 });
 
-describe('CompactionEngine – compactIfNeededAsync', () => {
+describe('CompactionEngine – compactIfNeeded', () => {
   let engine: CompactionEngine;
   let fetchStub: ReturnType<typeof vi.fn>;
 
@@ -136,18 +136,17 @@ describe('CompactionEngine – compactIfNeededAsync', () => {
     vi.unstubAllGlobals();
   });
 
-  it('returns early when message count is below trigger', async () => {
+  it('returns messages unchanged when count is below trigger', async () => {
     const msgs = Array.from({ length: 10 }, (_, i) => makeMsg('user', `msg ${i}`));
-    const result = await engine.compactIfNeededAsync(msgs);
-    expect(result).toBeUndefined();
-    // Should not have called fetch since messages < trigger
+    const result = await engine.compactIfNeeded(msgs);
+    expect(result.messages).toBe(msgs);
+    expect(result.extractedFactCount).toBe(0);
     expect(fetchStub).not.toHaveBeenCalled();
   });
 
   it('does not throw when called with many messages', async () => {
     const msgs = Array.from({ length: 60 }, (_, i) => makeMsg('user', `msg ${i}`));
-    await expect(engine.compactIfNeededAsync(msgs)).resolves.toBeUndefined();
-    // Should have attempted the compaction via fetch
+    await expect(engine.compactIfNeeded(msgs)).resolves.toBeDefined();
     expect(fetchStub).toHaveBeenCalled();
   });
 });

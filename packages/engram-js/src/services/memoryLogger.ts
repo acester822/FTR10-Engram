@@ -8,8 +8,15 @@ import { make_db as kit_make_db, run_async, all_async } from "../api/routes/_kit
 import { rememberDurableMemory } from "../durable/repository";
 import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
 import { logger } from "../utils/logger";
+import { getLangfuse } from "./langfuseClient";
 
-const EXTRACTION_MODEL = env.generative_model;
+/**
+ * Throttle: prevent extraction from running on every single turn.
+ * Skips if extraction ran within the cooldown window.
+ */
+const EXTRACTION_COOLDOWN_MS = parseInt(String(process.env.EG_EXTRACTION_COOLDOWN_MS), 10) || 30_000;
+const MAX_FACTS_PER_TURN = parseInt(String(process.env.EG_MAX_FACTS_PER_TURN), 10) || 8;
+let _lastExtractionTime = 0;
 
 /**
  * Async log interaction - extract new memories from conversation
@@ -20,13 +27,21 @@ export async function logInteractionAsync(
   llmResponseText: string,
 ): Promise<{ storedCount: number }> {
   try {
-    // Truncate inputs to keep the prompt within reasonable bounds for Ollama's generate endpoint
-    const truncatedPrompt = userPrompt.length > 1500 ? userPrompt.substring(0, 1500) + '... [TRUNCATED]' : userPrompt;
-    const truncatedResponse = llmResponseText.length > 1500 ? llmResponseText.substring(0, 1500) + '... [TRUNCATED]' : llmResponseText;
+    // Throttle: skip if extraction ran recently
+    const now = Date.now();
+    if (now - _lastExtractionTime < EXTRACTION_COOLDOWN_MS) {
+      logger.debug({ module: 'memoryLogger', model: env.generative_model }, 'Skipping extraction - cooldown active');
+      return { storedCount: 0 };
+    }
+    _lastExtractionTime = now;
+
+    // Truncate inputs to keep the prompt within reasonable bounds
+    const truncatedPrompt = userPrompt.length > 2500 ? userPrompt.substring(0, 2500) + '... [TRUNCATED]' : userPrompt;
+    const truncatedResponse = llmResponseText.length > 3000 ? llmResponseText.substring(0, 3000) + '... [TRUNCATED]' : llmResponseText;
 
     // Skip extraction for very short responses (nothing meaningful to extract)
     if (llmResponseText.trim().length < 50) {
-      logger.debug({ module: 'memoryLogger', model: EXTRACTION_MODEL }, 'Skipping extraction - response too short');
+      logger.debug({ module: 'memoryLogger', model: env.generative_model }, 'Skipping extraction - response too short');
       return { storedCount: 0 };
     }
 
@@ -35,7 +50,13 @@ You are a background data-extraction API. You are NOT a chat assistant.
 You do not answer questions. You do not write code. You do not converse.
 Your ONLY function is to analyze the provided text and output a strict JSON array of extracted facts.
 
-CRITICAL RULE: If the user explicitly asks to "remember", "save", "store", or "add to memory" something, you MUST extract that exact information as a high-priority fact, regardless of whether it looks like documentation, a rule, or a preference. Treat explicit save requests as permanent (is_genome: true).
+Extract ANY of the following when present:
+- User preferences, constraints, or rules they want remembered
+- Important decisions or conclusions reached
+- Key facts about the project, codebase, or domain discussed
+- Specific file paths, function names, or architecture decisions
+- User's goals, priorities, or intent
+- Explicit "remember", "save", "store", or "add to memory" requests (treat as permanent, is_genome: true)
 
 ### INPUT DATA ###
 User Prompt: ${truncatedPrompt}
@@ -45,85 +66,103 @@ AI Response: ${truncatedResponse}
 Return ONLY a valid JSON array. No markdown, no explanations, no conversational text.
 [
   {
-    "content": "The extracted fact or rule",
+    "content": "The extracted fact or rule (keep specific and actionable)",
     "sector": "procedural",
-    "is_genome": true
+    "is_genome": false
   }
 ]
-If no facts are worth saving, return exactly: []
+Valid sectors: "semantic", "episodic", "procedural", "emotional", "reflective"
+Set is_genome: true only for permanent rules the user explicitly asked to save.
+
+Return [] only if the conversation is truly generic (greetings, chit-chat, or single-word acknowledgments). Most substantive conversations should produce at least 1 fact.
 
 ### EXECUTE EXTRACTION NOW ###
 `.trim();
 
     logger.info(
-      { module: 'memoryLogger', model: EXTRACTION_MODEL, ollamaUrl: env.ollama_url, userPromptLength: truncatedPrompt.length, responseLength: truncatedResponse.length },
+      { module: 'memoryLogger', model: env.generative_model, userPromptLength: truncatedPrompt.length, responseLength: truncatedResponse.length },
       'Analyzing conversation for new memories'
     );
 
-    const controller = new AbortController();
+   const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60_000);
-    
+
     try {
-      const generateUrl = `${env.ollama_url}/api/generate`;
+      let rawResponse: string | null = null;
+      let generationEnded = false;
+
+      const chatUrl = `${env.generative_url}/chat/completions`;
       logger.info(
-        { module: 'memoryLogger', model: EXTRACTION_MODEL, url: generateUrl },
-        'Sending extraction request to Ollama'
+        { module: 'memoryLogger', model: env.generative_model, url: chatUrl },
+        'Sending extraction request to remote generative endpoint'
       );
 
-      const response = await fetch(generateUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: EXTRACTION_MODEL,
-          prompt: `${extractionPrompt}\n\n/no_think`, // Disable thinking for generative tasks
-          stream: false,
-          think: false, // Native API parameter to disable thinking
-          options: {
-            temperature: 0.1,
-            num_predict: 500,
-            num_ctx: 2048,
-            num_batch: 512
-          }
-        }),
-        signal: controller.signal,
-      });
+      const lf = getLangfuse();
+      let generation: any;
+      if (lf) {
+        generation = lf.generation({
+          name: "memory-extraction",
+          model: env.generative_model,
+          modelParameters: { temperature: 0.3 },
+          input: extractionPrompt,
+          metadata: { module: "memoryLogger" },
+        });
+      }
 
-      if (!response.ok) { 
-        const errorText = await response.text();
-        logger.error(
-          { module: 'memoryLogger', status: response.status, model: EXTRACTION_MODEL, url: generateUrl, error: errorText.substring(0, 500) },
-          'Extraction LLM returned error status'
-        );
-        return { storedCount: 0 }; 
+      try {
+        const response = await fetch(chatUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: env.generative_model,
+            messages: [
+              { role: "system", content: extractionPrompt.substring(0, 400) + "\n\nReturn ONLY valid JSON." },
+              { role: "user", content: extractionPrompt }
+            ],
+            stream: false,
+            temperature: 0.3,
+            max_tokens: 200,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          logger.error(
+            { module: 'memoryLogger', status: response.status, model: env.generative_model, url: chatUrl, error: errorText.substring(0, 500) },
+            'Extraction LLM returned error status'
+          );
+          generation?.end({ output: "", level: "ERROR" });
+          generationEnded = true;
+          return { storedCount: 0 };
+        }
+
+        const data = await response.json();
+        rawResponse = ((data.choices?.[0]?.message?.content || "") as string);
+
+        generation?.end({
+          output: rawResponse,
+          usage: {
+            promptTokens: data.usage?.prompt_tokens,
+            completionTokens: data.usage?.completion_tokens,
+          },
+        });
+        generationEnded = true;
+      } finally {
+        if (!generationEnded) {
+          generation?.end({ output: null, level: "ERROR" });
+        }
       }
 
       let extractedMemories: any[] = [];
       let parsed: any;
-
-      const data = await response.json();
-      let rawResponse: string;
-      
-      if (data.response && typeof data.response === 'string') {
-        // /api/generate format
-        rawResponse = data.response;
-        logger.info(
-          { module: 'memoryLogger', model: EXTRACTION_MODEL, url: generateUrl, responseLength: rawResponse.length },
-          `Extraction LLM responded via /api/generate (first 200 chars: "${rawResponse.substring(0, 200)}")`
-        );
-      } else {
-        logger.error(
-          { module: 'memoryLogger', model: EXTRACTION_MODEL, response: JSON.stringify(data).substring(0, 500) },
-          'Invalid response structure from extraction LLM'
-        );
-        return { storedCount: 0 };
-      }
 
       try {
         const cleanJson = rawResponse.replace(/^```json\s*|\s*```$/g, "").trim();
         parsed = JSON.parse(cleanJson);
       } catch (e) { 
         logger.error(
-          { module: 'memoryLogger', model: EXTRACTION_MODEL, url: generateUrl, rawOutput: rawResponse.substring(0, 500) },
+          { module: 'memoryLogger', model: env.generative_model, rawOutput: rawResponse.substring(0, 500) },
           'Failed to parse extraction JSON'
         );
         return { storedCount: 0 }; 
@@ -132,7 +171,7 @@ If no facts are worth saving, return exactly: []
       // Normalize: if LLM returned a single object instead of an array, wrap it
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         logger.info(
-          { module: 'memoryLogger', model: EXTRACTION_MODEL },
+          { module: 'memoryLogger', model: env.generative_model },
           `LLM returned single object, wrapping as array`
         );
         extractedMemories = [parsed];
@@ -141,14 +180,31 @@ If no facts are worth saving, return exactly: []
       }
 
       if (!extractedMemories.length) {
-        logger.info({ module: 'memoryLogger', model: EXTRACTION_MODEL }, 'No new significant memories extracted');
+        logger.info({ module: 'memoryLogger', model: env.generative_model }, 'No new significant memories extracted');
         return { storedCount: 0 };
+      }
+
+      // Cap extracted facts to prevent memory explosion
+      if (extractedMemories.length > MAX_FACTS_PER_TURN) {
+        logger.info({ module: 'memoryLogger', model: env.generative_model, total: extractedMemories.length, capped: MAX_FACTS_PER_TURN }, 'Capping extracted facts');
+        extractedMemories = extractedMemories.slice(0, MAX_FACTS_PER_TURN);
       }
 
       // Store each extracted memory
       const db = kit_make_db(run_async, all_async);
+      let storedCount = 0;
       for (const mem of extractedMemories) {
         if (!mem?.content || typeof mem.content !== 'string' || mem.content.trim().length < 5) continue;
+
+        // Dedup: skip if an identical memory already exists
+        const dedupResult = await db.query(
+          `select 1 from "public"."memories" where content = $1 and superseded_at is null limit 1`,
+          [mem.content.trim()],
+        );
+        if (dedupResult.rows?.length) {
+          logger.debug({ module: 'memoryLogger', content: mem.content.substring(0, 60) }, 'Skipping duplicate memory');
+          continue;
+        }
 
         let decayRate = DEFAULT_PHENOTYPE_DECAY_RATE;
         if (mem.is_genome) decayRate = DEFAULT_GENOME_DECAY_RATE;
@@ -162,17 +218,17 @@ If no facts are worth saving, return exactly: []
           metadata: { sector: mem.sector || "semantic", decay_rate: decayRate, is_genome: Boolean(mem.is_genome) },
         });
 
-        logger.info({ module: 'memoryLogger', model: EXTRACTION_MODEL, sector: mem.sector || 'semantic', content: mem.content.substring(0, 60) }, `Saved ${mem.sector || 'semantic'} memory`);
+        storedCount++;
+        logger.info({ module: 'memoryLogger', model: env.generative_model, sector: mem.sector || 'semantic', content: mem.content.substring(0, 60) }, `Saved ${mem.sector || 'semantic'} memory`);
       }
       
-      const storedCount = extractedMemories.filter((m: any) => m?.content && typeof m.content === 'string' && m.content.trim().length >= 5).length;
-      logger.info({ module: 'memoryLogger', model: EXTRACTION_MODEL, count: storedCount }, `Saved ${storedCount} new memories`);
+      logger.info({ module: 'memoryLogger', model: env.generative_model, count: storedCount }, `Saved ${storedCount} new memories`);
       return { storedCount };
     } finally { 
       clearTimeout(timeoutId); 
     }
   } catch (error) {
-    logger.error({ module: 'memoryLogger', model: EXTRACTION_MODEL, err: error }, 'Async memory logging failed');
+    logger.error({ module: 'memoryLogger', model: env.generative_model, err: error }, 'Async memory logging failed');
     return { storedCount: 0 }; // Return 0 on error
   }
 }

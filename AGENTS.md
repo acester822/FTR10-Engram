@@ -6,10 +6,13 @@
 - readme.md - Similar to the agents.md but will have less technical information
 - docs/plan.md - The Plan, this is what the project is trying to do accomplish 
 - docs/Vision.md - This was a brainstorming session to conceptualize and begin programming the revisions to the project
-- docs/model-breakdowns.md - Model selection guide: per-facet embedding routing (qwen3-embedding:0.6b primary, bge-m3 fallback) and generative model choices (qwen3.5:2b for all generative tasks, qwen2.5:3b as fallback)
+- docs/model-breakdowns.md - Model selection guide: per-facet embedding routing (qwen3-embedding:0.6b primary, bge-m3 fallback) and generative model choices (LFM2.5-1.2B-Instruct for all generative tasks via EG_GENERATIVE_URL, qwen2.5:3b as fallback)
 - docs/compaction.engine.md - Compaction engine design document
+- docs/rebrand.md - Rebrand tracking (OpenMemory/CodeCortex → FTR10 Engram)
 ### Directories:
 - packages/engram-js - Engram server (rebranded from OpenMemory/CodeCortex)
+- apps/web - Web UI frontend (port 8099 in Docker)
+- apps/vscode-extension - VS Code extension ("Engram for VS Code", `@cortex` chat participant)
 
 ## Important Commands:
 
@@ -22,7 +25,7 @@
 ```bash
 docker-compose up --build
 ```
-Docker auto-pulls models on startup: `qwen3.5:2b` (generative tasks), `qwen2.5:3b` (fallback), `qwen3-embedding:0.6b`, `bge-m3`.
+Docker auto-pulls models on startup: `LFM2.5-1.2B-Instruct` (generative tasks via EG_GENERATIVE_URL), `qwen2.5:3b` (fallback), `qwen3-embedding:0.6b`, `bge-m3`.
 External port: **8098** (internal container port: 8080).
 
 ## Project Flows:
@@ -45,13 +48,13 @@ flowchart TD
     L5["📡 Linux: SSE 'Injected X memories'"]:::linux
 
     %% MSI Raider: Phase 2 (Generation)
-    R1["🚀 Raider: llama-swap receives (10.10.10.41)"]:::raider
+    R1["🚀 Raider: llama-swap receives (upstream LLM)"]:::raider
     R2["🚀 Raider: Load model to RTX 4090 VRAM"]:::raider
     R3["🚀 Raider: Generate & Stream Response"]:::raider
 
     %% Linux Server: Phase 3 (Background Learning)
     L6["🖥️ Linux: Accumulate Full Transcript"]:::linux
-    L7["🖥️ Linux: Extract Facts via Ollama (qwen3.5:2b)"]:::linux
+    L7["🖥️ Linux: Extract Facts via EG_GENERATIVE_URL (LFM2.5-1.2B-Instruct)"]:::linux
     L8[("🗄️ Linux: Save New Memories to DB")]:::db
     L9["📡 Linux: SSE 'Stored X memories'"]:::linux
 
@@ -78,26 +81,26 @@ flowchart TD
 ```
 
 ### Compaction Flow (new):
-When conversation exceeds `EG_COMPACT_TRIGGER` messages (default: 50), the compaction engine triggers:
-1. **Isolate** — split into old history + recent raw tail (`MAX_RAW_TURNS`, default: 6)
-2. **Thin** — truncate tool outputs >800 chars, assistant responses >1200 chars, user messages >1000 chars; remove consecutive duplicate tool calls
-3. **Summarize & Extract** — single LLM call (model: `EG_MODEL_GENERATIVE`, default: `qwen3.5:2b`) generates both a dense summary and durable facts in JSON
-4. **Save Facts** — extracted facts tagged with `source: "compaction_engine"` are saved to Phenotype DB via the recursive learning loop
-5. **Reconstruct** — returns `[COMPACTED SESSION SUMMARY]` as system message + raw tail that never grows
+When conversation exceeds `EG_COMPACT_TRIGGER` messages (default: 50), the compaction engine triggers **asynchronously** in the background (non-blocking, cooldown: 60s via `EG_COMPACTION_COOLDOWN_MS`):
 
-If compaction fails, a hard-truncation fallback drops old history entirely and inserts an error note.
+1. **Select** — takes only the last `EG_COMPACT_MAX_MESSAGES` messages (default: 8) from the tail
+2. **Thin** — truncate tool outputs >800 chars, assistant responses >1200 chars, user messages >1000 chars; remove consecutive duplicate tool calls
+3. **Summarize & Extract** — single LLM call (model: `EG_MODEL_GENERATIVE`, default: `LFM2.5-1.2B-Instruct` via `EG_GENERATIVE_URL`) generates both a dense summary and durable facts in JSON
+4. **Save Facts** — extracted facts tagged with `source: "compaction_engine"` are saved to Phenotype DB via the recursive learning loop
+
+If compaction fails, it logs an error silently (no hard-truncation fallback).
 
 ### Consolidation Flow (new):
 Background cron job runs every 30 minutes:
 1. **Fetch Groups** — queries memories older than 7 days with `access_count >= 1`, grouped by `consolidation_hash` (min 3 members)
-2. **Generate Actions** — sends each group to consolidation model (`qwen3.5:2b`) for structured merge/update/promote/delete decisions
+2. **Generate Actions** — sends each group to consolidation model (`LFM2.5-1.2B-Instruct` via `EG_GENERATIVE_URL`) for structured merge/update/promote/delete decisions
 3. **Execute Actions** — applies each action individually against the DB with per-action logging
 4. **Synthesis Fallback** — if LLM forgets `new_content` in merge/update actions, falls back to synthesis model (`qwen2.5:3b`)
 
 ### Model Selection Guide:
 | Task | Model | Config Var | Why |
 |---|---|---|---|
-| **Generative (All)** | qwen3.5:2b | `EG_MODEL_GENERATIVE` | Primary generative model — MUST be running at all times, thinking DISABLED |
+| **Generative (All)** | LFM2.5-1.2B-Instruct | `EG_MODEL_GENERATIVE` | Primary generative model via EG_GENERATIVE_URL — MUST be running at all times, thinking DISABLED |
 | **Embedding** | qwen3-embedding:0.6b | `EG_MODEL_EMBEDDING` | Primary embedding; multi-facet with bge-m3 fallback |
 | **Embedding (Procedural)** | qwen3-embedding:0.6b | `EG_MODEL_EMBED_PROCEDURAL` | Code-focused embeddings |
 | **Embedding (Emotional)** | qwen3-embedding:0.6b | `EG_MODEL_EMBED_EMOTIONAL` | Ultra-lightweight CPU model |
@@ -118,14 +121,14 @@ Per-facet embedding routing uses a cascading resolution chain in `models.ts`: pe
 │ 4. Weaves memories invisibly into System Prompt                       │
 │ 5. ⚡ SENDS SSE TO USER: "🧠 Injected X memories"                    │
 │                                                                       │
-│ 6. Forwards enriched prompt to MSI Raider (llama-swap :8080)          │
+│ 6. Forwards enriched prompt to upstream LLM                            │
 │                                                                       │
 │ 9. Receives streaming tokens from MSI Raider                          │
 │ 10. ⚡ PIPES tokens in real-time to USER                              │
 │ 11. Accumulates full response text in background                      │
 │                                                                       │
-│ 12. Stream ends. Calls Local Ollama (:11434) for extraction           │
-│     (Uses qwen3.5:2b with think:false for JSON output)                │
+│ 12. Stream ends. Calls EG_GENERATIVE_URL for extraction               │
+     │     (Uses LFM2.5-1.2B-Instruct with think:false for JSON output)    │
 │ 13. Saves extracted JSON facts to Local DB                            │
 │ 14. ⚡ SENDS SSE TO USER: "🧠 Extraction complete. Stored X memories"│
 └───────────────────────────────────────────────────────────────────────────────┘
@@ -133,7 +136,7 @@ Per-facet embedding routing uses a cascading resolution chain in `models.ts`: pe
        │ 10. Streams tokens           │ 6. Forwards enriched prompt
        │                              ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│ 🚀 MSI RAIDER (10.10.10.41)                                   │
+│ 🚀 UPSTREAM LLM (llama-swap / remote GPU server)              │
 │                                                               │
 │ 7. llama-swap receives request                                │
 │ 8. Loads model into RTX 4090 VRAM                             │
@@ -155,8 +158,8 @@ Per-facet embedding routing uses a cascading resolution chain in `models.ts`: pe
    ├─ 3. WEAVE: Silently injects context into the System Prompt.
    ├─ 4. INITIAL STATUS: Sends SSE chunk to client ("🧠 Injected X memories").
    ↓ (Forwards enriched payload)
-[LLAMA-SWAP] (MSI Raider - The Muscle)
-   ├─ 5. ROUTE: Receives request & loads model into RTX 4090 VRAM.
+[UPSTREAM LLM] (llama-swap / remote GPU server)
+    ├─ 5. ROUTE: Receives request & loads model into RTX 4090 VRAM.
    ├─ 6. GENERATE: Creates response (naturally using the baked-in context).
    └─ 7. STREAM: Sends raw SSE tokens back to Engram Proxy.
    ↓ (Tokens arrive back at Linux Server)
@@ -164,17 +167,16 @@ Per-facet embedding routing uses a cascading resolution chain in `models.ts`: pe
    ├─ 8. PIPE: Instantly passes raw SSE tokens back to the Client Tool.
    ├─ 9. ACCUMULATE: Silently builds the full transcript in background.
    ├─ 10. EXTRACT (Async - Local Ollama :11434):
-    │     ├─ Sends transcript to `qwen3.5:2b` with think:false for JSON output.
+    │     ├─ Sends transcript to `LFM2.5-1.2B-Instruct` via EG_GENERATIVE_URL with think:false for JSON output.
    │     ├─ Extracts new facts into a strict JSON array.
    │     └─ Saves new memories to local PostgreSQL DB.
    └─ 11. FINAL STATUS: Sends SSE chunk ("🧠 Stored X memories.") & closes stream.
 
 [COMPACTION ENGINE] (Background, triggered when messages > EG_COMPACT_TRIGGER)
-   ├─ 1. ISOLATE: Split into old history + recent raw tail
-   ├─ 2. THIN: Truncate massive outputs, remove duplicates
-   ├─ 3. SUMMARIZE & EXTRACT: Single LLM call (qwen3.5:2b)
-   ├─ 4. SAVE FACTS: Extracted facts → Phenotype DB with source="compaction_engine"
-   └─ 5. RECONSTRUCT: [COMPACTED SUMMARY] + raw tail that never grows
+    ├─ 1. SELECT: Takes last EG_COMPACT_MAX_MESSAGES from the tail
+    ├─ 2. THIN: Truncate massive outputs, remove duplicates
+    ├─ 3. SUMMARIZE & EXTRACT: Single LLM call (qwen3.5:2b)
+    └─ 4. SAVE FACTS: Extracted facts → Phenotype DB with source="compaction_engine"
 
 [CONSOLIDATION ENGINE] (Cron, runs every 30 minutes)
    ├─ 1. FETCH GROUPS: Memories older than 7 days grouped by consolidation_hash

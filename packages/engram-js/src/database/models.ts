@@ -24,7 +24,7 @@ export const load_models = (): model_cfg => {
 
   // Build config from .env vars — starts with env-driven defaults, then env overrides apply
   const facets = ["episodic", "semantic", "procedural", "emotional", "reflective"];
-  const providers = ["ollama", "openai", "gemini", "aws", "siray", "local"];
+  const providers = ["openai", "gemini", "aws", "siray", "local"];
 
   cfg = {};
   for (const facet of facets) {

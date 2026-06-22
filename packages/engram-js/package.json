@@ -25,6 +25,7 @@
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.932.0",
     "@modelcontextprotocol/sdk": "^1.21.0",
+    "langfuse": "^3.38.20",
     "pg": "^8.16.3",
     "pino": "^10.3.1",
     "pino-pretty": "^13.1.3",

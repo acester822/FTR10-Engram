@@ -1,14 +1,15 @@
 services:
+  # ── Shared infrastructure ──
   postgres:
     image: pgvector/pgvector:0.8.2-pg16-trixie
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${EG_PG_DB:-engram}
       POSTGRES_USER: ${EG_PG_USER:-postgres}
       POSTGRES_PASSWORD: ${EG_PG_PASSWORD:-postgres}
     ports:
       - "5432:5432"
     volumes:
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d
       - postgres_data:/var/lib/postgresql/data
     command: >
       postgres
@@ -28,44 +29,43 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    networks:
-      - ftr10-engram
-
-  ollama:
-    image: ollama/ollama:latest
-    container_name: engram-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ./models:/root/.ollama
-    environment:
-      OLLAMA_HOST: 0.0.0.0:11434
-      OLLAMA_NUM_PARALLEL: 1
-    networks:
-      - ftr10-engram
     healthcheck:
-      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-
-  model-loader:
-    image: node:20-alpine
-    restart: "no"
-    volumes:
-      - ./scripts:/scripts:ro
-    environment:
-      OLLAMA_URL: http://ollama:11434
-      HOT_MODEL: qwen3.5:2b
+      timeout: 3s
     networks:
       - ftr10-engram
-    depends_on:
-      ollama:
-        condition: service_healthy
-    entrypoint: ["/bin/sh", "/scripts/load-models.sh"]
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_PASSWORD: engram
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ftr10-engram
+
+  minio:
+    image: minio/minio
+    restart: unless-stopped
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9090"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ftr10-engram
+
+  # ── Engram core ──
   engram:
     build:
       context: ./packages/engram-js
@@ -76,7 +76,19 @@ services:
       - .env
     environment:
       EG_PG_HOST: postgres
-      EG_OLLAMA_URL: http://ollama:11434
+      EG_REDIS_URL: redis://redis:6379
+      EG_EMBEDDINGS: "openai"
+      EG_OPENAI_BASE_URL: "${REMOTE_LLM_URL}/v1"
+      EG_OPENAI_API_KEY: "${REMOTE_LLM_API_KEY}"
+      EG_OPENAI_MODEL: "Nomic-Embed-Text-v1.5"
+      EG_GENERATIVE_URL: "${REMOTE_LLM_URL}/v1"
+      EG_GENERATIVE_MODEL: "${REMOTE_LLM_MODEL}"
+      EG_UPSTREAM_LLM_URL: "${REMOTE_LLM_URL}/v1"
+      EG_INTERNAL_API_KEY: "${EG_INTERNAL_API_KEY}"
+      EG_LANGFUSE_HOST: http://langfuse-web:3000
+      EG_LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY}"
+      EG_LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY}"
+      EG_LANGFUSE_ENABLED: "true"
       TZ: America/Chicago
     volumes:
       - server_data:/data
@@ -88,10 +100,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-      ollama:
-        condition: service_healthy
-      model-loader:
-        condition: service_completed_successfully
     restart: unless-stopped
     command: ["npm", "run", "start"]
     healthcheck:
@@ -107,17 +115,125 @@ services:
       retries: 3
       start_period: 60s
 
-  ui:
+  # ── Auto-search (searxNcrawl) ──
+  searxncrawl:
     build:
-      context: ./apps/web
+      context: ./apps/searxNcrawl
       dockerfile: Dockerfile
-      args:
-        VITE_OM_API_URL: http://engram:8080
+    image: engram-searxncrawl:latest
+    env_file:
+      - ./apps/searxNcrawl/.env
+    environment:
+      SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
+      MCP_PORT: 9555
     ports:
-      - "8099:80"
+      - "9555:9555"
+    command:
+      - python
+      - -m
+      - crawler.mcp_server
+      - --transport
+      - http
+      - --host
+      - 0.0.0.0
+      - --port
+      - "9555"
+    networks:
+      - ftr10-engram
+    restart: unless-stopped
+
+  searxng:
+    image: searxng/searxng:latest
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    volumes:
+      - ./apps/searxNcrawl/searxng:/etc/searxng:ro
+    environment:
+      SEARXNG_BASE_URL: https://${SEARXNG_HOSTNAME:-localhost}/
+    ports:
+      - "8888:8080"
+    networks:
+      - ftr10-engram
+    restart: unless-stopped
+
+  # ── Langfuse ──
+  langfuse-web:
+    build:
+      context: ./apps/langfuse
+      dockerfile: web/Dockerfile
+    image: engram-langfuse-web:${LANGFUSE_VERSION:-3.194.1}
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:${EG_PG_PASSWORD:-postgres}@postgres:5432/langfuse
+      ENGRAM_DATABASE_URL: postgresql://postgres:${EG_PG_PASSWORD:-postgres}@postgres:5432/engram
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://default:engram@clickhouse:9000
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: engram
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      AWS_REGION: us-east-1
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse-events
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      NEXTAUTH_SECRET: "${NEXTAUTH_SECRET}"
+      SALT: "${SALT}"
+      NEXTAUTH_URL: "http://localhost:3000"
+      LANGFUSE_INIT_USER_EMAIL: "admin@engram.local"
+      LANGFUSE_INIT_USER_PASSWORD: "${ADMIN_PASSWORD}"
+      LANGFUSE_INIT_ORG_ID: "engram-default"
+      LANGFUSE_INIT_PROJECT_ID: "engram-default"
+      LANGFUSE_INIT_PROJECT_NAME: "Engram"
+      EG_INTERNAL_API_KEY: "${EG_INTERNAL_API_KEY}"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
     depends_on:
-      engram:
+      postgres:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ftr10-engram
+    restart: unless-stopped
+
+  langfuse-worker:
+    build:
+      context: ./apps/langfuse
+      dockerfile: worker/Dockerfile
+    image: engram-langfuse-worker:${LANGFUSE_VERSION:-3.194.1}
+    environment:
+      DATABASE_URL: postgresql://postgres:${EG_PG_PASSWORD:-postgres}@postgres:5432/langfuse
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://default:engram@clickhouse:9000
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: engram
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      AWS_REGION: us-east-1
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
+      S3_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse-events
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+    depends_on:
+      langfuse-web:
+        condition: service_started
     networks:
       - ftr10-engram
     restart: unless-stopped
@@ -125,6 +241,8 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  clickhouse_data:
+  minio_data:
   server_data:
 
 networks:

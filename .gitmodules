@@ -1,0 +1,3 @@
+[submodule "apps/searxNcrawl"]
+	path = apps/searxNcrawl
+	url = https://github.com/acester822/searxNcrawl.git

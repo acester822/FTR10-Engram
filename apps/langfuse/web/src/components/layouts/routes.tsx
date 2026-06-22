@@ -20,6 +20,7 @@ import {
   ClipboardPen,
   Clock,
   Beaker,
+  Brain,
 } from "lucide-react";
 import { type ReactNode } from "react";
 import { type Entitlement } from "@/src/features/entitlements/constants/entitlements";
@@ -45,6 +46,7 @@ export enum RouteGroup {
   Observability = "Observability",
   PromptManagement = "Prompt Management",
   Evaluation = "Evaluation",
+  Engram = "Engram",
 }
 
 export type Route = {
@@ -192,6 +194,34 @@ export const ROUTES: Route[] = [
     icon: Beaker,
     featureFlag: "experimentsV4Enabled",
     group: RouteGroup.Evaluation,
+    section: RouteSection.Main,
+  },
+  {
+    title: "Engram",
+    icon: Brain,
+    group: RouteGroup.Engram,
+    section: RouteSection.Main,
+    pathname: `/project/[projectId]/engram`,
+  },
+  {
+    title: "Memories",
+    pathname: `/project/[projectId]/engram/memories`,
+    icon: Database,
+    group: RouteGroup.Engram,
+    section: RouteSection.Main,
+  },
+  {
+    title: "Logs",
+    pathname: `/project/[projectId]/engram/logs`,
+    icon: ListTree,
+    group: RouteGroup.Engram,
+    section: RouteSection.Main,
+  },
+  {
+    title: "Performance",
+    pathname: `/project/[projectId]/engram/performance`,
+    icon: SquarePercent,
+    group: RouteGroup.Engram,
     section: RouteSection.Main,
   },
   {

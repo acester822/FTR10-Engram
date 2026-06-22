@@ -8,6 +8,7 @@ import { env } from "../configuration";
 import { make_db as kit_make_db, run_async, all_async, transaction } from "../api/routes/_kit";
 import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
 import { logger } from "../utils/logger";
+import { getLangfuse } from "./langfuseClient";
 
 // ── Configuration ─────────────────────────────────────────────────────
 
@@ -96,8 +97,8 @@ export class ConsolidationEngine {
   }
 
   /**
-   * Synthesizes a concise summary from related memories. Used as fallback when the LLM
-   * forgets to provide new_content in its actions (which happens with Ollama's format param).
+  * Synthesizes a concise summary from related memories. Used as fallback when the LLM
+    * forgets to provide new_content in its actions.
    */
   private async synthesizeContent(memories: MemoryCandidate[]): Promise<string> {
     const memoryList = memories.map((m, i) =>
@@ -118,23 +119,61 @@ Rules:
 Synthesized Memory:`;
 
     try {
-      const response = await fetch(`${env.ollama_url}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: SYNTHESIS_MODEL,
-          prompt: `${prompt}\n\n/no_think`, // Disable thinking for generative tasks
-          stream: false,
-          think: false, // Native API parameter to disable thinking
-          options: { temperature: 0.1, num_predict: 200 },
-        }),
-      });
+      let synthesized: string;
+      let generationEnded = false;
 
-      if (!response.ok) return "";
+      const chatUrl = `${env.generative_url}/chat/completions`;
 
-      const data = await response.json();
-      const synthesized = (data.response || "").trim().replace(/^["']|["']$/g, "");
-      return synthesized.length >= 5 ? synthesized : "";
+      const lf = getLangfuse();
+      let generation: any;
+      if (lf) {
+        generation = lf.generation({
+          name: "consolidation-synthesize",
+          model: env.generative_model,
+          modelParameters: { temperature: 0.1 },
+          input: prompt,
+          metadata: { module: "consolidationEngine" },
+        });
+      }
+
+      try {
+        const response = await fetch(chatUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: env.generative_model,
+            messages: [
+              { role: "system", content: prompt.substring(0, 400) + "\n\nReturn only the sentence." },
+              { role: "user", content: prompt }
+            ],
+            stream: false,
+            temperature: 0.1,
+            max_tokens: 200,
+          }),
+        });
+
+        if (!response.ok) {
+          generation?.end({ output: "", level: "ERROR" });
+          generationEnded = true;
+          return "";
+        }
+        const data = await response.json();
+        synthesized = ((data.choices?.[0]?.message?.content || "") as string).trim().replace(/^["']|["']$/g, "");
+
+        generation?.end({
+          output: synthesized,
+          usage: {
+            promptTokens: data.usage?.prompt_tokens,
+            completionTokens: data.usage?.completion_tokens,
+          },
+        });
+        generationEnded = true;
+        return synthesized.length >= 5 ? synthesized : "";
+      } finally {
+        if (!generationEnded) {
+          generation?.end({ output: null, level: "ERROR" });
+        }
+      }
     } catch {
       return "";
     }
@@ -183,44 +222,62 @@ If no actions are needed, return exactly: []
 ### EXECUTE CONSOLIDATION NOW ###`.trim();
 
     try {
-      logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, candidateCount: candidates.length }, `Sending ${candidates.length} related memories to ${CONSOLIDATION_MODEL} for consolidation...`);
+      logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, candidateCount: candidates.length }, `Sending ${candidates.length} related memories to ${env.generative_model} for consolidation...`);
 
-      const response = await fetch(`${env.ollama_url}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: CONSOLIDATION_MODEL,
-          prompt: `${prompt}\n\n/no_think`, // Disable thinking for generative tasks
-          stream: false,
-          think: false, // Native API parameter to disable thinking
-          format: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                action: { type: "string", enum: ["merge", "update", "promote", "delete"] },
-                target_ids: { type: "array", items: { type: "string" } },
-                new_content: { type: "string" },
-                new_sector: { type: "string" },
-                is_genome: { type: "boolean" },
-                reason: { type: "string" }
-              },
-              required: ["action", "target_ids", "reason"]
-            }
-          },
-          options: {
-            temperature: 0.1, // Highly deterministic for data operations
-            num_predict: 1500
-          }
-        }),
-      });
+      let cleanJson: string;
+      let generationEnded = false;
 
-      if (!response.ok) {
-        throw new Error(`Consolidation LLM returned status ${response.status}`);
+      const chatUrl = `${env.generative_url}/chat/completions`;
+
+      const lf = getLangfuse();
+      let generation: any;
+      if (lf) {
+        generation = lf.generation({
+          name: "consolidation-decide",
+          model: env.generative_model,
+          modelParameters: { temperature: 0.1 },
+          input: prompt,
+          metadata: { module: "consolidationEngine" },
+        });
       }
 
-      const data = await response.json();
-      const cleanJson = (data.response || "").replace(/^```json\s*|\s*```$/g, "").trim();
+      try {
+        const response = await fetch(chatUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: env.generative_model,
+            messages: [
+              { role: "system", content: prompt.substring(0, 400) + "\n\nReturn ONLY valid JSON." },
+              { role: "user", content: prompt }
+            ],
+            stream: false,
+            temperature: 0.1,
+            max_tokens: 1500,
+          }),
+        });
+
+        if (!response.ok) {
+          generation?.end({ output: "", level: "ERROR" });
+          generationEnded = true;
+          throw new Error(`Consolidation LLM returned status ${response.status}`);
+        }
+        const data = await response.json();
+        cleanJson = ((data.choices?.[0]?.message?.content || "") as string).replace(/^```json\s*|\s*```$/g, "").trim();
+
+        generation?.end({
+          output: cleanJson,
+          usage: {
+            promptTokens: data.usage?.prompt_tokens,
+            completionTokens: data.usage?.completion_tokens,
+          },
+        });
+        generationEnded = true;
+      } finally {
+        if (!generationEnded) {
+          generation?.end({ output: null, level: "ERROR" });
+        }
+      }
       let parsed: any = JSON.parse(cleanJson);
 
       // Normalize: if LLM returned a single object instead of an array, wrap it
