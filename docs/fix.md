@@ -1,73 +1,91 @@
-# Langfuse Integration Review Findings
+# In `memoryLogger.ts`, update the OUTPUT SCHEMA section:
 
-## Summary
-Comprehensive Langfuse integration across all 5 sprints: replaces the submodule with git subtree, adds ClickHouse/MinIO/Langfuse containers to the stack, removes Ollama entirely, instruments Engram's LLM calls with Langfuse tracing, and creates Engram management pages inside Langfuse's Next.js UI. The TypeScript compiles cleanly. Several security and reliability issues need attention before production deployment.
+``` ts
+OUTPUT SCHEMA:
+Return ONLY a valid JSON array of objects. Each object MUST have a "content" field and a "sector" field.
+Do NOT include any other values, strings, or primitives in the array - ONLY objects.
 
-## Issues Found
+Example of CORRECT output:
+[
+  {
+    "content": "The user prefers TypeScript over JavaScript",
+    "sector": "semantic"
+  },
+  {
+    "content": "Always run tests before committing",
+    "sector": "procedural"
+  }
+]
 
-| Severity | File:Line | Issue | Status |
-|----------|-----------|-------|--------|
-| CRITICAL | `engramRouter.ts:6,10,24` | Direct raw pg Pool to engram DB bypasses all auth; projectId never used in queries | ✅ Fixed |
-| CRITICAL | `docker-compose.yml:185,190,223` | Hardcoded postgres + minio credentials in compose file | ✅ Fixed |
-| WARNING | `memoryLogger.ts:99`, `consolidationEngine.ts:128` | Langfuse generation spans never closed on fetch failure paths | ✅ Fixed |
-| WARNING | `route.ts:176` | Silent tracing degradation when Langfuse is down — no warning log | ✅ Fixed |
-| WARNING | `route.ts:317` | Dead conditional branch in URL resolution after Ollama removal | ✅ Fixed |
-| WARNING | `docker-compose.yml:94` | Hardcoded remote GPU server IP (100.108.182.121) | ✅ Fixed |
-| SUGGESTION | `.env.example` | Missing Langfuse/Docker-only env vars | ✅ Fixed |
-| SUGGESTION | `docker-compose.yml:66` | Redundant langfuse-init service duplicates init script | ✅ Fixed |
-| SUGGESTION | `docker/postgres/init/01-create-databases.sql:1-2` | Missing IF NOT EXISTS on CREATE DATABASE | ✅ Fixed |
-| SUGGESTION | `langfuseClient.ts:4` | Singleton client never reloads stale env on config changes | ✅ Fixed |
-| SUGGESTION | `memoryLogger.ts:208` | Dedup query scans `content` column without index — slow on large tables | ✅ Noted |
-| SUGGESTION | `memoryLogger.ts:100`, `consolidationEngine.ts:127,233` | Langfuse generation-end guard pattern duplicated across 3 call sites — drift risk | ✅ Noted |
+Example of INCORRECT output (DO NOT DO THIS):
+[
+  { "content": "something" },
+  "remember": true,  ← WRONG! This breaks JSON
+  "save": true       ← WRONG! This breaks JSON
+]
+```
 
-## Detailed Findings
+# In `compactionEngine.ts`, do this:
 
-### ✅ CRITICAL: Direct pg Pool bypasses engram API with no tenant isolation
-**File:** `apps/langfuse/web/src/features/engram/server/engramRouter.ts:6,10,24`
+``` ts
+public async compactIfNeeded(messages: Message[]): Promise<CompactionResult> {
+  if (messages.length <= COMPACTION_TRIGGER) {
+    return { messages, extractedFactCount: 0 };
+  }
 
-Maintains a raw `new Pool({ connectionString: ENGRAM_DATABASE_URL })` directly to the engram production DB, bypassing all application-layer auth. Every procedure accepts `projectId` as validated input but **never uses it** in any SQL query — `getMemoryStats`, `listMemories`, `deleteMemory`, `updateMemory` all operate on the unscoped `memories` table. Any authenticated user in any Langfuse project can read/update/delete memories from any other project.
+  const oldMessages = messages.slice(0, messages.length - MAX_RAW_TURNS);
+  let recentMessages = messages.slice(-MAX_RAW_TURNS);
 
-**Fix:** Either route all engram data through the engram API (`http://engram:8080`) via `EG_INTERNAL_API_KEY`, or add `AND project_id = $N` to every query using the validated `projectId` (requires `project_id` column in memories table).
+  logger.info(
+    { module: 'compactionEngine', oldMessageCount: oldMessages.length, model: COMPACTION_MODEL },
+    'Triggering context compaction'
+  );
 
----
+  // 🛡️ CRITICAL: Ensure tool call/result pairs are not split across the boundary
+  recentMessages = this.fixToolCallBoundaries(messages, recentMessages);
 
-### ✅ CRITICAL: Hardcoded credentials in docker-compose
+  // 🛡️ CRITICAL FIX: Find and preserve the most recent user message from oldMessages
+  // Search backwards through old messages to find the last user query
+  const lastUserMessage = oldMessages.slice().reverse().find(m => m.role === 'user');
+  
+  if (lastUserMessage) {
+    // Prepend the user message to recent messages to preserve context
+    recentMessages = [lastUserMessage, ...recentMessages];
+    logger.info(
+      { module: 'compactionEngine' },
+      'Preserved user message from old history'
+    );
+  } else if (!recentMessages.some(m => m.role === 'user')) {
+    // No user message anywhere - this is a critical error
+    logger.error(
+      { module: 'compactionEngine' },
+      'No user message found in entire conversation history'
+    );
+  }
 
-### ✅ WARNING: Unclosed Langfuse generation spans on fetch failures
+  const thinnedHistory = this.thinMessages(oldMessages);
+  const { summary, extractedFacts } = await this.generateSummaryAndExtract(thinnedHistory);
 
-### ✅ WARNING: Silent tracing degradation when Langfuse is down
+  let savedCount = 0;
+  if (extractedFacts.length > 0) {
+    savedCount = await this.saveExtractedFacts(extractedFacts);
+    logger.info(
+      { module: 'compactionEngine', count: savedCount },
+      'Compaction extracted and saved new phenotype memories'
+    );
+  }
 
-### ✅ WARNING: Dead conditional branch in URL resolution
+  const safeSummary = this.sanitizeSummary(summary);
+  const compactedSystemMessage: Message = {
+    role: "system",
+    content: `[COMPACTED SESSION SUMMARY]\n${safeSummary}\n[END COMPACTED SUMMARY]`,
+  };
 
-### ✅ WARNING: Hardcoded remote GPU server IP
+  const finalMessages = this.validateMessageStructure([compactedSystemMessage, ...recentMessages]);
 
-### ✅ SUGGESTION: Missing env vars in .env.example
-
-### ✅ SUGGESTION: Redundant langfuse-init service
-
-### ✅ SUGGESTION: Missing IF NOT EXISTS on CREATE DATABASE
-
-### ✅ SUGGESTION: Singleton client never reloads stale env
-**File:** `packages/engram-js/src/services/langfuseClient.ts:4`
-
-Singleton `client` initialized once at module load and never re-reads env vars. Hot-reload or config changes at runtime are silently ignored — the stale client persists until process restart.
-
-**Fix:** Recreate the client on each `getLangfuse()` call when env values change, or add a `reset()` method.
-
----
-
-### SUGGESTION: Dedup query on `content` column has no covering index
-**File:** `packages/engram-js/src/services/memoryLogger.ts:208`
-
-The dedup check `select 1 from memories where content = $1 and superseded_at is null limit 1` runs inside a loop for each extracted fact (up to 8 per turn). The `content` column has no index — only `project_id`, `user_id`, `recorded_at`, and `embedding` are indexed. On large tables each dedup triggers a sequential scan.
-
-**Fix:** Add a partial index: `create index memories_content_dedup_idx on memories(content) where superseded_at is null`. For long contents, index `sha256(content)` instead. Alternatively batch dedup into a single `content = ANY($1)` query.
-
----
-
-### SUGGESTION: Langfuse generation-end guard pattern duplicated across 3 call sites
-**File:** `packages/engram-js/src/services/memoryLogger.ts:100`, `packages/engram-js/src/services/consolidationEngine.ts:127,233`
-
-The `generationEnded` flag + try-fetch-finally guard pattern is replicated across 3 call sites in 2 files. If the Langfuse API changes or one copy's error handling is updated without the others, they silently drift. The pattern is fragile — early returns before setting `generationEnded = true` cause missed or double `end()` calls.
-
-**Fix:** Extract a shared helper: `async function withLangfuseGeneration<T>(config, fn: (gen) => Promise<T>): Promise<T>` that handles creation, guard flag, and finally cleanup in one place.
+  return {
+    messages: finalMessages,
+    extractedFactCount: savedCount,
+  };
+}
+```

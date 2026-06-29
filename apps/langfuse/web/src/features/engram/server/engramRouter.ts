@@ -14,7 +14,7 @@ export const engramRouter = createTRPCRouter({
                COUNT(*) FILTER (WHERE is_genome = true)::int as genome_count,
                COUNT(*) FILTER (WHERE is_genome = false)::int as phenotype_count,
                sector, COUNT(*)::int as count
-        FROM memories WHERE superseded_at IS NULL AND project_id = $1 GROUP BY sector
+        FROM memories WHERE superseded_at IS NULL AND (project_id = $1 OR project_id IS NULL) GROUP BY sector
       `, [input.projectId]);
       return result.rows;
     }),
@@ -27,7 +27,7 @@ export const engramRouter = createTRPCRouter({
       limit: z.number().default(100)
     }))
     .query(async ({ input }) => {
-      let query = "SELECT * FROM memories WHERE superseded_at IS NULL AND project_id = $1";
+      let query = "SELECT * FROM memories WHERE superseded_at IS NULL AND (project_id = $1 OR project_id IS NULL)";
       const params: unknown[] = [input.projectId];
       if (input.sector && input.sector !== "all") {
         query += " AND sector = $" + (params.length + 1);
@@ -78,7 +78,7 @@ export const engramRouter = createTRPCRouter({
     .input(z.object({ projectId: z.string(), limit: z.number().default(100) }))
     .query(async ({ input }) => {
       const result = await engramPool.query(
-        "SELECT id, content, sector, is_genome, recorded_at FROM memories WHERE superseded_at IS NULL AND project_id = $1 ORDER BY recorded_at DESC LIMIT $2",
+        "SELECT id, content, sector, is_genome, recorded_at FROM memories WHERE superseded_at IS NULL AND (project_id = $1 OR project_id IS NULL) ORDER BY recorded_at DESC LIMIT $2",
         [input.projectId, input.limit]
       );
       return result.rows;

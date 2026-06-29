@@ -240,11 +240,9 @@ async function deleteMemory(id: string): Promise<void> {
   await pg_run("DELETE FROM memories WHERE id = $1", [id]);
 }
 
-async function getRecentLogs(limit: number = 30): Promise<any[]> {
-  return pg_all(
-    "SELECT id, content, sector, is_genome, recorded_at as created_at FROM memories WHERE superseded_at IS NULL ORDER BY recorded_at DESC LIMIT $1",
-    [limit],
-  );
+function getRecentLogs(limit: number = 30): string[] {
+  const allLines = readLog();
+  return allLines.slice(-limit);
 }
 
 export const dashboard_route = (app: any) => {
@@ -302,15 +300,15 @@ export const dashboard_route = (app: any) => {
     }
   });
 
-  // GET /api/dashboard/logs — recent interaction/extraction logs
-  app.get("/api/dashboard/logs", async (req: any, res: any) => {
+  // GET /api/dashboard/logs — recent server log lines
+  app.get("/api/dashboard/logs", (req: any, res: any) => {
     try {
       const limit = Math.min(
         parseInt(req.query.limit as string, 10) || 30,
         200,
       );
-      const logs = await getRecentLogs(limit);
-      return res.json({ adapter: "durable-postgres", logs });
+      const lines = getRecentLogs(limit);
+      return res.json({ success: true, lines });
     } catch (e: unknown) {
       fail(res, "dashboard_logs_failed", e);
     }

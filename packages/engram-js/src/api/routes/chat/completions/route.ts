@@ -16,6 +16,7 @@ import { make_db as kit_make_db, run_async, all_async } from "../../_kit";
 import { logInteractionAsync } from "../../../../services/memoryLogger";
 import { autoSearch } from "../../../../services/autoSearch";
 import { getLangfuse } from "../../../../services/langfuseClient";
+import * as crypto from "crypto";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -27,6 +28,7 @@ interface ChatCompletionRequest {
   max_tokens?: number;
   user_id?: string;
   project_id?: string;
+  session_id?: string;
 }
 
 interface GenomeMemory {
@@ -179,10 +181,40 @@ export const chat_completions_route = (app: any) => {
         logger.warn({ module: 'chatRoute' }, 'Langfuse client unavailable — tracing data is being dropped');
         _langfuseWarned = true;
       }
+
+      // Extract session ID: header → body → query → derived from user+project → auto-generated UUID
+      let sessionId = 
+        (req.headers['x-session-id'] as string) ||
+        body.session_id ||
+        (typeof req.query === 'object' && req.query?.session_id ? String(req.query.session_id) : undefined);
+
+      // When no explicit session ID, derive from user+project to group related requests together.
+      // This ensures all turns in a single conversation get the same session without client changes.
+      if (!sessionId) {
+        const base = `${body.user_id || 'anonymous'}:${body.project_id || 'default'}`;
+        sessionId = crypto.createHash('sha256').update(base).digest('hex').substring(0, 32);
+      }
+
+      // Build input at creation time so it's included in the first trace-create event (avoids Langfuse SDK batching issue)
+      const lastUserMsg = body.messages[body.messages.length - 1];
+      const userInput = typeof lastUserMsg.content === "string" ? lastUserMsg.content : JSON.stringify(lastUserMsg.content);
+      
+      // Build dynamic trace name based on what will happen during this request
+      const traceName = "Upstream Request";
+      
+      // Extract clean user input for the trace — just the last user message, not raw API payload
+      const traceInput = { 
+        messages: body.messages.filter(m => m.role === 'user').map(m => ({ role: m.role, content: typeof m.content === 'string' ? (m.content.length > 2000 ? m.content.substring(0, 2000) + '...' : m.content) : m.content })),
+        model: body.model,
+        session_id: sessionId,
+      };
+
       const trace = lf?.trace({
-        name: "chat-completion",
+        name: traceName,
         userId: body.user_id,
+        sessionId: sessionId,
         metadata: { model: body.model, project_id: body.project_id },
+        input: traceInput,
       });
       const memoryRecallSpan = trace?.span({ name: "memory-recall" });
 
@@ -224,7 +256,7 @@ export const chat_completions_route = (app: any) => {
       } catch (err: any) { logger.warn({ module: 'chatRoute', err: err.message }, 'Phenotype recall failed'); }
 
       logger.debug({ module: 'chatRoute', model: body.model || "default", action: 'memory_recall', genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length }, 'Memory recall completed');
-      memoryRecallSpan?.end();
+      memoryRecallSpan?.end({ output: { genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length } });
 
       // Create abort signal tied to client disconnect (must be before auto-search which references it)
       const abortController = new AbortController();
@@ -292,21 +324,38 @@ export const chat_completions_route = (app: any) => {
       let compactionFactCount = 0;
       const compactionSpan = trace?.span({ name: "compaction" });
 
-      if (sanitizedMessages.length > parseInt(process.env.EG_COMPACT_TRIGGER || "25", 10)) {
-        const result = await compactionEngine.compactIfNeeded(sanitizedMessages);
+      if (sanitizedMessages.length > parseInt(process.env.EG_COMPACT_TRIGGER || "50", 10)) {
+        const result = await compactionEngine.compactIfNeeded(sanitizedMessages, sessionId, body.project_id);
         processedMessages = result.messages;
         compactionFactCount = result.extractedFactCount;
       }
 
-      compactionSpan?.end({ output: { factCount: compactionFactCount } });
+      compactionSpan?.end({ input: { messageCount: sanitizedMessages.length, triggered: compactionFactCount > 0 }, output: { factCount: compactionFactCount } });
+
+      // Update trace name dynamically based on what happened
+      if (trace) {
+        const parts = ["Upstream Request"];
+        if (genomeMemories.length > 0 || phenotypeMemories.length > 0) parts.push("Memory Recall");
+        if (compactionFactCount > 0) parts.push("Compacted");
+        if (autoSearchCount > 0) parts.push("Auto-Search");
+        trace.update({ name: parts.join(" | ") });
+      }
 
       // 3. Inject into System Prompt (check for duplicates to avoid Jinja template errors)
       const enrichedMessages = [...processedMessages];
       const hasCognitiveContext = enrichedMessages.some(m =>
-        m.role === 'system' && typeof m.content === 'string' && m.content.includes('[ENGRAM COGNITIVE CONTEXT]')
+        m.role === 'system' && typeof m.content === 'string' && (
+          m.content.includes('[ENGRAM COGNITIVE CONTEXT]') || 
+          m.content.includes('[CODECORTEX COGNITIVE CONTEXT]')
+        )
       );
 
-      if (!hasCognitiveContext) {
+      // Also check for compaction summary — if present, skip cognitive context injection
+      const hasCompactedSummary = enrichedMessages.some(m =>
+        m.role === 'system' && typeof m.content === 'string' && m.content.includes('[COMPACTED SESSION SUMMARY]')
+      );
+
+      if (!hasCognitiveContext && !hasCompactedSummary) {
         const cognitiveContextBlock = `[ENGRAM COGNITIVE CONTEXT]\n${cognitiveContext}\n[END ENGRAM CONTEXT]\nUse the above context silently to inform your response. Do not explicitly mention "Engram" or the context blocks unless directly asked about your memory.\n\n`;
 
         if (enrichedMessages.length > 0 && enrichedMessages[0].role === "system") {
@@ -435,8 +484,19 @@ if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
           usage: { promptTokens: 0, completionTokens: fullLlmResponseText.length },
         });
 
+        // Update trace with final output while preserving input
+        if (trace) {
+          trace.update({ 
+            output: fullLlmResponseText,
+            input: traceInput,
+          });
+        }
+
+        // Flush pending Langfuse events to ensure they persist before response ends
+        lf?.flushAsync().catch(() => {});
+
         // 5. LOG & EXTRACT: Fire-and-forget — don't block the SSE stream closing
-        logInteractionAsync(userPrompt, fullLlmResponseText).catch((err: any) => {
+        logInteractionAsync(userPrompt, fullLlmResponseText, sessionId, body.project_id).catch((err: any) => {
           logger.error({ module: 'chatRoute', err }, 'Background extraction failed');
         });
 
@@ -503,9 +563,21 @@ if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
 
         res.json(parsedResponse);
 
+        // Update trace with final output for non-streaming path while preserving input
+        const nonStreamOutput = parsedResponse?.choices?.[0]?.message?.content || "";
+        if (trace && nonStreamOutput) {
+          trace.update({ 
+            output: nonStreamOutput,
+            input: traceInput,
+          });
+        }
+
+        // Flush pending Langfuse events to ensure they persist before response ends
+        lf?.flushAsync().catch(() => {});
+
         // ASYNC log
         const cleanResponse = parsedResponse?.choices?.[0]?.message?.content || "";
-        logInteractionAsync(userPrompt, cleanResponse).catch(() => {});
+        logInteractionAsync(userPrompt, cleanResponse, sessionId, body.project_id).catch(() => {});
       }
 
    } catch (error: unknown) {

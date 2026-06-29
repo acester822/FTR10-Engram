@@ -25,6 +25,8 @@ let _lastExtractionTime = 0;
 export async function logInteractionAsync(
   userPrompt: string,
   llmResponseText: string,
+  sessionId?: string,
+  projectId?: string,
 ): Promise<{ storedCount: number }> {
   try {
     // Throttle: skip if extraction ran recently
@@ -62,19 +64,28 @@ Extract ANY of the following when present:
 User Prompt: ${truncatedPrompt}
 AI Response: ${truncatedResponse}
 
-### OUTPUT SCHEMA ###
-Return ONLY a valid JSON array. No markdown, no explanations, no conversational text.
+OUTPUT SCHEMA:
+Return ONLY a valid JSON array of objects. Each object MUST have a "content" field and a "sector" field.
+Do NOT include any other values, strings, or primitives in the array - ONLY objects.
+
+Example of CORRECT output:
 [
   {
-    "content": "The extracted fact or rule (keep specific and actionable)",
-    "sector": "procedural",
-    "is_genome": false
+    "content": "The user prefers TypeScript over JavaScript",
+    "sector": "semantic"
+  },
+  {
+    "content": "Always run tests before committing",
+    "sector": "procedural"
   }
 ]
-Valid sectors: "semantic", "episodic", "procedural", "emotional", "reflective"
-Set is_genome: true only for permanent rules the user explicitly asked to save.
 
-Return [] only if the conversation is truly generic (greetings, chit-chat, or single-word acknowledgments). Most substantive conversations should produce at least 1 fact.
+Example of INCORRECT output (DO NOT DO THIS):
+[
+  { "content": "something" },
+  "remember": true,  ← WRONG! This breaks JSON
+  "save": true       ← WRONG! This breaks JSON
+]
 
 ### EXECUTE EXTRACTION NOW ###
 `.trim();
@@ -99,7 +110,23 @@ Return [] only if the conversation is truly generic (greetings, chit-chat, or si
 
       const lf = getLangfuse();
       let generation: any;
-      if (lf) {
+      if (lf && sessionId) {
+        // Create a top-level trace for the session so memory extraction appears as its own entry.
+        // The name "Memory Analysis" groups related extractions under one visible trace.
+        const memTrace = lf.trace({ 
+          name: "Memory Analysis", 
+          sessionId, 
+          metadata: { module: "memoryLogger" },
+          input: extractionPrompt.substring(0, 2000),
+        });
+        generation = memTrace.generation({
+          name: "extract",
+          model: env.generative_model,
+          modelParameters: { temperature: 0.3 },
+          input: extractionPrompt,
+          metadata: { module: "memoryLogger" },
+        });
+      } else if (lf) {
         generation = lf.generation({
           name: "memory-extraction",
           model: env.generative_model,
@@ -214,7 +241,7 @@ Return [] only if the conversation is truly generic (greetings, chit-chat, or si
         await rememberDurableMemory(db, {
           content: mem.content.trim(),
           user_id: "system",
-          project_id: undefined,
+          project_id: projectId,
           metadata: { sector: mem.sector || "semantic", decay_rate: decayRate, is_genome: Boolean(mem.is_genome) },
         });
 

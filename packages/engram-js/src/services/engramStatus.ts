@@ -71,9 +71,12 @@ export const ENGRAM_STATUS_REGEXES: RegExp[] = [
   /🧠 \*?Engram:\s*\*?Injected \d+ Genome and \d+ Phenotype memory\(ies\) into context\.\*\n?/g,
   // Old extraction format (backward compat): 🧠 *Engram: Extraction complete. Stored X memory(ies).*
   /\n?---?\s*🧠 \*?Engram:\s*\*?Extraction complete\. Stored \d+ new memory\(ies\)\.\*/g,
-  // Generic catch-all for any Engram status line
-  /🧬\s*\*?Engram:\s*(Loaded|Extraction complete)[^\n]*/g,
-  /🧠\s*\*?Engram:\s*(Injected|Extraction complete)[^\n]*/g,
+ // Generic catch-all for any Engram status line
+   /🧬\s*\*?Engram:\s*(Loaded|Extraction complete)[^\n]*/g,
+   /🧠\s*\*?Engram:\s*(Injected|Extraction complete)[^\n]*/g,
+  // Aggressive: concatenated status patterns (status messages accumulating across turns)
+   /🧠\s*\*?Engram:\s*(Injected|Extraction complete)[^\n]*\n?/g,
+   /🧠\s*Injected\s*🧬\s*\d+\s*genome/g,
 ];
 
 /**

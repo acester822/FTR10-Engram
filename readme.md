@@ -7,7 +7,7 @@ A cognitive memory proxy that gives LLMs **persistent, project-aware context** a
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)]()
 [![Node.js](https://img.shields.io/badge/Node.js-20+-43853D?logo=node.js&logoColor=white)]()
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Ollama](https://img.shields.io/badge/Ollama-Latest-4C5A6B?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik04IDJ2MmgtNFYyaDR6bTEyIDB2NGgydi0yaC0yeiIvPjwvc3ZnPg==)](https://ollama.com/)
+[![Ollama](https://img.shields.io/badge/Ollama-Latest-4C5A6B?logo=data:image/svg+xml;base64,PHN2ZyB0bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXBjg9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjwYXRoIGQ9Ik04IDJ2MmgtNFYyaDR6bTEyIDB2NGgydi0yaC0yeiIvPjwvc3ZnPg==)](https://ollama.com/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-blue?logo=docker&logoColor=white)]()
 
 ---
@@ -18,11 +18,14 @@ A cognitive memory proxy that gives LLMs **persistent, project-aware context** a
 - [How It Works](#how-it-works)
 - [Memory Model](#memory-model-genome--phenotype)
 - [Compaction Engine](#compaction-engine)
-- [Consolidation Engine](#consolidation-engine-the-hippocampus)
+- [Consolidation Engine (The Hippocampus)](#consolidation-engine-the-hippocampus)
+- [Memory Decay Engine](#memory-decay-engine)
+- [Durable Memory System](#durable-memory-system)
+- [Langfuse Observability](#langfuse-observability)
 - [Quick Start (Docker)](#quick-start-docker)
 - [Client Configuration](#client-configuration)
 - [Configuration](#configuration)
-- [Local Development](#local-development-no-docker)
+- [Local Development (No Docker)](#local-development-no-docker)
 - [Web GUI](#web-gui)
 - [API Overview](#api-overview)
 - [Troubleshooting](#troubleshooting)
@@ -38,7 +41,7 @@ flowchart TD
     end
 
     subgraph Engram["🖥️ Engram Proxy (:8098) — The Brain"]
-        S1[Intercept Request] --> S2[Embed via Ollama]
+        S1[Intercept Request] --> S2[Embed via Ollama/OpenAI]
         S2 --> S3[Query PostgreSQL]
         S3 --> S4[Weave Context]
         S4 --> S5[SSE: Injected X memories]
@@ -49,7 +52,7 @@ flowchart TD
         U1[Generate Response] --> U2[Stream Tokens]
     end
 
-    subgraph LocalServices["🔧 Local Services (:11434 · :5432 · :6379)"]
+    subgraph LocalServices["🔧 Local Services (:11434 · :5432 · :6379)]
         Ollama[Ollama\nqwen3.5:2b · qwen3-embedding:0.6b]
         Postgres[PostgreSQL + pgvector\nGenome / Phenotype DB]
         Redis[Redis Cache]
@@ -65,11 +68,11 @@ flowchart TD
     S6 --> U1
     U2 -->|Stream tokens back| S4
     S5 -.->|SSE update| IDE
-    U2 -->|Accumulate transcript| B1[Extract Facts\nqwen3.5:2b]
+    U2 -->|Accumulate transcript| B1[Extract Facts\nconfig-driven model]
     B1 -->|Save new memories| Postgres
     B1 -->|SSE status| IDE
 
-    C1 -.->|"Triggered at 50+ messages"| Postgres
+    C1 -.->|"Triggered at EG_COMPACT_TRIGGER"| Postgres
     C2 -.->|"Every 30 min"| Postgres
 ```
 
@@ -78,12 +81,12 @@ flowchart TD
 ## How It Works
 
 1. **Intercept** — User sends a prompt to `http://<server>:8098/v1/chat/completions` (OpenAI-compatible endpoint)
-2. **Embed & Recall** — Engram uses local Ollama (`qwen3-embedding:0.6b`) to embed the query, then searches PostgreSQL for relevant memories across 5 sectors
+2. **Embed & Recall** — Engram uses local Ollama (`qwen3-embedding:0.6b`) or OpenAI provider to embed the query, then searches PostgreSQL for relevant memories across 5 sectors
 3. **Weave Context** — Relevant memories are silently injected into the system prompt with instructions to use them naturally in responses
-4. **Forward** — The enriched request is forwarded to an upstream LLM (llama-swap, OpenAI, Gemini, etc.) for generation
+4. **Forward** — The enriched request is forwarded to an upstream LLM (llama-swap, OpenAI, Gemini, Siray) for generation
 5. **Stream** — Tokens stream back transparently to the client in real-time via SSE
-6. **Extract** — After the response completes, `qwen3.5:2b` extracts new facts from the conversation and saves them to PostgreSQL
-7. **Compact** — When a conversation exceeds 50 messages (configurable), old history is summarized and thinned so context windows never grow unbounded
+6. **Extract** — After the response completes, the generative model extracts new facts from the conversation and saves them to PostgreSQL
+7. **Compact** — When a conversation exceeds `EG_COMPACT_TRIGGER` messages (code default: 25), old history is summarized and thinned so context windows never grow unbounded
 8. **Notify** — SSE status messages inform the user of injected memories and stored facts
 
 ---
@@ -111,15 +114,15 @@ Engram uses a biologically-inspired memory architecture with two distinct layers
 
 ## Compaction Engine
 
-When a conversation exceeds the message threshold (default: **50**), the compaction engine runs in the background to keep context windows bounded:
+When a conversation exceeds the message threshold (`EG_COMPACT_TRIGGER`, code default: **50**, `.env.example` overrides to **100**), the compaction engine runs in the background to keep context windows bounded:
 
-1. **Isolate** — Split into old history + a recent raw tail (`EG_MAX_RAW_TURNS`, default: 6)
+1. **Isolate** — Split into old history + a recent raw tail (`EG_MAX_RAW_TURNS`, default: 6, `.env.example` = 4)
 2. **Thin** — Truncate oversized tool outputs (>800 chars), assistant responses (>1200 chars), and user messages (>1000 chars); remove consecutive duplicate tool calls
-3. **Summarize & Extract** — One LLM call (`qwen3.5:2b`) produces a dense summary AND durable facts in JSON format
+3. **Summarize & Extract** — One LLM call (model: `env.generative_model` from config) produces a dense summary AND durable facts in JSON format
 4. **Save Facts** — Extracted facts are tagged with `source: "compaction_engine"` and saved to the Phenotype DB via the recursive learning loop
 5. **Reconstruct** — The old history is replaced with `[COMPACTED SESSION SUMMARY]` plus the raw tail, so context never grows
 
-> If compaction fails for any reason, a hard-truncation fallback drops old history entirely and inserts an error note to preserve conversation continuity.
+> If compaction fails for any reason, it drops old history silently and keeps only the raw tail to preserve conversation continuity.
 
 ---
 
@@ -128,11 +131,47 @@ When a conversation exceeds the message threshold (default: **50**), the compact
 A background cron job that runs every **30 minutes** to maintain knowledge base health — merging related memories, promoting important ones, and pruning obsolete facts:
 
 1. **Fetch Groups** — Queries memories older than 7 days with `access_count >= 1`, grouped by `consolidation_hash` (minimum 3 members per group)
-2. **Generate Actions** — Sends each group to the LLM (`qwen3.5:2b`) which decides whether to **merge**, **update**, **promote to genome**, or **delete** memories
-3. **Execute Actions** — Applies each action individually against the DB with per-action logging for full auditability
-4. **Synthesis Fallback** — If the LLM forgets to provide `new_content` during merge/update, a synthesis model (`qwen2.5:3b`) generates it automatically
+2. **Generate Actions** — Sends each group to the generative model which decides whether to **merge**, **update**, **promote to genome**, or **delete** memories
+3. **Execute Actions** — Applies each action individually against the DB with per-action logging and transaction rollback on failure
+4. **Synthesis Fallback** — If the LLM omits `new_content` during merge/update, a synthesis model (`env.fallback_model`) generates it automatically
 
 Manual trigger via API: `POST /api/dashboard/consolidate`
+
+---
+
+## Memory Decay Engine
+
+Engram implements temporal salience computation with access-based reinforcement and exponential decay:
+
+- **Base decay rate**: 1% per day (configurable via `DEFAULT_DECAY_CONFIG.baseRate`)
+- **Genome multiplier**: Genome memories decay at 30% the rate of phenotype (`genomeMultiplier: 0.3`)
+- **Access reinforcement**: Each memory access reduces effective age by 7 days (`accessReinforcementDays: 7`)
+- **Salience threshold**: Memories below salience 0.1 are eligible for archival
+- **Exponential decay formula**: `salience * exp(-lambda * effectiveAge)` where lambda is salience-dependent
+
+The decay engine runs as a background job (triggered via `POST /api/admin/decay/run`) and archives low-salience memories to keep the knowledge base healthy.
+
+---
+
+## Durable Memory System
+
+Engram uses a durable memory repository with automatic classification:
+
+- **Genome vs Phenotype**: Content is automatically classified using pattern matching heuristics (`classifyMemory` in `memoryInjector.ts`)
+  - Genome patterns include capitals, definitions, scientific constants, mathematical identities, historical dates
+  - Short declarative sentences without first-person pronouns default to genome
+- **Sector inference**: Automatically infers sector from content keywords (procedural, episodic, emotional, reflective)
+- **Supersession tracking**: New memories supersede old ones with audit logging
+
+---
+
+## Langfuse Observability
+
+Langfuse provides Docker-only observability for all generative model calls:
+
+- **Tracing**: All compaction and consolidation LLM calls are traced via the Langfuse SDK
+- **Dashboard**: Interactive UI at `http://localhost:3000` showing traces, metrics, and evals
+- **Configuration**: Enabled via `EG_LANGFUSE_ENABLED=true` with host/key env vars
 
 ---
 
@@ -157,9 +196,14 @@ docker compose logs -f engram
 |---------|------|-------------|
 | **postgres** | 5432 | PostgreSQL with pgvector — memory storage |
 | **redis** | 6379 | Redis cache / valkey storage |
+| **clickhouse** | 8123 (internal) | ClickHouse analytics database for Langfuse |
+| **minio** | 9000/9090 (internal) | MinIO S3-compatible object storage |
 | **ollama** | 11434 | Ollama LLM server (auto-pulls models on startup) |
 | **engram** | 8098 | Engram proxy — the main API endpoint |
-| **ui** | 8099 | Web GUI dashboard |
+| **searxng** | 8888 | SearXNG search engine (for auto-search service) |
+| **searxncrawl** | 9555 | Auto-search MCP server |
+| **langfuse-web** | 3000 | Langfuse observability dashboard |
+| **langfuse-worker** | — | Langfuse background worker |
 
 ### Auto-Pulled Models
 
@@ -194,7 +238,7 @@ Point your IDE or CLI tool to the Engram proxy:
 http://<your-server-ip>:8098/v1
 ```
 
-The proxy forwards enriched requests to the upstream LLM configured via `EG_UPSTREAM_LLM_URL` (default: `http://100.108.182.121:8080/v1`). Engram supports OpenAI, Gemini, and Siray as fallback upstream providers — just set the corresponding API key and base URL in `.env`.
+The proxy forwards enriched requests to the upstream LLM configured via `EG_UPSTREAM_LLM_URL`. Engram supports OpenAI, Gemini, and Siray as fallback upstream providers — just set the corresponding API key and base URL in `.env`.
 
 ---
 
@@ -206,29 +250,54 @@ Copy `.env.example` to `.env` and adjust as needed. Here are the most important 
 |----------|---------|-------------|
 | `EG_PORT` | `8080` | Server HTTP port (internal container) |
 | `EG_STORAGE` | `postgres` | Storage backend (`postgres`, `sqlite`) |
+| `EG_VEC_DIM` | `1536` | Embedding vector dimension |
+| `EG_EMBEDDINGS` | `openai` | Embedding provider (`ollama`, `openai`, etc.) |
+| `EG_EMBED_TIMEOUT_MS` | `30000` | Embedding request timeout in ms |
+| `EG_PG_HOST` | `localhost` | PostgreSQL host |
+| `EG_PG_PORT` | `5432` | PostgreSQL port |
+| `EG_PG_DB` | `engram` | PostgreSQL database name |
+| `EG_PG_USER` | `postgres` | PostgreSQL user |
+| `EG_PG_PASSWORD` | _(required)_ | PostgreSQL password |
+| `EG_PG_SCHEMA` | `public` | PostgreSQL schema |
 | `EG_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint for embeddings & generative tasks |
-| `EG_UPSTREAM_LLM_URL` | `http://100.108.182.121:8080/v1` | Upstream LLM forwarding endpoint |
+| `EG_GENERATIVE_URL` | _(empty)_ | Generative model API URL (extraction, compaction) |
 | `EG_MODEL_GENERATIVE` | `qwen3.5:2b` | Primary model for extraction, compaction, consolidation |
 | `EG_MODEL_GENERATIVE_FALLBACK` | `qwen2.5:3b` | Fallback generative model |
 | `EG_MODEL_EMBEDDING` | `qwen3-embedding:0.6b` | Primary embedding model (all facets) |
-| `EG_MODEL_EMBEDDING_FALLBACK` | `bge-m3` | Fallback embedding model |
-| `EG_COMPACT_TRIGGER` | `50` | Message count that triggers compaction |
-| `EG_MAX_RAW_TURNS` | `6` | Number of recent raw turns kept after compaction |
+| `EG_MODEL_EMBEDDING_FALLBACK` | `bge-m3` | Comma-separated fallback embedding models |
+| `EG_UPSTREAM_LLM_URL` | _(empty)_ | Upstream LLM forwarding endpoint |
+| `EG_OPENAI_API_KEY` | _(empty)_ | OpenAI-compatible provider API key |
+| `EG_OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI base URL |
+| `EG_GEMINI_API_KEY` | _(empty)_ | Google Gemini API key |
+| `EG_SIRAY_API_KEY` | _(empty)_ | Siray API key/token |
+| `EG_SIRAY_BASE_URL` | `https://api.siray.ai/v1` | Siray base URL |
+| `EG_COMPACT_TRIGGER` | `25` (code) / `100` (.env.example) | Message count that triggers compaction |
+| `EG_MAX_RAW_TURNS` | `8` (code) / `4` (.env.example) | Number of recent raw turns kept after compaction |
+| `EG_COMPACT_PROMPT_MAX_CHARS` | `800` | Max prompt length for compaction LLM call |
+| `EG_COMPACTION_COOLDOWN_MS` | `120000` (120s) | Minimum time between compactions |
+| `EG_EXTRACTION_COOLDOWN_MS` | `30000` (30s) | Minimum time between memory extractions |
+| `EG_MAX_FACTS_PER_TURN` | `8` | Maximum facts extracted per conversation turn |
 | `EG_API_KEY` | _(empty)_ | API key for auth (leave empty to disable) |
 | `EG_REQUIRE_API_KEY` | `false` | Require API key for all requests |
+| `EG_RATE_LIMIT_ENABLED` | `false` | Enable rate limiting |
+| `EG_RATE_LIMIT_WINDOW_MS` | `60000` | Rate limit window in ms |
+| `EG_RATE_LIMIT_MAX_REQUESTS` | `100` | Max requests per window |
+| `EG_TELEMETRY` | `true` | Enable telemetry |
+| `EG_AUTO_SEARCH_ENABLED` | `false` | Enable auto-search via searxNcrawl |
+| `EG_LANGFUSE_ENABLED` | _(not set)_ | Enable Langfuse observability (Docker only) |
+| `EG_LANGFUSE_HOST` | `http://localhost:3000` | Langfuse dashboard URL |
 
 For the full list, see [`.env.example`](.env.example).
 
 ### Model Selection Guide
 
-Per-facet embedding routing uses a cascading resolution chain: **per-facet override → provider-wide override → global fallback → hardcoded defaults → universal `bge-m3`**.
+All models are configurable via env vars with a cascading resolution chain. No hardcoded defaults — the system reads from `.env`: **per-facet override → provider-wide override → global fallback → universal `bge-m3`**.
 
-| Task | Model | Config Var | Why |
+| Task | Default Model | Config Var(s) | Notes |
 |---|---|---|---|
-| Generative (all) | qwen3.5:2b | `EG_MODEL_GENERATIVE` | MUST be running at all times, thinking disabled |
-| Embedding (general) | qwen3-embedding:0.6b | `EG_MODEL_EMBEDDING` | Primary embedding; multi-facet with bge-m3 fallback |
-| Embedding (procedural) | qwen3-embedding:0.6b | `EG_MODEL_EMBED_PROCEDURAL` | Code-focused embeddings |
-| Embedding (emotional) | qwen3-embedding:0.6b | `EG_MODEL_EMBED_EMOTIONAL` | Ultra-lightweight CPU model |
+| Generative (all) | LFM2.5-1.2B-Instruct | `EG_MODEL_GENERATIVE` + `EG_GENERATIVE_URL` | MUST be running at all times, thinking disabled |
+| Embedding (general) | nomic-embed-text-v1.5 | `EG_MODEL_EMBEDDING` | Primary embedding; multi-facet with bge-m3 fallback |
+| Embedding (per-sector) | same as above | `EG_MODEL_EPOCHISODIC`, `EG_MODEL_SEMANTIC`, etc. | Per-sector model override |
 | Fallback | qwen2.5:3b | `EG_MODEL_GENERATIVE_FALLBACK` | Backup for generative tasks if primary fails |
 
 ---
@@ -255,7 +324,7 @@ ollama pull bge-m3
 
 # 5. Set environment variables (minimum required)
 export EG_OLLAMA_URL=http://localhost:11434
-export EG_UPSTREAM_LLM_URL=http://100.108.182.121:8080/v1
+export EG_UPSTREAM_LLM_URL=http://your-gpu-server:8080/v1
 export EG_STORAGE=postgres
 export EG_PG_HOST=localhost
 export EG_PG_DB=engram
@@ -291,12 +360,37 @@ cd apps/web && npm run build
 |----------|--------|-------------|
 | `/v1/chat/completions` | POST | OpenAI-compatible chat endpoint with memory injection |
 | `/health` | GET | Health check |
-| `/api/dashboard/stats` | GET | Dashboard statistics |
-| `/api/dashboard/memories` | GET | List memories (paginated) |
-| `/api/dashboard/log` | GET | Server log lines |
-| `/api/dashboard/log/clear` | POST | Clear server log file |
+| `/api/dashboard/stats` | GET | Dashboard statistics (genome/phenotype breakdown) |
+| `/api/dashboard/memories` | GET | List memories (paginated, searchable, filterable by sector) |
+| `/api/dashboard/memories/:id` | PUT | Update a memory's content, sector, or genome status |
+| `/api/dashboard/memories/:id` | DELETE | Delete a memory |
+| `/api/dashboard/logs` | GET | Recent interaction/extraction logs |
+| `/api/dashboard/log` | GET | Full Pino log file contents |
+| `/api/dashboard/log/clear` | POST | Clear the Pino log file |
 | `/api/dashboard/consolidate` | POST | Trigger consolidation manually |
 | `/api/dashboard/perf` | GET | Server + Ollama performance metrics |
+| `/api/performance/system` | GET | System metrics (CPU, memory, disk, load, uptime) |
+| `/api/stats/summary` | GET | Memory statistics summary |
+| `/api/stats/timeseries` | GET | Timeseries memory data |
+| `/api/recall` | POST | Direct memory recall/search endpoint |
+| `/api/memories/create` | POST | Create a new memory |
+| `/api/memories/update` | PUT | Update an existing memory |
+| `/api/memories/delete` | DELETE | Delete a memory by ID |
+| `/api/memories/explain` | GET | Explain why a memory was recalled |
+| `/api/memories/reinforce` | POST | Reinforce a memory (boosts salience) |
+| `/api/memories/tier` | PUT | Change memory tier (active/cold/archived) |
+| `/api/contradictions/create` | POST | Create a contradiction between memories |
+| `/api/contradictions/resolve` | POST | Resolve a contradiction |
+| `/api/consolidations/*` | POST | Consolidation lifecycle endpoints (create/claim/complete) |
+| `/api/graph/temporal/query` | GET | Temporal graph query for memory relationships |
+| `/api/edges/execute` | POST | Execute edge operations on the knowledge graph |
+| `/api/ingest/document` | POST | Ingest a document for memory extraction |
+| `/api/ingest/event` | POST | Record an interaction event |
+| `/api/ingest/candidates/accept` | POST | Accept a candidate memory |
+| `/api/ingest/candidates/reject` | POST | Reject a candidate memory |
+| `/api/sources/ingest` | POST | Ingest from external sources (GitHub, Google Drive, OneDrive) |
+| `/api/admin/decay/run` | POST | Run the memory decay engine manually |
+| `/api/ide/*` | GET/POST | IDE-specific integration endpoints |
 
 ---
 
@@ -316,10 +410,13 @@ Confirm `EG_UPSTREAM_LLM_URL` points to your GPU machine or provider endpoint. T
 The cron runs every 30 minutes. Trigger manually via `POST /api/dashboard/consolidate`. Memories must be older than 7 days, have `access_count >= 1`, and share a `consolidation_hash` (minimum 3 per group).
 
 ### Compaction not triggering
-Compaction runs when a conversation exceeds `EG_COMPACT_TRIGGER` (default: 50). Check server logs for the `compactionEngine` module.
+Compaction runs when a conversation exceeds `EG_COMPACT_TRIGGER` (code default: **25**, `.env.example` overrides to **100**). Check server logs for the `compactionEngine` module.
 
 ### Migration fails
 Ensure PostgreSQL is running and the database exists before starting the server. Migrations run automatically on startup.
+
+### Langfuse dashboard not accessible
+Verify `EG_LANGFUSE_ENABLED=true`, `EG_LANGFUSE_HOST=http://langfuse-web:3000`, and that both `langfuse-web` and `langfuse-worker` containers are healthy.
 
 </details>
 
@@ -332,3 +429,4 @@ The project was previously called **OpenMemory** and **CodeCortex**. The officia
 - **Engram** — Server / core package
 - **Engram Web GUI** — Dashboard interface (`apps/web`)
 - **EngramVS** — VS Code extension (`apps/vscode-extension`)
+
