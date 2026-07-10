@@ -203,7 +203,10 @@ export const make_db = (
     if (cmd === "BEGIN") return await tx.begin(), { rows: [] };
     if (cmd === "COMMIT") return await tx.commit(), { rows: [] };
     if (cmd === "ROLLBACK") return await tx.rollback(), { rows: [] };
-    if (/^\s*select\b/i.test(sql)) return { rows: await all(sql, params as any[]) };
+    // Treat SELECT and WITH (CTE) queries as reads — recallDurableMemories
+    // builds a `with ranked as (...)` CTE, which the old /^select\b/ test
+    // misclassified as a write and returned empty rows for.
+    if (/^\s*(select|with)\b/i.test(sql)) return { rows: await all(sql, params as any[]) };
     await run(sql, params as any[]);
     return { rows: [] };
   },
