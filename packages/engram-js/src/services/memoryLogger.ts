@@ -27,6 +27,7 @@ export async function logInteractionAsync(
   llmResponseText: string,
   sessionId?: string,
   projectId?: string,
+  allowGenome: boolean = true,
 ): Promise<{ storedCount: number }> {
   try {
     // Throttle: skip if extraction ran recently
@@ -234,7 +235,7 @@ Example of INCORRECT output (DO NOT DO THIS):
         }
 
         let decayRate = DEFAULT_PHENOTYPE_DECAY_RATE;
-        if (mem.is_genome) decayRate = DEFAULT_GENOME_DECAY_RATE;
+        if (mem.is_genome && allowGenome) decayRate = DEFAULT_GENOME_DECAY_RATE;
         else if (mem.sector === "episodic") decayRate = 0.15;
         else if (["semantic", "procedural"].includes(mem.sector)) decayRate = 0.05;
 
@@ -242,7 +243,7 @@ Example of INCORRECT output (DO NOT DO THIS):
           content: mem.content.trim(),
           user_id: "system",
           project_id: projectId,
-          metadata: { sector: mem.sector || "semantic", decay_rate: decayRate, is_genome: Boolean(mem.is_genome) },
+          metadata: { sector: mem.sector || "semantic", decay_rate: decayRate, is_genome: Boolean(mem.is_genome && allowGenome) },
         });
 
         storedCount++;

@@ -18,6 +18,7 @@ import { stats_summary_route } from "./stats/summary/route";
 import { stats_timeseries_route } from "./stats/timeseries/route";
 import { ingest_document_route } from "./ingest/document/route";
 import { ingest_event_route } from "./ingest/event/route";
+import { ingest_conversation_route } from "./ingest/conversation/route";
 import { make_ctx } from "./_kit";
 import { chat_completions_route } from "./chat/completions/route";
 import { memory_create_route } from "./memories/create/route";
@@ -55,6 +56,7 @@ export function routes(app: any) {
   admin_decay_run_route(app, ctx);
   ingest_event_route(app, ctx);
   ingest_document_route(app, ctx);
+  ingest_conversation_route(app, ctx);
   source_ingest_route(app, ctx);
   candidate_accept_route(app, ctx);
   candidate_reject_route(app, ctx);
