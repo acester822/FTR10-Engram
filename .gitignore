@@ -8,6 +8,7 @@ npm-error.log
 dist/
 build/
 .out/
+out/
 
 # VSIX files
 *.vsix
