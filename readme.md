@@ -21,7 +21,6 @@ A cognitive memory proxy that gives LLMs **persistent, project-aware context** a
 - [Consolidation Engine (The Hippocampus)](#consolidation-engine-the-hippocampus)
 - [Memory Decay Engine](#memory-decay-engine)
 - [Durable Memory System](#durable-memory-system)
-- [Langfuse Observability](#langfuse-observability)
 - [Quick Start (Docker)](#quick-start-docker)
 - [Client Configuration](#client-configuration)
 - [Configuration](#configuration)
@@ -33,6 +32,15 @@ A cognitive memory proxy that gives LLMs **persistent, project-aware context** a
 ---
 
 ## Architecture
+
+<p align="center">
+  <img src="docs/assets/architecture.svg" alt="Engram architecture diagram" width="820">
+</p>
+
+> 📐 **Editable source:** [`docs/assets/architecture.excalidraw`](docs/assets/architecture.excalidraw) — drag it onto [excalidraw.com](https://excalidraw.com) (or open with the Excalidraw VS Code extension) to edit. Hand-authored Excalidraw diagram; the original Mermaid source is kept below for reference.
+
+<details>
+<summary>Mermaid source</summary>
 
 ```mermaid
 flowchart TD
@@ -76,12 +84,14 @@ flowchart TD
     C2 -.->|"Every 30 min"| Postgres
 ```
 
+</details>
+
 ---
 
 ## How It Works
 
 1. **Intercept** — User sends a prompt to `http://<server>:8098/v1/chat/completions` (OpenAI-compatible endpoint)
-2. **Embed & Recall** — Engram uses local Ollama (`qwen3-embedding:0.6b`) or OpenAI provider to embed the query, then searches PostgreSQL for relevant memories across 5 sectors
+2. **Embed & Recall** — Engram uses the configured embedding model (e.g. `nomic-embed-text-v1.5` via `EG_EMBED_MODEL`) or OpenAI provider to embed the query, then searches PostgreSQL for relevant memories across 5 sectors
 3. **Weave Context** — Relevant memories are silently injected into the system prompt with instructions to use them naturally in responses
 4. **Forward** — The enriched request is forwarded to an upstream LLM (llama-swap, OpenAI, Gemini, Siray) for generation
 5. **Stream** — Tokens stream back transparently to the client in real-time via SSE
@@ -89,7 +99,16 @@ flowchart TD
 7. **Compact** — When a conversation exceeds `EG_COMPACT_TRIGGER` messages (code default: 25), old history is summarized and thinned so context windows never grow unbounded
 8. **Notify** — SSE status messages inform the user of injected memories and stored facts
 
----
+> **Two ways to run Engram**
+>
+> - **Standalone proxy (above)** — A client (IDE, CLI, VS Code) points at `:8098/v1/chat/completions`; Engram embeds/recalls/weaves, forwards to the upstream LLM, streams, compacts, and emits SSE. This is the flow documented above.
+> - **Hermes sidecar (Option B)** — When Engram is wired into [Hermes Agent](https://github.com/NousResearch/Hermes) as a native memory-provider plugin, Engram is **not** the chat proxy. Hermes talks directly to its own LLM (OpenRouter); Engram is a sidecar *memory + cognition engine* reached only via HTTP:
+>   - **Before each turn** → `prefetch()` injects cached genome directives + phenotype recall (`POST /recall`) into the user message as a `<memory-context>` block.
+>   - **After each turn** → `sync_turn()` hands the **full turn** (user msg + assistant reply + tool I/O) to `POST /ingest/conversation` so Engram's own extraction LLM decides what to store (genome vs phenotype, sector, decay). Hermes never pre-filters.
+>   - Engram's chat proxy, compaction engine, and auto-search are **not** used in this mode (Hermes already does orchestration + compression + web search). Consolidation / decay / contradiction are exposed as `engram_consolidate` / `engram_decay` / `engram_contradiction` tools and run on session end.
+>   - The plugin lives at `~/.hermes/plugins/engram/` (`plugin.yaml` + `__init__.py`); activate with `hermes config set memory.provider engram`. No MCP server — stdlib `urllib` only.
+>
+> In sidecar mode, observability is the built-in **Web GUI** (`apps/web`, port 8099) — its Activity tab shows live `recall` (reads) and `ingest`/`memories` (writes) traffic, which is the concrete way to confirm the integration is live.
 
 ## Memory Model: Genome & Phenotype
 
@@ -165,16 +184,6 @@ Engram uses a durable memory repository with automatic classification:
 
 ---
 
-## Langfuse Observability
-
-Langfuse provides Docker-only observability for all generative model calls:
-
-- **Tracing**: All compaction and consolidation LLM calls are traced via the Langfuse SDK
-- **Dashboard**: Interactive UI at `http://localhost:3000` showing traces, metrics, and evals
-- **Configuration**: Enabled via `EG_LANGFUSE_ENABLED=true` with host/key env vars
-
----
-
 ## Quick Start (Docker)
 
 The fastest way to get Engram running is with Docker Compose — it pulls all models and starts every service in one command.
@@ -196,14 +205,13 @@ docker compose logs -f engram
 |---------|------|-------------|
 | **postgres** | 5432 | PostgreSQL with pgvector — memory storage |
 | **redis** | 6379 | Redis cache / valkey storage |
-| **clickhouse** | 8123 (internal) | ClickHouse analytics database for Langfuse |
-| **minio** | 9000/9090 (internal) | MinIO S3-compatible object storage |
 | **ollama** | 11434 | Ollama LLM server (auto-pulls models on startup) |
 | **engram** | 8098 | Engram proxy — the main API endpoint |
 | **searxng** | 8888 | SearXNG search engine (for auto-search service) |
 | **searxncrawl** | 9555 | Auto-search MCP server |
-| **langfuse-web** | 3000 | Langfuse observability dashboard |
-| **langfuse-worker** | — | Langfuse background worker |
+| **web** | 8099 | Engram Web GUI — real-time dashboard (see [Web GUI](#web-gui)) |
+
+> **Observability:** Langfuse was removed. The built-in **Engram Web GUI** (`apps/web`, port 8099) is the primary dashboard — live server logs, memory activity, recall, and performance metrics. No separate tracing stack is required.
 
 ### Auto-Pulled Models
 
@@ -213,10 +221,10 @@ On container start, a model-loader service automatically pulls:
 |---|---|
 | `qwen3.5:2b` | Primary generative — extraction, compaction, consolidation |
 | `qwen2.5:3b` | Generative fallback (stays offline unless primary fails) |
-| `qwen3-embedding:0.6b` | Primary embedding model (all facets) |
+| `nomic-embed-text-v1.5` | Primary embedding model (768-dim, served by `EG_EMBED_MODEL`) |
 | `bge-m3` | Embedding fallback (stays offline unless primary fails) |
 
-> **Note:** Only `qwen3.5:2b` and `qwen3-embedding:0.6b` need to be running at all times. The fallback models are downloaded but normally stay idle until needed.
+> **Note:** Only `qwen3.5:2b` and `nomic-embed-text-v1.5` need to be running at all times. The fallback models are downloaded but normally stay idle until needed.
 
 ### Stop & Clean
 
@@ -253,6 +261,7 @@ Copy `.env.example` to `.env` and adjust as needed. Here are the most important 
 | `EG_VEC_DIM` | `1536` | Embedding vector dimension |
 | `EG_EMBEDDINGS` | `openai` | Embedding provider (`ollama`, `openai`, etc.) |
 | `EG_EMBED_TIMEOUT_MS` | `30000` | Embedding request timeout in ms |
+| `EG_EMBED_MODEL` | `nomic-embed-text-v1.5` | **Active embedding model env key** (note: not `EG_MODEL_EMBEDDING` — `resolveEmbeddingModel` reads `EG_EMBED_MODEL`). Model-name casing on the serving box matters. |
 | `EG_PG_HOST` | `localhost` | PostgreSQL host |
 | `EG_PG_PORT` | `5432` | PostgreSQL port |
 | `EG_PG_DB` | `engram` | PostgreSQL database name |
@@ -263,7 +272,7 @@ Copy `.env.example` to `.env` and adjust as needed. Here are the most important 
 | `EG_GENERATIVE_URL` | _(empty)_ | Generative model API URL (extraction, compaction) |
 | `EG_MODEL_GENERATIVE` | `qwen3.5:2b` | Primary model for extraction, compaction, consolidation |
 | `EG_MODEL_GENERATIVE_FALLBACK` | `qwen2.5:3b` | Fallback generative model |
-| `EG_MODEL_EMBEDDING` | `qwen3-embedding:0.6b` | Primary embedding model (all facets) |
+| `EG_EMBED_MODEL` | `nomic-embed-text-v1.5` | Primary embedding model (read by `resolveEmbeddingModel`; `EG_MODEL_EMBEDDING` is NOT read) |
 | `EG_MODEL_EMBEDDING_FALLBACK` | `bge-m3` | Comma-separated fallback embedding models |
 | `EG_UPSTREAM_LLM_URL` | _(empty)_ | Upstream LLM forwarding endpoint |
 | `EG_OPENAI_API_KEY` | _(empty)_ | OpenAI-compatible provider API key |
@@ -284,8 +293,6 @@ Copy `.env.example` to `.env` and adjust as needed. Here are the most important 
 | `EG_RATE_LIMIT_MAX_REQUESTS` | `100` | Max requests per window |
 | `EG_TELEMETRY` | `true` | Enable telemetry |
 | `EG_AUTO_SEARCH_ENABLED` | `false` | Enable auto-search via searxNcrawl |
-| `EG_LANGFUSE_ENABLED` | _(not set)_ | Enable Langfuse observability (Docker only) |
-| `EG_LANGFUSE_HOST` | `http://localhost:3000` | Langfuse dashboard URL |
 
 For the full list, see [`.env.example`](.env.example).
 
@@ -296,7 +303,7 @@ All models are configurable via env vars with a cascading resolution chain. No h
 | Task | Default Model | Config Var(s) | Notes |
 |---|---|---|---|
 | Generative (all) | LFM2.5-1.2B-Instruct | `EG_MODEL_GENERATIVE` + `EG_GENERATIVE_URL` | MUST be running at all times, thinking disabled |
-| Embedding (general) | nomic-embed-text-v1.5 | `EG_MODEL_EMBEDDING` | Primary embedding; multi-facet with bge-m3 fallback |
+| Embedding (general) | nomic-embed-text-v1.5 | `EG_EMBED_MODEL` | Primary embedding (note: `resolveEmbeddingModel` reads `EG_EMBED_MODEL`, not `EG_MODEL_EMBEDDING`); multi-facet with bge-m3 fallback |
 | Embedding (per-sector) | same as above | `EG_MODEL_EPOCHISODIC`, `EG_MODEL_SEMANTIC`, etc. | Per-sector model override |
 | Fallback | qwen2.5:3b | `EG_MODEL_GENERATIVE_FALLBACK` | Backup for generative tasks if primary fails |
 
@@ -319,7 +326,7 @@ npx tsx packages/engram-js/src/database/migrate.ts
 ollama serve &
 ollama pull qwen3.5:2b
 ollama pull qwen2.5:3b
-ollama pull qwen3-embedding:0.6b
+ollama pull nomic-embed-text-v1.5
 ollama pull bge-m3
 
 # 5. Set environment variables (minimum required)
@@ -414,9 +421,6 @@ Compaction runs when a conversation exceeds `EG_COMPACT_TRIGGER` (code default: 
 
 ### Migration fails
 Ensure PostgreSQL is running and the database exists before starting the server. Migrations run automatically on startup.
-
-### Langfuse dashboard not accessible
-Verify `EG_LANGFUSE_ENABLED=true`, `EG_LANGFUSE_HOST=http://langfuse-web:3000`, and that both `langfuse-web` and `langfuse-worker` containers are healthy.
 
 </details>
 

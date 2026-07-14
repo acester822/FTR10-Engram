@@ -1,0 +1,223 @@
+/* Engram Dashboard — standalone stylesheet (extracted from DashboardPanel.ts).
+   Loaded by inlining media/dashboard.css into the webview <style> at runtime,
+   so there is no external fetch and no CSP nonce to manage. */
+
+:root {
+  /* FTR10 tokens (real names from the FTR10 Base theme) with VS Code
+     fallbacks. The class="vscode-dark" is stripped by the webview script, so
+     these resolve from the theme, never from code-server's dark defaults. */
+  --bg: var(--ftr10-bg, #0c0e13);
+  --fg: var(--ftr10-text, #cccccc);
+  --dim: var(--ftr10-text-muted, #888888);
+  --border: var(--ftr10-border, #333333);
+  --surface: var(--ftr10-surface-1, var(--ftr10-glass-bg, #2a2d2e));
+  --surface-hover: var(--ftr10-glass-bg-hover, #3a3d41);
+
+  --primary: var(--ftr10-accent-1, #0078d4);
+  --primary-hover: var(--ftr10-accent-1, #026ec1);
+  --primary-fg: var(--ftr10-text, #ffffff);
+  --focus: var(--ftr10-accent-1, #0078d4);
+
+  --input-bg: var(--ftr10-glass-bg, #3c3c3c);
+  --input-fg: var(--ftr10-text, #cccccc);
+  --input-border: var(--ftr10-border, #3c3c3c);
+
+  --badge-bg: var(--ftr10-glass-bg, #4d4d4d);
+  --badge-fg: var(--ftr10-text, #ffffff);
+
+  /* Direction / semantic accents */
+  --accent-in: var(--ftr10-success, #4caf50);
+  --accent-out: var(--ftr10-accent-1, #2196f3);
+  --accent-genome: var(--ftr10-accent-4, #9c27b0);
+
+  --font-mono: var(--vscode-editor-font-family, monospace);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+
+  /* Sector chart palette (FTR10 accents first, then a fixed spectrum).
+     These are consumed via the --bar-color custom property set inline on
+     each .fill element (so code-server's theme cannot override them). */
+  --chart-0: var(--ftr10-success, #4caf50);
+  --chart-1: var(--ftr10-accent-1, #2196f3);
+  --chart-2: var(--ftr10-accent-4, #9c27b0);
+  --chart-3: var(--ftr10-accent-2, #ff9800);
+  --chart-4: var(--ftr10-accent-3, #e91e63);
+  --chart-5: #00bcd4;
+  --chart-6: #8bc34a;
+  --chart-7: #ff5722;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--vscode-font-family, sans-serif);
+  padding: 14px;
+  color: var(--fg);
+  background-color: var(--bg);
+  margin: 0;
+}
+
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+h1 { font-size: 1.15rem; margin: 0 0 4px; }
+h2 { color: var(--fg); }
+.sub { color: var(--dim); font-size: 0.78rem; margin-bottom: 10px; }
+
+.iconbtn {
+  background: transparent;
+  color: var(--fg);
+  opacity: 0.85;
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+}
+.iconbtn:hover { background: var(--surface-hover); opacity: 1; }
+
+.hdr-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.tab {
+  padding: 6px 12px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  opacity: 0.7;
+  font-size: 0.85rem;
+  border-bottom: 2px solid transparent;
+}
+.tab.active { opacity: 1; border-bottom-color: var(--focus); font-weight: 600; }
+
+.view { display: none; }
+.view.active { display: block; }
+
+.summary { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.stat {
+  flex: 1;
+  min-width: 90px;
+  background: var(--surface);
+  padding: 10px;
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+.stat .num { font-size: 1.5rem; font-weight: 700; color: var(--fg); }
+.stat .lbl { color: var(--dim); font-size: 0.72rem; }
+.stat.in .num { color: var(--accent-in); }
+.stat.out .num { color: var(--accent-out); }
+
+.feed { display: flex; flex-direction: column; gap: 5px; }
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 0.82rem;
+}
+.badge {
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* Solid translucent backgrounds (no color-mix, which some webview engines drop). */
+.badge.in { background: rgba(76, 175, 80, 0.18); color: var(--accent-in); }
+.badge.out { background: rgba(33, 150, 243, 0.18); color: var(--accent-out); }
+
+.route { color: var(--dim); font-family: var(--font-mono); font-size: 0.74rem; }
+.detail {
+  margin-left: auto;
+  opacity: 0.85;
+  font-size: 0.76rem;
+  text-align: right;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty { color: var(--dim); font-style: italic; padding: 16px; text-align: center; }
+
+button {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border: none;
+  padding: 7px 12px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+button:hover { background: var(--primary-hover); }
+button.secondary { background: var(--surface-hover); color: var(--fg); }
+
+input, textarea, select {
+  width: 100%;
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  padding: 7px;
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+}
+textarea { min-height: 80px; resize: vertical; }
+
+.field { margin-bottom: 10px; }
+.field label { display: block; font-size: 0.78rem; color: var(--dim); margin-bottom: 4px; }
+
+/* --- Sector bars --- */
+.bar { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 0.8rem; color: var(--fg); }
+.bar .track { flex: 1; height: 10px; background: #2a2e35; border-radius: 5px; overflow: hidden; }
+.bar .fill {
+  height: 100%;
+  color-scheme: normal;
+  /* --bar-color is set inline per-bar; falls back to primary if absent. */
+  background: var(--bar-color, var(--primary));
+}
+.bar .count { width: 38px; text-align: right; color: var(--dim); }
+
+.mem {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  margin-bottom: 6px;
+  font-size: 0.82rem;
+  color: var(--fg);
+  /* Long/unbroken memory content (e.g. IDE-save diffs) must wrap and keep
+     newlines instead of overflowing or collapsing into one line. */
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.mem .meta { color: var(--dim); font-size: 0.7rem; margin-top: 3px; }
+
+.pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 0.66rem;
+  margin-right: 5px;
+  background: var(--badge-bg);
+  color: var(--badge-fg);
+}
+.pill.genome { background: rgba(156, 39, 176, 0.22); color: var(--accent-genome); }
+
+.row2 { display: flex; gap: 8px; align-items: flex-end; }
+.row2 > * { flex: 1; }
+.hint { color: var(--dim); font-size: 0.74rem; margin-top: 6px; }

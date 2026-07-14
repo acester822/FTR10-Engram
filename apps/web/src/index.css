@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
+/* ===== Dark mode overrides =====
+   The components use fixed light utilities; under `.dark` on <html> we remap
+   the common light surface/text/border utilities to dark equivalents. This
+   keeps the existing JSX untouched while giving a coherent dark theme. */
+.dark body {
+  background-color: #020617; /* slate-950 */
+}
+
+.dark .bg-gray-50 {
+  background-color: #020617 !important; /* slate-950 */
+}
+
+.dark .bg-white {
+  background-color: #1e293b !important; /* slate-800 */
+}
+
+.dark .text-gray-900,
+.dark .text-slate-900 {
+  color: #f1f5f9 !important; /* slate-100 */
+}
+
+.dark .text-slate-800 {
+  color: #e2e8f0 !important; /* slate-200 */
+}
+
+.dark .text-slate-600 {
+  color: #cbd5e1 !important; /* slate-300 */
+}
+
+.dark .text-slate-500 {
+  color: #94a3b8 !important; /* slate-400 */
+}
+
+.dark .text-slate-400 {
+  color: #94a3b8 !important; /* slate-400 */
+}
+
+.dark .border-gray-200 {
+  border-color: #334155 !important; /* slate-700 */
+}
+
+.dark .border-gray-300 {
+  border-color: #334155 !important; /* slate-700 */
+}
+
+/* Form controls (inputs / selects) */
+.dark input,
+.dark select,
+.dark textarea {
+  background-color: #0f172a !important; /* slate-900 */
+  color: #e2e8f0 !important; /* slate-200 */
+  border-color: #334155 !important; /* slate-700 */
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #64748b !important; /* slate-500 */
+}
+
+/* Keep the sidebar dark-appropriate (it already uses slate-900) */
+.dark aside {
+  background-color: #0f172a !important; /* slate-900 */
+  border-right: 1px solid #1e293b;
+}
+
+/* Hover rows */
+.dark .hover\:bg-gray-50:hover {
+  background-color: #0f172a !important;
+}
+
+.dark .divide-gray-100 > * + * {
+  border-color: #334155 !important;
+}
+
+/* Inline code / pre blocks if any */
+.dark code,
+.dark pre {
+  background-color: #0f172a !important;
+  color: #e2e8f0 !important;
+}

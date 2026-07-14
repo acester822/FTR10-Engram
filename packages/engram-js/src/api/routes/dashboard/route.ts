@@ -4,8 +4,11 @@
 */
 
 import { consolidationEngine } from "../../../services/consolidationEngine";
-import { bad, fail, run_async, all_async } from "../_kit";
+import { recallDurableMemories } from "../../../durable/repository";
+import { embed } from "../../../embeddings/embed";
+import { bad, fail, run_async, all_async, make_db } from "../_kit";
 import { all_async as pg_all, run_async as pg_run } from "../../../database/connection";
+import { activityLog, clearActivity } from "../../activity";
 import os from "os";
 import { execFile } from "child_process";
 import { readLog, clearLog } from "../../../utils/logger";
@@ -382,13 +385,77 @@ export const dashboard_route = (app: any) => {
     }
   });
 
-  // POST /api/dashboard/log/clear — clear the Pino log file
-  app.post("/api/dashboard/log/clear", (_req: any, res: any) => {
+  // POST /api/dashboard/recall — semantic memory retrieval for the web GUI.
+  // Reuses the same recall engine as the root /recall route so the GUI and
+  // the Hermes integration see identical behaviour. (The browser cannot hit the
+  // root /recall directly because nginx only proxies /api/ to the backend.)
+  app.post("/api/dashboard/recall", async (req: any, res: any) => {
+    const body = req.body || {};
+    const query = typeof body?.query === "string" ? body.query.trim() : "";
+    if (!query) return bad(res, "query", "query must be a non-empty string");
+
+    const mode = ["strict", "historical", "associative"].includes(body.mode)
+      ? body.mode
+      : "associative";
+    const limit = Number.isInteger(body.limit) && (body.limit as number) > 0
+      ? Math.min(body.limit as number, 100)
+      : 10;
+
     try {
-      clearLog();
-      return res.json({ success: true, message: "Log cleared" });
+      const start = Date.now();
+      const embedding = await embed(query);
+      const embMs = Date.now() - start;
+      const recalled = await recallDurableMemories(make_db(pg_run, pg_all), {
+        query,
+        mode,
+        limit,
+        user_id: typeof body.user_id === "string" ? body.user_id : undefined,
+        project_id: typeof body.project_id === "string" ? body.project_id : undefined,
+        embedding: embedding.length ? embedding : undefined,
+      });
+      return res.json({
+        query: recalled.query,
+        mode: recalled.mode,
+        adapter: "durable-postgres",
+        vector_store: "postgres",
+        results: recalled.results,
+        timings: {
+          embedding_ms: embMs,
+          retrieval_ms: Date.now() - start - embMs,
+          total_ms: Date.now() - start,
+        },
+      });
     } catch (e: unknown) {
-      fail(res, "dashboard_log_clear_failed", e);
+      fail(res, "dashboard_recall_failed", e);
+    }
+  });
+
+  // GET /api/dashboard/activity — recent memory traffic (writes in / reads out).
+  // Lets the GUI prove a connected client (Hermes) is actually using memory.
+  app.get("/api/dashboard/activity", (_req: any, res: any) => {
+    try {
+      const entries = [...activityLog].reverse(); // newest first
+      const incoming = entries.filter((e) => e.direction === "in").length;
+      const outgoing = entries.filter((e) => e.direction === "out").length;
+      return res.json({
+        success: true,
+        total: entries.length,
+        incoming,
+        outgoing,
+        entries,
+      });
+    } catch (e: unknown) {
+      fail(res, "dashboard_activity_failed", e);
+    }
+  });
+
+  // POST /api/dashboard/activity/clear — reset the in-memory activity buffer.
+  app.post("/api/dashboard/activity/clear", (_req: any, res: any) => {
+    try {
+      clearActivity();
+      return res.json({ success: true, message: "Activity log cleared" });
+    } catch (e: unknown) {
+      fail(res, "dashboard_activity_clear_failed", e);
     }
   });
 };

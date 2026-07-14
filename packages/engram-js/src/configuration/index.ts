@@ -103,7 +103,7 @@ export const env = {
   generative_model: DEFAULT_GENERATIVE_MODEL,
   fallback_model: DEFAULT_GENERATIVE_FALLBACK,
 
-   // ── Langfuse observability ──
+   // ── Langfuse observability (off by default; the web GUI replaces it as the primary UI) ──
    langfuse_enabled: bool(process.env.EG_LANGFUSE_ENABLED),
    langfuse_host: str(process.env.EG_LANGFUSE_HOST, "http://localhost:3000"),
    langfuse_secret_key: str(process.env.EG_LANGFUSE_SECRET_KEY),

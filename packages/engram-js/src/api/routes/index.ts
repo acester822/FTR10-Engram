@@ -33,6 +33,7 @@ import { recall_route } from "./recall/route";
 import { source_ingest_route } from "./sources/ingest/route";
 import { dashboard_route } from "./dashboard/route";
 import { ide_routes } from "./ide/route";
+import { performance_llamaswap_route } from "./performance/llamaswap/route";
 
 export function routes(app: any) {
   const ctx = make_ctx();
@@ -65,4 +66,5 @@ export function routes(app: any) {
   chat_completions_route(app);
   dashboard_route(app);
   ide_routes(app, ctx);
+  performance_llamaswap_route(app);
 }

@@ -6,7 +6,7 @@
 import crypto from "node:crypto";
 import { scoreDurableRecall } from "./scoring";
 import { enrichDurableMetadata } from "./metadata";
-import { classifyMemory, DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE } from "../services/memoryInjector";
+import { classifyMemory, DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, normalizeSector } from "../services/memoryInjector";
 import { computeLexicalScore } from "../utilities/keyword";
 
 export const ALLOWED_DURABLE_EDGE_TYPES = [
@@ -877,7 +877,7 @@ export async function rememberDurableMemory(
   // Genome/Phenotype classification via MemoryInjector
   const classification = classifyMemory(input.content);
   const isGenome = input.metadata?.is_genome !== undefined ? Boolean(input.metadata.is_genome) : classification.is_genome;
-  const sector = (input.metadata?.sector as string) || classification.sector;
+  const sector = normalizeSector((input.metadata?.sector as string) || classification.sector);
   const decayRate = input.metadata?.decay_rate ?? (isGenome ? DEFAULT_GENOME_DECAY_RATE : DEFAULT_PHENOTYPE_DECAY_RATE);
 
   const memoryState = {

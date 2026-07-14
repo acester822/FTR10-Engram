@@ -601,10 +601,20 @@ export function createVectorStore(
 export function getVectorStoreInfo(
   config: VectorStoreConfig = getVectorStoreConfig(),
 ) {
+  // `active` means "retrieval is wired up and will return results".
+  // In postgres mode the pgvector extension IS the vector store, so recall
+  // runs directly against the durable DB and is always active. For external
+  // stores, active means a usable endpoint was configured.
+  const active =
+    config.kind === "postgres"
+      ? true
+      : config.kind === "valkey"
+        ? Boolean(config.endpoint)
+        : Boolean(config.endpoint);
   return {
     ...config,
     api_key: !!config.api_key,
-    active: config.kind !== "postgres",
+    active,
     supported: KNOWN_VECTOR_STORES,
   };
 }

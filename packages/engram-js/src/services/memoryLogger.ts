@@ -6,7 +6,7 @@
 import { env } from "../configuration";
 import { make_db as kit_make_db, run_async, all_async } from "../api/routes/_kit";
 import { rememberDurableMemory } from "../durable/repository";
-import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
+import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, normalizeSector } from "./memoryInjector";
 import { logger } from "../utils/logger";
 import { getLangfuse } from "./langfuseClient";
 
@@ -28,13 +28,14 @@ export async function logInteractionAsync(
   sessionId?: string,
   projectId?: string,
   allowGenome: boolean = true,
-): Promise<{ storedCount: number }> {
+): Promise<{ storedCount: number; sectors: Record<string, number> }> {
+  const empty = () => ({ storedCount: 0, sectors: {} as Record<string, number> });
   try {
     // Throttle: skip if extraction ran recently
     const now = Date.now();
     if (now - _lastExtractionTime < EXTRACTION_COOLDOWN_MS) {
       logger.debug({ module: 'memoryLogger', model: env.generative_model }, 'Skipping extraction - cooldown active');
-      return { storedCount: 0 };
+      return empty();
     }
     _lastExtractionTime = now;
 
@@ -45,7 +46,7 @@ export async function logInteractionAsync(
     // Skip extraction for very short responses (nothing meaningful to extract)
     if (llmResponseText.trim().length < 50) {
       logger.debug({ module: 'memoryLogger', model: env.generative_model }, 'Skipping extraction - response too short');
-      return { storedCount: 0 };
+      return empty();
     }
 
     const extractionPrompt = `### SYSTEM DIRECTIVE ###
@@ -67,6 +68,13 @@ AI Response: ${truncatedResponse}
 
 OUTPUT SCHEMA:
 Return ONLY a valid JSON array of objects. Each object MUST have a "content" field and a "sector" field.
+The "sector" field MUST be exactly one of these five values and nothing else:
+- "semantic" (facts & domain knowledge)
+- "procedural" (code patterns & workflows)
+- "episodic" (events & specific interactions)
+- "emotional" (preferences, tone, sentiment)
+- "reflective" (lessons learned, meta-cognition)
+Do NOT invent sectors like "important decision", "project", or "rule". If unsure, use "semantic".
 Do NOT include any other values, strings, or primitives in the array - ONLY objects.
 
 Example of CORRECT output:
@@ -162,7 +170,7 @@ Example of INCORRECT output (DO NOT DO THIS):
           );
           generation?.end({ output: "", level: "ERROR" });
           generationEnded = true;
-          return { storedCount: 0 };
+          return empty();
         }
 
         const data = await response.json();
@@ -188,12 +196,12 @@ Example of INCORRECT output (DO NOT DO THIS):
       try {
         const cleanJson = rawResponse.replace(/^```json\s*|\s*```$/g, "").trim();
         parsed = JSON.parse(cleanJson);
-      } catch (e) { 
+      } catch (e) {
         logger.error(
           { module: 'memoryLogger', model: env.generative_model, rawOutput: rawResponse.substring(0, 500) },
           'Failed to parse extraction JSON'
         );
-        return { storedCount: 0 }; 
+        return empty();
       }
 
       // Normalize: if LLM returned a single object instead of an array, wrap it
@@ -209,7 +217,7 @@ Example of INCORRECT output (DO NOT DO THIS):
 
       if (!extractedMemories.length) {
         logger.info({ module: 'memoryLogger', model: env.generative_model }, 'No new significant memories extracted');
-        return { storedCount: 0 };
+        return empty();
       }
 
       // Cap extracted facts to prevent memory explosion
@@ -221,8 +229,12 @@ Example of INCORRECT output (DO NOT DO THIS):
       // Store each extracted memory
       const db = kit_make_db(run_async, all_async);
       let storedCount = 0;
+      const sectors: Record<string, number> = {};
       for (const mem of extractedMemories) {
         if (!mem?.content || typeof mem.content !== 'string' || mem.content.trim().length < 5) continue;
+
+        // Normalize the LLM-provided sector to a canonical value before use.
+        const sector = normalizeSector(mem.sector, "semantic");
 
         // Dedup: skip if an identical memory already exists
         const dedupResult = await db.query(
@@ -236,27 +248,28 @@ Example of INCORRECT output (DO NOT DO THIS):
 
         let decayRate = DEFAULT_PHENOTYPE_DECAY_RATE;
         if (mem.is_genome && allowGenome) decayRate = DEFAULT_GENOME_DECAY_RATE;
-        else if (mem.sector === "episodic") decayRate = 0.15;
-        else if (["semantic", "procedural"].includes(mem.sector)) decayRate = 0.05;
+        else if (sector === "episodic") decayRate = 0.15;
+        else if (["semantic", "procedural"].includes(sector)) decayRate = 0.05;
 
         await rememberDurableMemory(db, {
           content: mem.content.trim(),
           user_id: "system",
           project_id: projectId,
-          metadata: { sector: mem.sector || "semantic", decay_rate: decayRate, is_genome: Boolean(mem.is_genome && allowGenome) },
+          metadata: { sector, decay_rate: decayRate, is_genome: Boolean(mem.is_genome && allowGenome) },
         });
 
         storedCount++;
-        logger.info({ module: 'memoryLogger', model: env.generative_model, sector: mem.sector || 'semantic', content: mem.content.substring(0, 60) }, `Saved ${mem.sector || 'semantic'} memory`);
+        sectors[sector] = (sectors[sector] || 0) + 1;
+        logger.info({ module: 'memoryLogger', model: env.generative_model, sector, content: mem.content.substring(0, 60) }, `Saved ${sector} memory`);
       }
-      
+
       logger.info({ module: 'memoryLogger', model: env.generative_model, count: storedCount }, `Saved ${storedCount} new memories`);
-      return { storedCount };
-    } finally { 
-      clearTimeout(timeoutId); 
+      return { storedCount, sectors };
+    } finally {
+      clearTimeout(timeoutId);
     }
   } catch (error) {
     logger.error({ module: 'memoryLogger', model: env.generative_model, err: error }, 'Async memory logging failed');
-    return { storedCount: 0 }; // Return 0 on error
+    return empty(); // Return 0 on error
   }
 }

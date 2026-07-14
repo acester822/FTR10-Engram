@@ -1,0 +1,1722 @@
+[
+  {
+    "id": "f7577911-cc7f-42c8-b884-6c18138baafd",
+    "sector": "integration",
+    "is_genome": false,
+    "project_id": "ftr10",
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Integrated Engram into Hermes using Option B",
+    "metadata": {
+      "sector": "integration",
+      "simhash": "84309c3463042208",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 7,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:24:30.702Z"
+  },
+  {
+    "id": "ba0d4c3f-ee49-495f-b1c9-76e3c9573296",
+    "sector": "deployment",
+    "is_genome": false,
+    "project_id": "ftr10",
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Deployed on port 8098 with pgvector",
+    "metadata": {
+      "sector": "deployment",
+      "simhash": "0dcb2881fc6ce0a4",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 6,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:24:30.713Z"
+  },
+  {
+    "id": "cdc03456-c8e6-4c88-8514-b49933823d6b",
+    "sector": "layout",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The context percentage bar has been moved to the top of the step graph above the token count.",
+    "metadata": {
+      "sector": "layout",
+      "simhash": "15aed0bcf363ea5a",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 18,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:35:42.801Z"
+  },
+  {
+    "id": "6d06c420-08cb-46d6-b659-ad777f723ac5",
+    "sector": "ui-behavior",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The popup no longer hides the header; it now appears as a floating menu next to the icon.",
+    "metadata": {
+      "sector": "ui-behavior",
+      "simhash": "ece995adbba6e3d9",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 18,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:35:42.810Z"
+  },
+  {
+    "id": "0cd850a4-d68d-491d-bfaa-b9818250b3ef",
+    "sector": "memory",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Genome directive recalled successfully",
+    "metadata": {
+      "sector": "memory",
+      "simhash": "6c05642254001103",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 4,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:51:37.408Z"
+  },
+  {
+    "id": "ceafbb8b-2622-4c89-aef1-3362ff6250cc",
+    "sector": "design-decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The input quick-popup is fixed with proper positioning so it doesn't shift the webview or affect the header.",
+    "metadata": {
+      "sector": "design-decision",
+      "simhash": "10a2a412b4f32ad8",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 20,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:35:42.814Z"
+  },
+  {
+    "id": "1c8da8c4-0699-458b-921c-eb152664bee1",
+    "sector": "technical",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The web application is hosted in `apps/web.archive` under Engram, not `apps/web/`. The Docker Compose does not reference the web app directory.",
+    "metadata": {
+      "sector": "technical",
+      "simhash": "ca46b756f6e4f810",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 24,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-06-22T23:32:12.651Z"
+  },
+  {
+    "id": "7cabf77c-8b65-495e-a767-4fe377c7345a",
+    "sector": "system_design",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The Langfuse dashboard runs on port 3000 and is separate from the Engram web app. No direct integration detected.",
+    "metadata": {
+      "sector": "system_design",
+      "simhash": "876bbb80c5c4eb80",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 19,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-06-22T23:32:12.659Z"
+  },
+  {
+    "id": "db8a6495-d1c5-4d5d-b1fc-dcc47c31fc88",
+    "sector": "operational",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "User should verify directory paths and service mappings in Docker Compose for consistency.",
+    "metadata": {
+      "sector": "operational",
+      "simhash": "0984d9d6b16ce17f",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 13,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-06-22T23:32:12.663Z"
+  },
+  {
+    "id": "b9e0b037-6294-48be-b21e-054f9ca91778",
+    "sector": "functionality",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Copy functionality now supports multiple formats (Markdown, JSON) and includes caret-based selection.",
+    "metadata": {
+      "sector": "functionality",
+      "simhash": "b7588e60749cb3b9",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 13,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:35:42.818Z"
+  },
+  {
+    "id": "a7b6499a-a835-4508-b0de-a246747300e8",
+    "sector": "system administration",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Create a systemd service for hermes-webui mirroring existing patterns",
+    "metadata": {
+      "sector": "system administration",
+      "simhash": "9a49d09cb364c1f6",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:39:56.162Z"
+  },
+  {
+    "id": "c929a409-aef5-49ea-88e6-8ade28972611",
+    "sector": "summary",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Once Human Notes",
+    "metadata": {
+      "sector": "summary",
+      "simhash": "9625a245468b23a4",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 3,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:41:01.672Z"
+  },
+  {
+    "id": "9ba5e3c0-7a2a-4b19-b3ce-fbe4b0486969",
+    "sector": "key_facts",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Personal gameplay reference for Once Human — Deviant locations and traits, base supplies, armor, planting, and specializations.",
+    "metadata": {
+      "sector": "key_facts",
+      "simhash": "4a6086f814a5a18e",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 16,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:41:01.679Z"
+  },
+  {
+    "id": "0b333253-352d-4dc7-bf65-38d1c0f483b1",
+    "sector": "action",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Fixing the table after cleanup: removed broken pipes in Furnace and Electric Furnace sections.",
+    "metadata": {
+      "sector": "action",
+      "simhash": "0ee822eed88833b1",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 14,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:41:01.682Z"
+  },
+  {
+    "id": "8790374e-4b9c-4c7b-a14d-375cafebeb8f",
+    "sector": "constraints",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "No changes needed to file structure or formatting.",
+    "metadata": {
+      "sector": "constraints",
+      "simhash": "4a3180515c1d9218",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 8,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:41:01.686Z"
+  },
+  {
+    "id": "ce40e628-f685-460a-8ed8-de017c874d7a",
+    "sector": "systemd configuration",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Ensure proper PID handling and foreground takeover",
+    "metadata": {
+      "sector": "systemd configuration",
+      "simhash": "6224a9d4e3040278",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 7,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:39:56.170Z"
+  },
+  {
+    "id": "0e698cbd-f787-4ff2-822f-99cc4fe7d0de",
+    "sector": "technical",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The system requires ECMAScript 2015 or higher for private identifiers.",
+    "metadata": {
+      "sector": "technical",
+      "simhash": "8c2ab39630783b08",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-06-23T00:18:29.551Z"
+  },
+  {
+    "id": "9c6ec67d-fb43-49cf-af47-9bd0e2200fdf",
+    "sector": "development",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Important decision: Ensure TypeScript targets are updated to ES2015 or later.",
+    "metadata": {
+      "sector": "development",
+      "simhash": "2c3da0bf39d720f2",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 11,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-06-23T00:18:29.556Z"
+  },
+  {
+    "id": "39fce466-842d-4cbc-ae3f-d7a6c5ab922c",
+    "sector": "scripting",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Update restart script to include new service in loop",
+    "metadata": {
+      "sector": "scripting",
+      "simhash": "8466c4ecb4238121",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:39:56.175Z"
+  },
+  {
+    "id": "c1377b12-90ef-4bfa-b32a-a99cb5ed9e9e",
+    "sector": "service management",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Service is active with correct journaling and restart policy",
+    "metadata": {
+      "sector": "service management",
+      "simhash": "49a90dce157363f8",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:39:56.179Z"
+  },
+  {
+    "id": "20149f79-e38a-4959-af52-55716a8b60b6",
+    "sector": "phenotype",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Phenotype fact identified with high confidence",
+    "metadata": {
+      "sector": "phenotype",
+      "simhash": "7489990a12bb6618",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 6,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:51:37.415Z"
+  },
+  {
+    "id": "0e9f1b74-37bd-4ee5-8d3f-cd119c51b6d8",
+    "sector": "recall_process",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Recall integrates genome and phenotype via semantic matching",
+    "metadata": {
+      "sector": "recall_process",
+      "simhash": "f401cc70c529c35e",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 8,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:51:37.419Z"
+  },
+  {
+    "id": "cac89e5d-2c73-4d73-b5cb-99e5131c1134",
+    "sector": "maintenance",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Remember to handle module errors related to missing flags.",
+    "metadata": {
+      "sector": "maintenance",
+      "simhash": "0084a91929311010",
+      "language": "en",
+      "is_genome": true,
+      "decay_rate": 0.03,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-06-23T00:18:29.559Z"
+  },
+  {
+    "id": "afea8ba1-6514-4a16-b029-ab3e7af20ff8",
+    "sector": "preference",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The user prefers TypeScript over JavaScript",
+    "metadata": {
+      "sector": "preference",
+      "simhash": "a0ada03e2112a801",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 6,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:49:18.529Z"
+  },
+  {
+    "id": "7c4e5768-9ac1-439f-b4b4-c91fec0c533a",
+    "sector": "decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Always run tests before committing",
+    "metadata": {
+      "sector": "decision",
+      "simhash": "bc6d1e80d5b2fa86",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 5,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:49:18.536Z"
+  },
+  {
+    "id": "732fe0b3-97fd-4193-8507-372d199392cc",
+    "sector": "technical",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Engram uses PostgreSQL with pgvector/pgvector for memory storage and vector embeddings.",
+    "metadata": {
+      "sector": "technical",
+      "simhash": "008b98d2776df39a",
+      "language": "en",
+      "is_genome": true,
+      "decay_rate": 0.03,
+      "token_count": 12,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-06-22T21:03:54.789Z"
+  },
+  {
+    "id": "009cb672-5c8e-4749-aebb-cc18d3a64f52",
+    "sector": "user_preferences",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The system recalls previous genome injection and test marker data.",
+    "metadata": {
+      "sector": "user_preferences",
+      "simhash": "dd420d825120b383",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:53:27.427Z"
+  },
+  {
+    "id": "146c8fa5-4832-453e-aece-f7d56ffaf188",
+    "sector": "important_decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Important decision involves prioritizing genome injection over query results.",
+    "metadata": {
+      "sector": "important_decision",
+      "simhash": "695da4af4570f3b7",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-10T21:53:27.432Z"
+  },
+  {
+    "id": "d8c9088d-6597-4c67-a612-b3f814fa2146",
+    "sector": "backend",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The current `engram-js` server still registers every dashboard route",
+    "metadata": {
+      "sector": "backend",
+      "simhash": "6137628443160001",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T03:50:49.176Z"
+  },
+  {
+    "id": "f222f6a2-d729-40ef-9102-ea0656fbeadf",
+    "sector": "decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The backend contract is ~90% intact",
+    "metadata": {
+      "sector": "decision",
+      "simhash": "178bb182fd226010",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 6,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T03:50:49.191Z"
+  },
+  {
+    "id": "994082f7-1626-49de-93f5-4e127ff26180",
+    "sector": "key_facts",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The archived project supports a full React 18 + Vite 6 + Tailwind SPA stack",
+    "metadata": {
+      "sector": "key_facts",
+      "simhash": "849373927384e96f",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 13,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T03:50:49.196Z"
+  },
+  {
+    "id": "22eabca5-432b-44dc-99d3-2747baf3d16e",
+    "sector": "system_details",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The server communicates via `/api/dashboard/*` and `/api/performance/*` endpoints",
+    "metadata": {
+      "sector": "system_details",
+      "simhash": "6e44da19f3e66959",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T03:50:49.200Z"
+  },
+  {
+    "id": "d7e72e38-ea09-42e5-aad2-21a26489b916",
+    "sector": "user_intent",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Three tabs (Dashboard, Memory Explorer, Server Logs) function without backend changes",
+    "metadata": {
+      "sector": "user_intent",
+      "simhash": "48565d15d1acc4ea",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 11,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T03:50:49.203Z"
+  },
+  {
+    "id": "eff60cf2-641f-412b-94d8-8276235dd64e",
+    "sector": "decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The port should be 9119 based on current configuration",
+    "metadata": {
+      "sector": "decision",
+      "simhash": "3dcb78c0a5a3b985",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:15:38.464Z"
+  },
+  {
+    "id": "c815a9e0-b84c-41a7-9d40-a2745b601a93",
+    "sector": "remember",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Updated default URL in settings matches 9119",
+    "metadata": {
+      "sector": "remember",
+      "simhash": "36b747da33992de9",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 7,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:15:38.471Z"
+  },
+  {
+    "id": "f43146aa-f89b-4529-856b-caab57b22789",
+    "sector": "technical",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "User prefers TypeScript over JavaScript",
+    "metadata": {
+      "sector": "technical",
+      "simhash": "e2ada13e2512ec85",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 5,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:17:35.829Z"
+  },
+  {
+    "id": "5fa95e76-0575-42a3-b675-11ff8b6cf670",
+    "sector": "system",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Important decision involves configuring performance routes with llama-swap integration",
+    "metadata": {
+      "sector": "system",
+      "simhash": "412101822567a389",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:17:35.834Z"
+  },
+  {
+    "id": "284e82f3-0f86-4892-8208-d004a7f22b26",
+    "sector": "system_status",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The webgui spin-up behavior with Langfuse is not occurring as expected.",
+    "metadata": {
+      "sector": "system_status",
+      "simhash": "2d4dad9a5fd375e0",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 12,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:26:58.895Z"
+  },
+  {
+    "id": "0b5e120e-57f5-4fd1-a1dc-2a76ee0d6e78",
+    "sector": "decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Important decision: remove engram containers and related services.",
+    "metadata": {
+      "sector": "decision",
+      "simhash": "24a488c544444196",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 8,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:26:58.903Z"
+  },
+  {
+    "id": "f6e18e98-3f2e-4c78-88ed-567317152c7a",
+    "sector": "key_facts",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Key fact about project cleanup: all specified services were deleted from the stack.",
+    "metadata": {
+      "sector": "key_facts",
+      "simhash": "bc2e732c01a1e36a",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 13,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:26:58.909Z"
+  },
+  {
+    "id": "9296d02f-0eca-4021-a54a-5ac96027e564",
+    "sector": "user_goals",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "User should verify Docker volumes and container references are updated.",
+    "metadata": {
+      "sector": "user_goals",
+      "simhash": "0796c8eca58ce054",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:26:58.912Z"
+  },
+  {
+    "id": "a69c152d-f562-45a5-a8bc-904ab0e0586d",
+    "sector": "system_directive",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The GUI is now a native part of the build structure",
+    "metadata": {
+      "sector": "system_directive",
+      "simhash": "3ceeb8ecdc2ac8a8",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 11,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:35:39.756Z"
+  },
+  {
+    "id": "054e375a-2d54-4786-a6da-e01a148f6b5b",
+    "sector": "important_decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Rebuilt/recompiled the engram image to support new routes",
+    "metadata": {
+      "sector": "important_decision",
+      "simhash": "8020673077e69bd8",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:35:39.766Z"
+  },
+  {
+    "id": "b315275d-ea05-4cc5-9731-718f6e069829",
+    "sector": "system_directive",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Web service added to docker-compose.yml with proxy stage",
+    "metadata": {
+      "sector": "system_directive",
+      "simhash": "627a896735e160f9",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:35:39.771Z"
+  },
+  {
+    "id": "4629ef11-193d-4635-aec7-4e2c674aab20",
+    "sector": "user_preferences",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "User confirmed production containers now cover dev roles",
+    "metadata": {
+      "sector": "user_preferences",
+      "simhash": "f46498552c606584",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 8,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T04:35:39.776Z"
+  },
+  {
+    "id": "ec484fba-41ff-49ee-9d31-16053bf0dd93",
+    "sector": "decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The task involves renumbering files in multiple vaults with specific constraints.",
+    "metadata": {
+      "sector": "decision",
+      "simhash": "e8dd86ce55311a38",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 11,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T18:55:39.891Z"
+  },
+  {
+    "id": "2f5087d9-6a7e-415e-9326-ff33642651d7",
+    "sector": "user_preferences",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "/mnt/Vault/Vault_of_Obscenities is the primary active vault.",
+    "metadata": {
+      "sector": "user_preferences",
+      "simhash": "05ce989eed6e8110",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T18:55:39.903Z"
+  },
+  {
+    "id": "5230fb8d-7a65-4e93-8e35-2b93b80c8503",
+    "sector": "important_decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The transformation requires numeric ordering of filenames before renaming.",
+    "metadata": {
+      "sector": "important_decision",
+      "simhash": "bc6ebaf4a3b01758",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T18:55:39.908Z"
+  },
+  {
+    "id": "d2453b55-ebf3-4a69-82d7-288dda55b0c1",
+    "sector": "user_preferences",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Add a number to each file in the Vault, starting with 01_ and incrementing.",
+    "metadata": {
+      "sector": "user_preferences",
+      "simhash": "6eb184dbbba459b9",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 14,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T18:55:39.912Z"
+  },
+  {
+    "id": "70c6d171-10cd-4a85-9204-c28d59c95499",
+    "sector": "important_decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Renumbering should apply recursively to all files within the specified vaults.",
+    "metadata": {
+      "sector": "important_decision",
+      "simhash": "cf26b5dca32d5958",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 11,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T18:55:39.915Z"
+  },
+  {
+    "id": "c49679da-70ec-41cd-a57f-a7bfc323de2b",
+    "sector": "important_decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The task involved renaming 42 top-level files with sequential zero-padded prefixes.",
+    "metadata": {
+      "sector": "important_decision",
+      "simhash": "cc8ad67f21b77239",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 13,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T19:01:00.535Z"
+  },
+  {
+    "id": "0e5a2974-bb12-4736-a49b-b80f5cbae0cd",
+    "sector": "user_preferences",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "File paths and subfolder structure were preserved without modification.",
+    "metadata": {
+      "sector": "user_preferences",
+      "simhash": "4a30c969c00fd7ca",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T19:01:00.546Z"
+  },
+  {
+    "id": "391b7c4b-32ef-4ff0-9326-b8864caf4741",
+    "sector": "key_fact",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "A manifest file was created at /home/ftr/.hermes/kanban/boards/vault-cleanup",
+    "metadata": {
+      "sector": "key_fact",
+      "simhash": "e209955f0818fea0",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 13,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T19:01:00.554Z"
+  },
+  {
+    "id": "3c1556e5-181f-4444-a08f-9b45c0ce17da",
+    "sector": "important_decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "An undo script was executed to revert changes if needed.",
+    "metadata": {
+      "sector": "important_decision",
+      "simhash": "45080c449d32a4ed",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-11T19:01:00.559Z"
+  },
+  {
+    "id": "be04134f-f60f-4e3e-b36a-042f28f48c03",
+    "sector": "file management",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Add unnecessary files to .vscodeignore",
+    "metadata": {
+      "sector": "file management",
+      "simhash": "467bc6d7ee15c8b5",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 5,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:23:32.787Z"
+  },
+  {
+    "id": "08a94d95-8402-402a-be53-6578cf400111",
+    "sector": "extension configuration",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Include VSIX files in .vscodeignore",
+    "metadata": {
+      "sector": "extension configuration",
+      "simhash": "1a92c746235989bd",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 5,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:23:32.799Z"
+  },
+  {
+    "id": "a63a7e74-cb74-4ead-af07-9da353b987d3",
+    "sector": "file filtering",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Exclude 188 JavaScript files from .vscodeignore",
+    "metadata": {
+      "sector": "file filtering",
+      "simhash": "aa20cc660319e824",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 6,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:23:32.803Z"
+  },
+  {
+    "id": "028a3275-0475-4a2d-b5ca-ebf6b1d35c2a",
+    "sector": "performance optimization",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Bundle extension for performance",
+    "metadata": {
+      "sector": "performance optimization",
+      "simhash": "4002598a626b604a",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 4,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:23:32.807Z"
+  },
+  {
+    "id": "8c0b34ac-918d-4bdf-8d42-0a2d1751a2c7",
+    "sector": "system",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The session graph should be blank at startup to avoid displaying previous cache.",
+    "metadata": {
+      "sector": "system",
+      "simhash": "7fdefdfed7e311e0",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 13,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:33:11.440Z"
+  },
+  {
+    "id": "72c10a1e-a75d-486e-858b-7294804f92b1",
+    "sector": "user_interface",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Session picker must cover the entire webview without appearing as a popup.",
+    "metadata": {
+      "sector": "user_interface",
+      "simhash": "f4e90c3d8828396d",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 12,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:33:11.445Z"
+  },
+  {
+    "id": "b4f24128-fd4e-45b6-b1ff-c2043283d763",
+    "sector": "decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Startup should not fetch session data until an active session exists.",
+    "metadata": {
+      "sector": "decision",
+      "simhash": "7456885eb0980141",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 11,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:33:11.449Z"
+  },
+  {
+    "id": "9169d038-a703-4ad6-ac3a-8388db94c15c",
+    "sector": "user_preference",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The user prefers a low-effort solution with existing code",
+    "metadata": {
+      "sector": "user_preference",
+      "simhash": "20ae8f94b9e2bdd0",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:57:07.214Z"
+  },
+  {
+    "id": "ab3ddebf-eb01-4e8c-a030-19a7a56817ba",
+    "sector": "important_decision",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Implementing a memory tracker is estimated to take 1–2 hours",
+    "metadata": {
+      "sector": "important_decision",
+      "simhash": "1b0391b3b1ab4ce0",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 11,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:57:07.223Z"
+  },
+  {
+    "id": "9d5b5d01-e6f2-4f94-a003-5bd08ff64e43",
+    "sector": "key_fact",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The current implementation uses Engram's API with genome counts",
+    "metadata": {
+      "sector": "key_fact",
+      "simhash": "e98de27477a033b8",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:57:07.229Z"
+  },
+  {
+    "id": "3ef78b4e-1d93-4153-97d8-d4b11972f2e0",
+    "sector": "where_to_place",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "A live status badge could be added near the chat UI",
+    "metadata": {
+      "sector": "where_to_place",
+      "simhash": "204238aed0933c89",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 11,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:57:07.232Z"
+  },
+  {
+    "id": "4e64b6e7-55b7-4ad0-b1e5-42d5660263a4",
+    "sector": "decision_making",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Decision: use CLI-style badge or live API call",
+    "metadata": {
+      "sector": "decision_making",
+      "simhash": "208d007ffcda33ef",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T03:57:07.235Z"
+  },
+  {
+    "id": "ff913323-d09c-4051-bb55-9a7d959398de",
+    "sector": "user_preferences",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The user prefers to exclude certain files from Copilot suggestions",
+    "metadata": {
+      "sector": "user_preferences",
+      "simhash": "a6a084ae7986e851",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:26:44.399Z"
+  },
+  {
+    "id": "7b9b56dc-334d-4eba-9ae9-ef1adebd5fb4",
+    "sector": "important_decisions",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Important decision involves managing excluded paths in the project directory",
+    "metadata": {
+      "sector": "important_decisions",
+      "simhash": "0cd4a0a671646981",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:26:44.406Z"
+  },
+  {
+    "id": "9d06f346-34bf-4841-9b98-5652dc84b3d7",
+    "sector": "file details",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The file contains a PowerShell remoting script with an embedded Alloy config.",
+    "metadata": {
+      "sector": "file details",
+      "simhash": "e50de8fef87be3b1",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 12,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:34:19.249Z"
+  },
+  {
+    "id": "b3fb70ea-d8e4-4971-bc39-5ab2ccd3031a",
+    "sector": "user preferences",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "No user preferences or constraints were specified in the input.",
+    "metadata": {
+      "sector": "user preferences",
+      "simhash": "991e92feb480e109",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:34:19.261Z"
+  },
+  {
+    "id": "9cc72d27-1adc-4276-ae6d-98bc914a58b6",
+    "sector": "important decisions",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Important decision was to update configuration in virtual machine.",
+    "metadata": {
+      "sector": "important decisions",
+      "simhash": "6df490ef9c84c1f8",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:34:19.265Z"
+  },
+  {
+    "id": "2681cee7-1edd-4219-8265-ba006ca4d22a",
+    "sector": "key facts",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The script includes a fenced PowerShell block with language tag and Alloy reference.",
+    "metadata": {
+      "sector": "key facts",
+      "simhash": "0489ccc065432358",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 13,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:34:19.268Z"
+  },
+  {
+    "id": "388e9d3e-60a3-4091-964c-b51175190222",
+    "sector": "file paths",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "File path referenced: /home/ftr/Apps/Vault_of_Obscenities/Ace's Work Notes/Powershell Commands/083 - Configuration Update - Virtual Machine.md",
+    "metadata": {
+      "sector": "file paths",
+      "simhash": "246cd048c50cc7b0",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 21,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:34:19.273Z"
+  },
+  {
+    "id": "49e2ead3-db06-4310-b493-c5207636e9a3",
+    "sector": "file_management",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The user moved a PDF file from one location to another within the project directory.",
+    "metadata": {
+      "sector": "file_management",
+      "simhash": "664ad436b3a6fdf0",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 15,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:35:21.644Z"
+  },
+  {
+    "id": "e8ac3d10-4133-45bf-ba97-3db02a9a786d",
+    "sector": "documentation",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Added an HTML comment noting the new file location for reference.",
+    "metadata": {
+      "sector": "documentation",
+      "simhash": "0642de7ef28ff069",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 11,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:35:21.650Z"
+  },
+  {
+    "id": "f51f8009-e7c1-4bc4-8fb8-667d2da630b3",
+    "sector": "verification",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Verified destination file existence and size match after relocation.",
+    "metadata": {
+      "sector": "verification",
+      "simhash": "c2a3c955df1d93de",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:35:21.655Z"
+  },
+  {
+    "id": "230f716b-d78d-45a9-8d3d-d0ba58a2aa79",
+    "sector": "project management",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The task involves cleaning up a note in Obsidian with formatting improvements.",
+    "metadata": {
+      "sector": "project management",
+      "simhash": "7265858257fb33f8",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 12,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:35:53.422Z"
+  },
+  {
+    "id": "4a5007d3-3250-4b40-b48d-53628ddf6fa7",
+    "sector": "decision making",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Important decision: verify file paths and filenames before processing.",
+    "metadata": {
+      "sector": "decision making",
+      "simhash": "84b589fd4745d05f",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:35:53.426Z"
+  },
+  {
+    "id": "2908edbb-11e6-4efb-8f06-61772e1dd798",
+    "sector": "title",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "# 006 - Drawing 2024-06-14 09.53.52",
+    "metadata": {
+      "sector": "title",
+      "simhash": "00aa018b260e6c05",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 8,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:37:02.277Z"
+  },
+  {
+    "id": "06180a66-c737-4fde-8407-afbbc25f92a0",
+    "sector": "project updates",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Added a clear H1 title and summary in Obsidian notes.",
+    "metadata": {
+      "sector": "project updates",
+      "simhash": "5e4c6ecbf041419a",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 10,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:37:39.102Z"
+  },
+  {
+    "id": "964adb72-9351-4d12-8e4b-79aa5b5f5356",
+    "sector": "file cleanup",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Fixed typo corrections: 'Pallete' → 'Palette', 'different that' → 'different from'.",
+    "metadata": {
+      "sector": "file cleanup",
+      "simhash": "b8e63e1003c7b21c",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 9,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:37:39.106Z"
+  },
+  {
+    "id": "1c091502-1d0d-42ca-9524-d929646dbc2b",
+    "sector": "document preservation",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "Retained frontmatter, images, links, and wiki reference intact.",
+    "metadata": {
+      "sector": "document preservation",
+      "simhash": "4680183340014380",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 8,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:37:39.109Z"
+  },
+  {
+    "id": "e242f9ed-3035-4d23-a857-877fc7dc70dd",
+    "sector": "decision confirmation",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "No changes to file structure or content integrity.",
+    "metadata": {
+      "sector": "decision confirmation",
+      "simhash": "4a1a805ffc9d80a8",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 8,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:37:39.113Z"
+  },
+  {
+    "id": "dc30a7ed-c86e-4713-ab22-739afd19c930",
+    "sector": "settings",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The README needs to include the setting 'hermes.reasoningEffort' with its enum values.",
+    "metadata": {
+      "sector": "settings",
+      "simhash": "43c9bfb07fa3267d",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 13,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:46:11.043Z"
+  },
+  {
+    "id": "969eebd3-b64f-4a33-90da-ede4b45f3062",
+    "sector": "versioning",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The version number in README should match package.json for consistency.",
+    "metadata": {
+      "sector": "versioning",
+      "simhash": "1810e6f830aa4179",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 11,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:46:11.049Z"
+  },
+  {
+    "id": "5def2654-6e8c-410f-9b39-f4a865166983",
+    "sector": "settings",
+    "is_genome": false,
+    "project_id": null,
+    "user_id": "system",
+    "access_count": 0,
+    "content": "The default value for 'hermes.cwd' should be updated to reflect actual runtime behavior.",
+    "metadata": {
+      "sector": "settings",
+      "simhash": "82743492b38a80fb",
+      "language": "en",
+      "is_genome": false,
+      "decay_rate": 0.1,
+      "token_count": 14,
+      "language_script": "latin",
+      "language_confidence": 1
+    },
+    "recorded_at": "2026-07-12T04:46:11.052Z"
+  }
+]

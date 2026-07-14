@@ -30,8 +30,14 @@ export const ingest_conversation_route = (app: any, ctx: route_ctx) => {
       // auto-promote chat narration to immutable genome. Genome is reserved for
       // explicit engram_remember(genome:true) calls. Extraction here yields phenotype only.
       const r = await logInteractionAsync(userPrompt, llmResponse, sessionId, projectId, false);
-      return res.json({ adapter: "durable-postgres",
-                        extraction: { status: "processed", stored_count: r.storedCount } });
+      return res.json({
+        adapter: "durable-postgres",
+        extraction: {
+          status: "processed",
+          stored_count: r.storedCount,
+          sectors: r.sectors || {},
+        },
+      });
     } catch (e: unknown) {
       fail(res, "ingest_conversation_failed", e);
     }

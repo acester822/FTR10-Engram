@@ -7,7 +7,8 @@
     "bin"
   ],
   "bin": {
-    "opm": "./bin/opm.js"
+    "opm": "./bin/opm.js",
+    "engram": "./bin/opm.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

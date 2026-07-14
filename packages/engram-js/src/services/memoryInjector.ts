@@ -74,6 +74,47 @@ export function classifyMemory(content: string): MemoryClassificationResult {
 
 // ── Decay rate constants used by repository.ts ────────────────────────
 
+// ── Canonical Phenotype Sectors ───────────────────────────────────
+// The ONLY valid sectors (mirrors the readme "Phenotype Sectors" table).
+// Any other value an LLM emits (e.g. "important decision") is invalid and
+// must be coerced back to a canonical sector to keep the knowledge base clean.
+export const VALID_SECTORS = [
+  "semantic",
+  "procedural",
+  "episodic",
+  "emotional",
+  "reflective",
+] as const;
+
+export type Sector = (typeof VALID_SECTORS)[number];
+
+/**
+ * Coerce an arbitrary sector string into one of the canonical sectors.
+ * - exact match (case-insensitive) → that sector
+ * - a value that contains a known sector as a word → that sector
+ * - anything else → fallback (default "semantic")
+ * This guarantees memories are never stored under an invalid sector.
+ */
+export function normalizeSector(
+  sector: unknown,
+  fallback: Sector = "semantic",
+): Sector {
+  if (typeof sector !== "string") return fallback;
+  const raw = sector.trim().toLowerCase();
+  if (!raw) return fallback;
+
+  // Exact match first
+  const exact = (VALID_SECTORS as readonly string[]).includes(raw);
+  if (exact) return raw as Sector;
+
+  // Substring/word match — e.g. "important decision" or "procedural step"
+  for (const s of VALID_SECTORS) {
+    if (raw.includes(s)) return s;
+  }
+
+  return fallback;
+}
+
 export const DEFAULT_GENOME_DECAY_RATE = 0.03;   // genome memories decay at 30% the phenotype rate
 export const DEFAULT_PHENOTYPE_DECAY_RATE = 0.1;  // plan default: REAL DEFAULT 0.1
 

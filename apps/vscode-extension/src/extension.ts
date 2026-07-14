@@ -9,6 +9,7 @@ import { writeCopilotConfig } from './writers/copilot';
 import { writeCodexConfig } from './writers/codex';
 import { DashboardPanel } from './panels/DashboardPanel';
 import { generateDiff } from './utils/diff';
+import { ActivityObserver } from './activity';
 
 function isCodeServer(): boolean {
     try {
@@ -19,7 +20,7 @@ function isCodeServer(): boolean {
 }
 
 let session_id: string | null = null;
-let backend_url = 'http://localhost:8080';
+let backend_url = 'http://localhost:8098';
 let api_key: string | undefined = undefined;
 let status_bar: vscode.StatusBarItem;
 let is_tracking = false;
@@ -28,15 +29,20 @@ let use_mcp = false;
 let mcp_server_path = '';
 let is_enabled = true;
 let user_id = '';
+let activity_observer: ActivityObserver | undefined;
+let show_toasts = true;
+let show_status_bar = true;
 const fileCache = new Map<string, string>();
 
 export function activate(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('engram');
     is_enabled = config.get('enabled') ?? true;
-    backend_url = config.get('backendUrl') || 'http://localhost:8080';
+    backend_url = config.get('backendUrl') || 'http://localhost:8098';
     api_key = config.get('apiKey') || undefined;
     use_mcp = config.get('useMCP') || false;
     mcp_server_path = config.get('mcpServerPath') || '';
+    show_status_bar = config.get<boolean>('showStatusBar') ?? true;
+    show_toasts = config.get<boolean>('showToasts') ?? true;
     user_id = getUserId(context, config);
 
     status_bar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -47,13 +53,13 @@ export function activate(context: vscode.ExtensionContext) {
 
     if (!is_enabled) {
         update_status_bar('disabled');
-        status_bar.show();
+        if (show_status_bar) status_bar.show();
         context.subscriptions.push(status_click);
         return;
     }
 
     update_status_bar('connecting');
-    status_bar.show();
+    if (show_status_bar) status_bar.show();
 
     check_connection().then(async connected => {
         if (connected) {
@@ -61,7 +67,7 @@ export function activate(context: vscode.ExtensionContext) {
             await start_session();
         } else {
             update_status_bar('disconnected');
-            show_quick_setup();
+            vscode.window.showErrorMessage('❌ Cannot connect to Engram backend at ' + backend_url);
         }
     });
 
@@ -100,15 +106,23 @@ export function activate(context: vscode.ExtensionContext) {
             vscode.window.showErrorMessage('No text selected');
             return;
         }
+        const kind = await vscode.window.showQuickPick(
+            [
+                { label: 'Phenotype', description: 'Learned context (recalled, mutable)', isGenome: false },
+                { label: 'Genome', description: 'Immutable directive (always injected)', isGenome: true },
+            ],
+            { placeHolder: 'Save selection as Phenotype or Genome?' },
+        );
+        if (!kind) return;
 
         await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
-            title: "Engram: Saving Selection...",
+            title: `Engram: Saving selection as ${kind.label}...`,
             cancellable: false
         }, async () => {
             try {
-                await add_memory(selection, editor.document.uri.fsPath);
-                vscode.window.showInformationMessage('Selection added to Engram');
+                const res = await add_memory(selection, editor.document.uri.fsPath, kind.isGenome, 'semantic');
+                if (res?.id) vscode.window.showInformationMessage(`Selection added to Engram (${kind.label})`);
             } catch (error) {
                 vscode.window.showErrorMessage(`Failed to add memory: ${error}`);
             }
@@ -118,29 +132,70 @@ export function activate(context: vscode.ExtensionContext) {
     const note_cmd = vscode.commands.registerCommand('engram.quickNote', async () => {
         const input = await vscode.window.showInputBox({ prompt: 'Enter a quick note to remember', placeHolder: 'e.g. Refactored the auth logic to use JWT' });
         if (!input) return;
-
+        const kind = await vscode.window.showQuickPick(
+            [
+                { label: 'Phenotype', description: 'Learned context (recalled, mutable)', isGenome: false },
+                { label: 'Genome', description: 'Immutable directive (always injected)', isGenome: true },
+            ],
+            { placeHolder: 'Save as Phenotype or Genome?' },
+        );
+        if (!kind) return;
         try {
             const editor = vscode.window.activeTextEditor;
             const file = editor ? editor.document.uri.fsPath : 'manual-note';
-            await add_memory(input, file);
-            vscode.window.showInformationMessage('Note added to Engram');
+            const res = await add_memory(input, file, kind.isGenome, 'semantic');
+            if (res?.id) vscode.window.showInformationMessage(`Note saved (${kind.label})`);
         } catch (error) {
             vscode.window.showErrorMessage(`Failed to add note: ${error}`);
         }
     });
 
     const patterns_cmd = vscode.commands.registerCommand('engram.viewPatterns', async () => {
-        if (!session_id) {
-            vscode.window.showErrorMessage('No active session');
-            return;
-        }
+        // Open the dashboard and surface the Insights tab (stats + sectors + recent memories).
+        DashboardPanel.createOrShow(context.extensionUri);
+        // Give the panel a moment to mount, then ask it to load insights.
+        setTimeout(() => {
+            DashboardPanel.currentPanel?.postMessage({ command: 'switchView', view: 'insights' });
+        }, 200);
+    });
+
+    const recall_cmd = vscode.commands.registerCommand('engram.dashboardRecall', async (query?: string) => {
+        if (!query || !query.trim()) return;
         try {
-            const patterns = await get_patterns(session_id);
-            const doc = await vscode.workspace.openTextDocument({ content: format_patterns(patterns), language: 'markdown' });
-            await vscode.window.showTextDocument(doc);
+            const data = await dashboard_recall(query);
+            DashboardPanel.currentPanel?.postMessage({ command: 'recallResult', ...data });
         } catch (error) {
-            vscode.window.showErrorMessage(`Failed: ${error}`);
+            DashboardPanel.currentPanel?.postMessage({ command: 'recallResult', results: [], error: String(error) });
         }
+    });
+
+    const addmem_cmd = vscode.commands.registerCommand('engram.dashboardAddMemory', async (content?: string, isGenome?: boolean, sector?: string) => {
+        if (!content || !content.trim()) return;
+        try {
+            const res = await add_memory(content, 'dashboard', Boolean(isGenome), sector || 'semantic');
+            if (res?.id) {
+                if (show_toasts) vscode.window.showInformationMessage(`Memory saved (${isGenome ? 'Genome' : 'Phenotype'})`);
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to save memory: ${error}`);
+        }
+    });
+
+    const settings_cmd = vscode.commands.registerCommand('engram.settings', async () => {
+        await show_settings();
+    });
+
+    const insights_cmd = vscode.commands.registerCommand('engram.dashboardInsights', async () => {
+        try {
+            const data = await dashboard_insights();
+            DashboardPanel.currentPanel?.postMessage({ command: 'insights', ...data });
+        } catch (error) {
+            DashboardPanel.currentPanel?.postMessage({ command: 'insights', stats: {}, memories: [] });
+        }
+    });
+
+    const webgui_cmd = vscode.commands.registerCommand('engram.openWebGui', async () => {
+        await open_web_gui();
     });
 
     const toggle_cmd = vscode.commands.registerCommand('engram.toggleTracking', () => {
@@ -148,7 +203,6 @@ export function activate(context: vscode.ExtensionContext) {
         update_status_bar(is_tracking ? 'active' : 'paused');
     });
 
-    const setup_cmd = vscode.commands.registerCommand('engram.setup', () => show_quick_setup());
     const dashboard_cmd = vscode.commands.registerCommand('engram.dashboard', () => { DashboardPanel.createOrShow(context.extensionUri); });
 
     // Initialize cache for all currently open documents
@@ -188,7 +242,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Register Chat Participant (Phase 5: Explainable Traces)
     registerChatParticipant(context);
 
-    context.subscriptions.push(status_click, status_bar, toggle_cmd, setup_cmd, dashboard_cmd, save_listener, open_listener);
+    context.subscriptions.push(status_click, status_bar, toggle_cmd, webgui_cmd, dashboard_cmd, insights_cmd, settings_cmd, recall_cmd, addmem_cmd, save_listener, open_listener);
     // Note: Re-registering commands that were elided in this block for brevity if they weren't before. 
     // Actually, I need to be careful not to delete the existing command registrations if I'm replacing a huge block.
     // The target range seems to include most of activate.
@@ -229,13 +283,14 @@ function update_status_bar(state: 'active' | 'paused' | 'connecting' | 'disconne
     };
     status_bar.text = icons[state];
     status_bar.tooltip = tooltips[state];
+    if (show_status_bar) status_bar.show();
+    else status_bar.hide();
 }
 
 async function show_menu() {
     if (!is_enabled) {
         const choice = await vscode.window.showQuickPick([
-            { label: '$(check) Enable Engram', action: 'enable' },
-            { label: '$(gear) Setup', action: 'setup' }
+            { label: '$(check) Enable Engram', action: 'enable' }
         ], { placeHolder: 'Engram is Disabled' });
         if (!choice) return;
         if (choice.action === 'enable') {
@@ -244,8 +299,6 @@ async function show_menu() {
             is_enabled = true;
             vscode.window.showInformationMessage('Engram enabled. Reloading window...');
             vscode.commands.executeCommand('workbench.action.reloadWindow');
-        } else if (choice.action === 'setup') {
-            show_quick_setup();
         }
         return;
     }
@@ -253,7 +306,7 @@ async function show_menu() {
     const items = [];
     items.push(is_tracking ? { label: '$(debug-pause) Pause Tracking', action: 'pause' } : { label: '$(play) Resume Tracking', action: 'resume' });
     items.push({ label: '$(dashboard) Open Dashboard', action: 'dashboard' });
-    items.push({ label: '$(search) Query Context', action: 'query' }, { label: '$(add) Add Selection', action: 'add' }, { label: '$(pencil) Quick Note', action: 'note' }, { label: '$(graph) View Patterns', action: 'patterns' }, { label: use_mcp ? '$(link) Switch to Direct HTTP' : '$(server-process) Switch to MCP Mode', action: 'toggle_mcp' }, { label: '$(circle-slash) Disable Extension', action: 'disable' }, { label: '$(gear) Setup', action: 'setup' }, { label: '$(refresh) Reconnect', action: 'reconnect' });
+    items.push({ label: '$(search) Query Context', action: 'query' }, { label: '$(add) Add Selection', action: 'add' }, { label: '$(pencil) Quick Note', action: 'note' }, { label: '$(graph) View Patterns', action: 'patterns' }, { label: '$(circle-slash) Disable Extension', action: 'disable' }, { label: '$(refresh) Reconnect', action: 'reconnect' });
     const choice = await vscode.window.showQuickPick(items, { placeHolder: 'Engram Actions' });
     if (!choice) return;
     switch (choice.action) {
@@ -264,13 +317,6 @@ async function show_menu() {
         case 'add': vscode.commands.executeCommand('engram.addToMemory'); break;
         case 'note': vscode.commands.executeCommand('engram.quickNote'); break;
         case 'patterns': vscode.commands.executeCommand('engram.viewPatterns'); break;
-        case 'toggle_mcp':
-            use_mcp = !use_mcp;
-            const mcpConfig = vscode.workspace.getConfiguration('engram');
-            await mcpConfig.update('useMCP', use_mcp, vscode.ConfigurationTarget.Global);
-            vscode.window.showInformationMessage(`Switched to ${use_mcp ? 'MCP' : 'Direct HTTP'} mode. Reconnecting...`);
-            await auto_link_all();
-            break;
         case 'disable':
             const config = vscode.workspace.getConfiguration('engram');
             await config.update('enabled', false, vscode.ConfigurationTarget.Global);
@@ -279,7 +325,6 @@ async function show_menu() {
             update_status_bar('disabled');
             vscode.window.showInformationMessage('Engram disabled');
             break;
-        case 'setup': show_quick_setup(); break;
         case 'reconnect':
             update_status_bar('connecting');
             const connected = await check_connection();
@@ -293,83 +338,104 @@ async function show_menu() {
     }
 }
 
-async function show_quick_setup() {
-    const items = [
-        { label: is_enabled ? '$(circle-slash) Disable Extension' : '$(check) Enable Extension', action: 'toggle_enabled', description: is_enabled ? 'Turn off Engram tracking' : 'Turn on Engram tracking' },
-        { label: '$(server-process) Toggle MCP Mode', action: 'mcp', description: use_mcp ? 'Currently: MCP (switch to Direct HTTP)' : 'Currently: Direct HTTP (switch to MCP)' },
-        { label: '$(key) Configure API Key', action: 'apikey' },
-        { label: '$(server) Change Backend URL', action: 'url' },
-        { label: '$(file-code) Set MCP Server Path', action: 'mcppath', description: 'Optional: custom MCP server executable' },
-        { label: '$(link-external) View Documentation', action: 'docs' },
-        { label: '$(debug-restart) Test Connection', action: 'test' }
-    ];
-    const choice = await vscode.window.showQuickPick(items, { placeHolder: 'Engram Setup' });
-    if (!choice) return;
-    switch (choice.action) {
-        case 'toggle_enabled':
-            const enabledConfig = vscode.workspace.getConfiguration('engram');
-            is_enabled = !is_enabled;
-            await enabledConfig.update('enabled', is_enabled, vscode.ConfigurationTarget.Global);
-            if (is_enabled) {
-                vscode.window.showInformationMessage('Engram enabled. Reloading window...');
-                vscode.commands.executeCommand('workbench.action.reloadWindow');
-            } else {
-                if (session_id) await end_session();
-                update_status_bar('disabled');
-                vscode.window.showInformationMessage('Engram disabled');
+async function open_web_gui() {
+    const config = vscode.workspace.getConfiguration('engram');
+    let url = (config.get<string>('webGuiUrl') || '').trim();
+
+    if (!url) {
+        // Derive a sensible suggestion from the backend host, defaulting the Web GUI port to 8099.
+        let suggestion = 'http://localhost:8099';
+        try {
+            const b = new URL(backend_url);
+            suggestion = `${b.protocol}//${b.hostname}:8099`;
+        } catch { /* keep default */ }
+
+        const entered = await vscode.window.showInputBox({
+            prompt: 'Enter your Engram Web GUI address',
+            placeHolder: 'http://192.168.1.50:8099',
+            value: suggestion,
+            ignoreFocusOut: true,
+            validateInput: (v) => {
+                const t = (v || '').trim();
+                if (!t) return 'Enter a URL, or press Escape to cancel';
+                try { const u = new URL(t); if (!/^https?:$/.test(u.protocol)) return 'URL must start with http:// or https://'; }
+                catch { return 'Not a valid URL'; }
+                return null;
             }
-            break;
-        case 'mcp':
-            use_mcp = !use_mcp;
-            const mcpConfig = vscode.workspace.getConfiguration('engram');
-            await mcpConfig.update('useMCP', use_mcp, vscode.ConfigurationTarget.Global);
-            vscode.window.showInformationMessage(`Switched to ${use_mcp ? 'MCP' : 'Direct HTTP'} mode`);
-            await auto_link_all();
-            break;
-        case 'mcppath':
-            const path = await vscode.window.showInputBox({ prompt: 'Enter MCP server executable path (leave empty to use backend MCP)', value: mcp_server_path, placeHolder: '/path/to/mcp-server' });
-            if (path !== undefined) {
-                const config = vscode.workspace.getConfiguration('engram');
-                await config.update('mcpServerPath', path, vscode.ConfigurationTarget.Global);
-                mcp_server_path = path;
-                vscode.window.showInformationMessage('MCP server path updated');
-            }
-            break;
-        case 'apikey':
-            const key = await vscode.window.showInputBox({ prompt: 'Enter API key (leave empty if not required)', password: true, placeHolder: 'your-api-key' });
-            if (key !== undefined) {
-                const config = vscode.workspace.getConfiguration('engram');
-                await config.update('apiKey', key, vscode.ConfigurationTarget.Global);
-                api_key = key;
-                vscode.window.showInformationMessage('API key saved');
-                const connected = await check_connection();
-                if (connected) await start_session();
-            }
-            break;
-        case 'url':
-            const url = await vscode.window.showInputBox({ prompt: 'Enter backend URL', value: backend_url, placeHolder: 'http://localhost:8080' });
-            if (url) {
-                const config = vscode.workspace.getConfiguration('engram');
-                await config.update('backendUrl', url, vscode.ConfigurationTarget.Global);
-                backend_url = url;
-                vscode.window.showInformationMessage('Backend URL updated');
-                const connected = await check_connection();
-                if (connected) await start_session();
-            }
-            break;
-        case 'docs': vscode.env.openExternal(vscode.Uri.parse('https://github.com/CaviraOSS/Engram')); break;
-        case 'test':
-            update_status_bar('connecting');
-            const connected = await check_connection();
-            if (connected) {
-                await start_session();
-                vscode.window.showInformationMessage('✅ Connected successfully');
-            } else {
-                update_status_bar('disconnected');
-                vscode.window.showErrorMessage('❌ Connection failed');
-            }
-            break;
+        });
+        if (entered === undefined) return; // cancelled
+        url = entered.trim();
+        await config.update('webGuiUrl', url, vscode.ConfigurationTarget.Global);
+        vscode.window.showInformationMessage(`Engram Web GUI saved: ${url}`);
     }
+
+    vscode.env.openExternal(vscode.Uri.parse(url));
+}
+
+async function show_settings() {
+    const config = vscode.workspace.getConfiguration('engram');
+    const curToasts = config.get('showToasts') ?? true;
+    const curStatus = config.get('showStatusBar') ?? true;
+    const items = [
+        { label: `${curToasts ? '$(check)' : '$(circle-large-outline)'} Toast notifications`, setting: 'showToasts', value: !curToasts, description: 'Pop-ups when Engram saves new memories' },
+        { label: `${curStatus ? '$(check)' : '$(circle-large-outline)'} Status bar item`, setting: 'showStatusBar', value: !curStatus, description: 'Live activity count in the status bar' },
+        { label: '$(server) Change Backend URL', action: 'url' },
+        { label: '$(globe) Change Web GUI URL', action: 'webgui' },
+        { label: '$(key) Configure API Key', action: 'apikey' },
+    ];
+    const choice = await vscode.window.showQuickPick(items, { placeHolder: 'Engram Settings' });
+    if (!choice) return;
+
+    if ((choice as any).action === 'url') {
+        const url = await vscode.window.showInputBox({ prompt: 'Enter backend URL', value: backend_url, placeHolder: 'http://localhost:8098' });
+        if (url) {
+            await config.update('backendUrl', url, vscode.ConfigurationTarget.Global);
+            backend_url = url;
+            vscode.window.showInformationMessage('Backend URL updated. Reconnecting…');
+            if (await check_connection()) await start_session();
+        }
+        return;
+    }
+    if ((choice as any).action === 'webgui') {
+        const current = config.get<string>('webGuiUrl') || '';
+        const url = await vscode.window.showInputBox({
+            prompt: 'Enter your Engram Web GUI address (leave empty to be prompted next time)',
+            value: current,
+            placeHolder: 'http://192.168.1.50:8099',
+            ignoreFocusOut: true,
+            validateInput: (v) => {
+                const t = (v || '').trim();
+                if (!t) return null; // empty is allowed (clears it)
+                try { const u = new URL(t); if (!/^https?:$/.test(u.protocol)) return 'URL must start with http:// or https://'; }
+                catch { return 'Not a valid URL'; }
+                return null;
+            }
+        });
+        if (url !== undefined) {
+            await config.update('webGuiUrl', url.trim(), vscode.ConfigurationTarget.Global);
+            vscode.window.showInformationMessage(url.trim() ? `Web GUI URL saved: ${url.trim()}` : 'Web GUI URL cleared');
+        }
+        return;
+    }
+    if ((choice as any).action === 'apikey') {
+        const key = await vscode.window.showInputBox({ prompt: 'Enter API key (leave empty if not required)', password: true, placeHolder: 'your-api-key' });
+        if (key !== undefined) {
+            await config.update('apiKey', key, vscode.ConfigurationTarget.Global);
+            api_key = key;
+            vscode.window.showInformationMessage('API key saved');
+        }
+        return;
+    }
+    // Toggle a boolean setting.
+    const setting = (choice as any).setting as string;
+    const newValue = (choice as any).value as boolean;
+    await config.update(setting, newValue, vscode.ConfigurationTarget.Global);
+    if (setting === 'showToasts') show_toasts = newValue;
+    if (setting === 'showStatusBar') {
+        show_status_bar = newValue;
+        update_status_bar(is_tracking ? 'active' : 'paused');
+    }
+    vscode.window.showInformationMessage(`Engram ${setting} ${newValue ? 'enabled' : 'disabled'}`);
 }
 
 function getUserId(context: vscode.ExtensionContext, config: vscode.WorkspaceConfiguration): string {
@@ -390,6 +456,11 @@ function getUserId(context: vscode.ExtensionContext, config: vscode.WorkspaceCon
     context.globalState.update('engram.userId', persistedUserId);
 
     return persistedUserId;
+}
+
+function getProjectName(): string {
+    const config = vscode.workspace.getConfiguration('engram');
+    return config.get<string>('projectName') || vscode.workspace.workspaceFolders?.[0]?.name || 'unknown';
 }
 
 async function check_connection(): Promise<boolean> {
@@ -421,13 +492,25 @@ async function start_session() {
         is_tracking = true;
         update_status_bar('active');
         vscode.window.showInformationMessage('Engram connected');
+        // Start the passive activity observer (server-side traffic buffer).
+        // Works whether Engram is driven standalone or via the Hermes plugin.
+        activity_observer = new ActivityObserver(
+          backend_url,
+          api_key,
+          status_bar,
+          () => DashboardPanel.currentPanel,
+          () => show_toasts,
+        );
+        activity_observer.start();
     } catch {
         update_status_bar('disconnected');
-        show_quick_setup();
+        vscode.window.showErrorMessage('❌ Cannot connect to Engram backend at ' + backend_url);
     }
 }
 
 async function end_session() {
+    activity_observer?.stop();
+    activity_observer = undefined;
     if (!session_id) return;
     try {
         await fetch(`${backend_url}/api/ide/session/end`, { method: 'POST', headers: get_headers(), body: JSON.stringify({ session_id, user_id }) });
@@ -448,15 +531,38 @@ async function query_context(query: string, file: string) {
     return data.memories || [];
 }
 
-async function add_memory(content: string, file: string) {
-    const response = await fetch(`${backend_url}/memory/add`, {
+// Semantic recall used by the dashboard Recall tab (/api/dashboard/recall).
+async function dashboard_recall(query: string) {
+    const response = await fetch(`${backend_url}/api/dashboard/recall`, {
+        method: 'POST',
+        headers: get_headers(),
+        body: JSON.stringify({ query, limit: 20, mode: 'associative' })
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+}
+
+// Insights used by the dashboard Insights tab.
+async function dashboard_insights() {
+    const [statsRes, memRes] = await Promise.all([
+        fetch(`${backend_url}/api/dashboard/stats`, { method: 'GET', headers: get_headers() }),
+        fetch(`${backend_url}/api/dashboard/memories?limit=15`, { method: 'GET', headers: get_headers() }),
+    ]);
+    const stats = statsRes.ok ? await statsRes.json() : {};
+    const mems = memRes.ok ? await memRes.json() : { memories: [] };
+    return { stats, memories: mems.memories || [] };
+}
+
+async function add_memory(content: string, file: string, isGenome: boolean = false, sector: string = 'semantic') {
+    const response = await fetch(`${backend_url}/memories`, {
         method: 'POST',
         headers: get_headers(),
         body: JSON.stringify({
             content,
             user_id: user_id,
-            tags: ['manual', 'ide-selection'],
-            metadata: { source: 'vscode', file }
+            project_id: getProjectName(),
+            is_genome: isGenome,
+            metadata: { sector: sector, source: 'vscode', file }
         })
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

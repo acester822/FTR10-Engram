@@ -1,7 +1,7 @@
 import { env } from "../configuration";
 import { make_db as kit_make_db, run_async, all_async } from "../api/routes/_kit";
 import { rememberDurableMemory } from "../durable/repository";
-import { DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
+import { DEFAULT_PHENOTYPE_DECAY_RATE, normalizeSector } from "./memoryInjector";
 import { logger } from "../utils/logger";
 import { getLangfuse } from "./langfuseClient";
 
@@ -224,7 +224,7 @@ RULES FOR FACTS:
 1. Extract any NEW, DURABLE facts that are worth remembering for future sessions.
 2. Focus on: user preferences, project architecture decisions, recurring bugs, and workflow patterns.
 3. Do NOT extract transient facts (e.g., "the user asked to run echo hello").
-4. Categorize each fact into a sector: semantic, procedural, episodic, emotional, or reflective.
+4. Categorize each fact into a sector. The "sector" field MUST be EXACTLY one of these five values: "semantic" (facts & domain knowledge), "procedural" (code patterns & workflows), "episodic" (events & specific interactions), "emotional" (preferences, tone, sentiment), "reflective" (lessons learned, meta-cognition). Do NOT invent other sectors; if unsure, use "semantic".
 
 OUTPUT SCHEMA:
 Return ONLY a valid JSON object. No markdown, no explanations.
@@ -374,12 +374,13 @@ ${compactLines}`;
       for (const fact of facts) {
         if (!fact.content || fact.content.trim().length < 10) continue;
         try {
+          const sector = normalizeSector(fact.sector, "semantic");
           await rememberDurableMemory(db, {
             content: fact.content,
             user_id: "system",
             project_id: projectId,
             metadata: {
-              sector: fact.sector || "semantic",
+              sector,
               decay_rate: DEFAULT_PHENOTYPE_DECAY_RATE,
               source: "compaction_engine"
             },

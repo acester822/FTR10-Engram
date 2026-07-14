@@ -6,7 +6,7 @@
 import crypto from "node:crypto";
 import { env } from "../configuration";
 import { make_db as kit_make_db, run_async, all_async, transaction } from "../api/routes/_kit";
-import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE } from "./memoryInjector";
+import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, normalizeSector } from "./memoryInjector";
 import { logger } from "../utils/logger";
 import { getLangfuse } from "./langfuseClient";
 
@@ -204,6 +204,7 @@ ${memoryList}
 - PROMOTE actions may omit new_content (the content stays the same).
 - DELETE actions do not need new_content.
 - If you cannot meaningfully merge or update, use DELETE instead.
+- Optional "new_sector" MUST be EXACTLY one of: "semantic", "procedural", "episodic", "emotional", "reflective". Do NOT invent other sector names; omit it if the sector should not change.
 
 ### OUTPUT SCHEMA ###
 Return ONLY a valid JSON array of actions. No markdown, no explanations outside the "reason" field.
@@ -326,7 +327,7 @@ If no actions are needed, return exactly: []
               }
             }
 
-            const newSector = action.new_sector || candidateMap.get(action.target_ids[0])?.sector || "semantic";
+            const newSector = normalizeSector(action.new_sector || candidateMap.get(action.target_ids[0])?.sector || "semantic");
             const isGenome = action.is_genome !== undefined ? action.is_genome : candidateMap.get(action.target_ids[0])?.is_genome || false;
             const decayRate = isGenome ? DEFAULT_GENOME_DECAY_RATE : DEFAULT_PHENOTYPE_DECAY_RATE;
 
@@ -351,7 +352,7 @@ If no actions are needed, return exactly: []
             // Promote each target individually — content stays the same, just set is_genome=true
             for (const targetId of action.target_ids) {
               const candidate = candidateMap.get(targetId);
-              const newSector = action.new_sector || candidate?.sector || "semantic";
+              const newSector = normalizeSector(action.new_sector || candidate?.sector || "semantic");
               const decayRate = DEFAULT_GENOME_DECAY_RATE;
 
               await db.query(

@@ -1,0 +1,10 @@
+name: engram
+version: "0.2.0"
+description: >-
+  Persistent, project-aware memory + cognition backed by the FTR10 Engram
+  memory engine (PostgreSQL + pgvector). Option B integration: Hermes recalls
+  relevant Engram memories (genome + phenotype) before each turn, and after each
+  turn hands the FULL transcript to Engram's native extraction engine
+  (/ingest/conversation) so Engram itself decides what is worth storing —
+  genome vs phenotype, sector, and decay. Hermes is the orchestrator; Engram is
+  the memory authority. No MCP server; stdlib urllib only.

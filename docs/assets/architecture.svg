@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1960" height="1309" viewBox="0 0 1960 1309" font-family="Segoe UI,Helvetica,Arial,sans-serif">
+<rect width="1960" height="1309" fill="#fff"/>
+<defs><marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-end"><path d="M0,0 L10,5 L0,10 z" fill="#495057"/></marker></defs>
+<rect x="350" y="90" width="400" height="96" rx="8" fill="#e7f5ff" fill-opacity="0.55" stroke="#1971c2" stroke-width="1.5"/>
+<rect x="30" y="220" width="700" height="400" rx="8" fill="#fff4e6" fill-opacity="0.55" stroke="#e8590c" stroke-width="1.5"/>
+<rect x="790" y="220" width="320" height="180" rx="8" fill="#ebfbee" fill-opacity="0.55" stroke="#2f9e44" stroke-width="1.5"/>
+<rect x="790" y="430" width="320" height="190" rx="8" fill="#fff0f6" fill-opacity="0.55" stroke="#c2255c" stroke-width="1.5"/>
+<rect x="30" y="670" width="1080" height="150" rx="8" fill="#f3f0ff" fill-opacity="0.55" stroke="#7048e8" stroke-width="1.5"/>
+<rect x="380" y="128" width="340" height="46" rx="8" fill="#e7f5ff" fill-opacity="1.00" stroke="#1971c2" stroke-width="2"/>
+<rect x="70" y="278" width="220" height="46" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#e8590c" stroke-width="2"/>
+<rect x="70" y="348" width="220" height="46" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#e8590c" stroke-width="2"/>
+<rect x="70" y="418" width="220" height="46" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#e8590c" stroke-width="2"/>
+<rect x="70" y="488" width="220" height="46" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#e8590c" stroke-width="2"/>
+<rect x="390" y="278" width="300" height="46" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#e8590c" stroke-width="2"/>
+<rect x="390" y="418" width="300" height="46" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#e8590c" stroke-width="2"/>
+<rect x="390" y="488" width="300" height="46" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#e8590c" stroke-width="2"/>
+<rect x="820" y="278" width="260" height="46" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#2f9e44" stroke-width="2"/>
+<rect x="820" y="336" width="260" height="46" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#2f9e44" stroke-width="2"/>
+<rect x="820" y="480" width="260" height="46" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#c2255c" stroke-width="2"/>
+<rect x="820" y="550" width="260" height="46" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#c2255c" stroke-width="2"/>
+<rect x="80" y="716" width="300" height="64" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#7048e8" stroke-width="2"/>
+<rect x="420" y="716" width="360" height="64" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#7048e8" stroke-width="2"/>
+<rect x="820" y="716" width="180" height="64" rx="8" fill="#ffffff" fill-opacity="1.00" stroke="#7048e8" stroke-width="2"/>
+<text x="510" y="54" font-size="30" font-weight="700" fill="#1e1e1e">Engram — Architecture</text>
+<text x="366" y="120" font-size="18" font-weight="700" fill="#1971c2">👤  User Workspace  (IDE / CLI)</text>
+<text x="46" y="250" font-size="18" font-weight="700" fill="#e8590c">🖥️  Engram Proxy (:8098)  —  The Brain</text>
+<text x="806" y="250" font-size="18" font-weight="700" fill="#2f9e44">🚀  Upstream LLM  —  The Muscle</text>
+<text x="806" y="460" font-size="18" font-weight="700" fill="#c2255c">⚙️  Background Engines</text>
+<text x="46" y="700" font-size="18" font-weight="700" fill="#7048e8">🔧  Local Services  (:11434 · :5432 · :6379)</text>
+<text x="550" y="155" font-size="16" fill="#212529" text-anchor="middle">VS Code · Cursor · Cline · Terminal</text>
+<text x="180" y="305" font-size="16" fill="#212529" text-anchor="middle">Intercept Request</text>
+<text x="180" y="375" font-size="16" fill="#212529" text-anchor="middle">Embed via Ollama / OpenAI</text>
+<text x="180" y="445" font-size="16" fill="#212529" text-anchor="middle">Query PostgreSQL</text>
+<text x="180" y="515" font-size="16" fill="#212529" text-anchor="middle">Weave Context</text>
+<text x="540" y="305" font-size="16" fill="#212529" text-anchor="middle">SSE: Injected X memories</text>
+<text x="540" y="445" font-size="16" fill="#212529" text-anchor="middle">Extract Facts (config model)</text>
+<text x="540" y="515" font-size="16" fill="#212529" text-anchor="middle">Forward to Upstream LLM</text>
+<text x="950" y="305" font-size="16" fill="#212529" text-anchor="middle">Generate Response</text>
+<text x="950" y="363" font-size="16" fill="#212529" text-anchor="middle">Stream Tokens</text>
+<text x="950" y="507" font-size="16" fill="#212529" text-anchor="middle">Compaction Engine</text>
+<text x="950" y="577" font-size="16" fill="#212529" text-anchor="middle">Consolidation Cron</text>
+<text x="230" y="743" font-size="16" fill="#212529" text-anchor="middle">Ollama</text>
+<text x="230" y="761" font-size="16" fill="#212529" text-anchor="middle">qwen3.5:2b · qwen3-embedding:0.6b</text>
+<text x="600" y="743" font-size="16" fill="#212529" text-anchor="middle">PostgreSQL + pgvector</text>
+<text x="600" y="761" font-size="16" fill="#212529" text-anchor="middle">Genome / Phenotype DB</text>
+<text x="910" y="752" font-size="16" fill="#212529" text-anchor="middle">Redis Cache</text>
+<path d="M 550,174 L 550,220 L 180,220 L 180,278" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#arw)"/>
+<rect x="274" y="196" width="181" height="20" rx="3" fill="#fff" opacity="0.9"/>
+<text x="365" y="211" font-size="13" fill="#495057" text-anchor="middle">POST /v1/chat/completions</text>
+<path d="M 180,324 L 180,348" fill="none" stroke="#495057" stroke-width="2" marker-end="url(#arw)"/>
+<path d="M 180,394 L 180,418" fill="none" stroke="#495057" stroke-width="2" marker-end="url(#arw)"/>
+<path d="M 180,464 L 180,488" fill="none" stroke="#495057" stroke-width="2" marker-end="url(#arw)"/>
+<path d="M 290,511 L 390,511 L 390,301" fill="none" stroke="#495057" stroke-width="2" marker-end="url(#arw)"/>
+<path d="M 290,511 L 390,511" fill="none" stroke="#495057" stroke-width="2" marker-end="url(#arw)"/>
+<path d="M 180,394 L 370,394 L 370,704 L 230,704" fill="none" stroke="#7048e8" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arw)"/>
+<rect x="252" y="370" width="46" height="20" rx="3" fill="#fff" opacity="0.9"/>
+<text x="275" y="385" font-size="13" fill="#495057" text-anchor="middle">embed</text>
+<path d="M 180,464 L 320,464 L 320,620 L 600,620 L 600,716" fill="none" stroke="#7048e8" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arw)"/>
+<rect x="437" y="596" width="46" height="20" rx="3" fill="#fff" opacity="0.9"/>
+<text x="460" y="611" font-size="13" fill="#495057" text-anchor="middle">query</text>
+<path d="M 690,511 L 820,511 L 820,301" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#arw)"/>
+<rect x="728" y="487" width="55" height="20" rx="3" fill="#fff" opacity="0.9"/>
+<text x="755" y="502" font-size="13" fill="#495057" text-anchor="middle">forward</text>
+<path d="M 950,324 L 950,382" fill="none" stroke="#495057" stroke-width="2" marker-end="url(#arw)"/>
+<path d="M 820,359 L 290,359 L 290,511" fill="none" stroke="#2f9e44" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arw)"/>
+<rect x="514" y="335" width="83" height="20" rx="3" fill="#fff" opacity="0.9"/>
+<text x="555" y="350" font-size="13" fill="#495057" text-anchor="middle">stream back</text>
+<path d="M 820,359 L 690,359 L 690,441" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#arw)"/>
+<rect x="717" y="335" width="76" height="20" rx="3" fill="#fff" opacity="0.9"/>
+<text x="755" y="350" font-size="13" fill="#495057" text-anchor="middle">accumulate</text>
+<path d="M 540,464 L 790,464 L 790,670 L 600,670 L 600,716" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#arw)"/>
+<rect x="616" y="440" width="97" height="20" rx="3" fill="#fff" opacity="0.9"/>
+<text x="665" y="455" font-size="13" fill="#495057" text-anchor="middle">save memories</text>
+<path d="M 540,278 L 550,278 L 550,174" fill="none" stroke="#1971c2" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arw)"/>
+<rect x="507" y="254" width="76" height="20" rx="3" fill="#fff" opacity="0.9"/>
+<text x="545" y="269" font-size="13" fill="#495057" text-anchor="middle">SSE update</text>
+<path d="M 540,418 L 730,418 L 730,174 L 540,174" fill="none" stroke="#1971c2" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arw)"/>
+<rect x="597" y="394" width="76" height="20" rx="3" fill="#fff" opacity="0.9"/>
+<text x="635" y="409" font-size="13" fill="#495057" text-anchor="middle">SSE status</text>
+<path d="M 820,503 L 730,503 L 730,670 L 730,716" fill="none" stroke="#c2255c" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arw)"/>
+<rect x="748" y="479" width="55" height="20" rx="3" fill="#fff" opacity="0.9"/>
+<text x="775" y="494" font-size="13" fill="#495057" text-anchor="middle">trigger</text>
+<path d="M 820,573 L 700,573 L 700,670 L 700,716" fill="none" stroke="#c2255c" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arw)"/>
+<rect x="715" y="549" width="90" height="20" rx="3" fill="#fff" opacity="0.9"/>
+<text x="760" y="564" font-size="13" fill="#495057" text-anchor="middle">every 30 min</text>
+</svg>

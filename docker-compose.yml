@@ -36,35 +36,6 @@ services:
     networks:
       - ftr10-engram
 
-  clickhouse:
-    image: clickhouse/clickhouse-server:24.3
-    restart: unless-stopped
-    environment:
-      CLICKHOUSE_PASSWORD: engram
-    volumes:
-      - clickhouse_data:/var/lib/clickhouse
-    healthcheck:
-      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - ftr10-engram
-
-  minio:
-    image: minio/minio
-    restart: unless-stopped
-    volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9090"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - ftr10-engram
-
   # ── Engram core ──
   engram:
     build:
@@ -85,10 +56,6 @@ services:
       EG_GENERATIVE_MODEL: "${REMOTE_LLM_MODEL}"
       EG_UPSTREAM_LLM_URL: "${REMOTE_LLM_URL}/v1"
       EG_INTERNAL_API_KEY: "${EG_INTERNAL_API_KEY}"
-      EG_LANGFUSE_HOST: http://langfuse-web:3000
-      EG_LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY}"
-      EG_LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY}"
-      EG_LANGFUSE_ENABLED: "true"
       TZ: America/Chicago
     volumes:
       - server_data:/data
@@ -160,89 +127,23 @@ services:
       - ftr10-engram
     restart: unless-stopped
 
-  # ── Langfuse ──
-  langfuse-web:
+  # ── Engram Web GUI (React/Vite SPA, served by nginx, proxies /api -> engram) ──
+  web:
     build:
-      context: ./apps/langfuse
-      dockerfile: web/Dockerfile
-    image: engram-langfuse-web:${LANGFUSE_VERSION:-3.194.1}
+      context: ./apps/web
+      dockerfile: Dockerfile
+      target: proxy
     ports:
-      - "3000:3000"
-    environment:
-      DATABASE_URL: postgresql://postgres:${EG_PG_PASSWORD:-postgres}@postgres:5432/langfuse
-      ENGRAM_DATABASE_URL: postgresql://postgres:${EG_PG_PASSWORD:-postgres}@postgres:5432/engram
-      CLICKHOUSE_URL: http://clickhouse:8123
-      CLICKHOUSE_MIGRATION_URL: clickhouse://default:engram@clickhouse:9000
-      CLICKHOUSE_CLUSTER_ENABLED: "false"
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: engram
-      REDIS_CONNECTION_STRING: redis://redis:6379
-      AWS_REGION: us-east-1
-      S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
-      S3_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
-      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse-events
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
-      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
-      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
-      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-      NEXTAUTH_SECRET: "${NEXTAUTH_SECRET}"
-      SALT: "${SALT}"
-      NEXTAUTH_URL: "http://localhost:3000"
-      LANGFUSE_INIT_USER_EMAIL: "admin@engram.local"
-      LANGFUSE_INIT_USER_PASSWORD: "${ADMIN_PASSWORD}"
-      LANGFUSE_INIT_ORG_ID: "engram-default"
-      LANGFUSE_INIT_PROJECT_ID: "engram-default"
-      LANGFUSE_INIT_PROJECT_NAME: "Engram"
-      EG_INTERNAL_API_KEY: "${EG_INTERNAL_API_KEY}"
-      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
+      - "8099:80"
     depends_on:
-      postgres:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-      redis:
+      engram:
         condition: service_healthy
     networks:
       - ftr10-engram
     restart: unless-stopped
-
-  langfuse-worker:
-    build:
-      context: ./apps/langfuse
-      dockerfile: worker/Dockerfile
-    image: engram-langfuse-worker:${LANGFUSE_VERSION:-3.194.1}
-    environment:
-      DATABASE_URL: postgresql://postgres:${EG_PG_PASSWORD:-postgres}@postgres:5432/langfuse
-      CLICKHOUSE_URL: http://clickhouse:8123
-      CLICKHOUSE_MIGRATION_URL: clickhouse://default:engram@clickhouse:9000
-      CLICKHOUSE_CLUSTER_ENABLED: "false"
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: engram
-      REDIS_CONNECTION_STRING: redis://redis:6379
-      AWS_REGION: us-east-1
-      S3_ENDPOINT: http://minio:9000
-      S3_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
-      S3_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
-      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse-events
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
-      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
-      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ACCESS_KEY:-minioadmin}
-      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_SECRET_KEY:-minioadmin}
-      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-    depends_on:
-      langfuse-web:
-        condition: service_started
-    networks:
-      - ftr10-engram
-    restart: unless-stopped
-
 volumes:
   postgres_data:
   redis_data:
-  clickhouse_data:
-  minio_data:
   server_data:
 
 networks:
