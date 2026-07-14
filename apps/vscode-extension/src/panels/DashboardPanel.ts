@@ -259,7 +259,7 @@ export class DashboardPanel {
           // theme hasn't injected them into this webview's scope.
           const rt = document.documentElement;
           const set = (k, v) => rt.style.setProperty(k, v);
-          set('--ftr10-bg', '#0c0e13');
+          set('--ftr10-bg');
           set('--ftr10-surface-1', '#2a2d2e');
           set('--ftr10-glass-bg', '#2a2d2e');
           set('--ftr10-glass-bg-hover', '#3a3d41');
