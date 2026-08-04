@@ -14,8 +14,20 @@ import { getLangfuse } from "./langfuseClient";
 
 const CONSOLIDATION_MODEL = env.generative_model;
 const SYNTHESIS_MODEL   = env.fallback_model; // Fallback when the consolidation LLM omits new_content in merge/update actions
+
+// Two-tier scheduling (all overridable via env):
+//  - RECENT tier: scans the last N days frequently so standing rules / near-dupes
+//    get promoted or merged promptly instead of waiting 7 days.
+//  - DEEP tier: the original long-window cleanup/merge/decay pass.
+const RECENT_INTERVAL_MS = parseInt(String(process.env.EG_CONSOLIDATION_RECENT_INTERVAL_MS), 10) || 4 * 60 * 60 * 1000; // every 4h
+const DEEP_INTERVAL_MS  = parseInt(String(process.env.EG_CONSOLIDATION_DEEP_INTERVAL_MS), 10) || 24 * 60 * 60 * 1000;   // every 24h
+const RECENT_MAX_AGE_DAYS = parseInt(String(process.env.EG_CONSOLIDATION_RECENT_MAX_AGE_DAYS), 10) || 7;                 // recent window
+const DEEP_MAX_AGE_DAYS   = parseInt(String(process.env.EG_CONSOLIDATION_DEEP_MAX_AGE_DAYS), 10) || 30;                   // deep window (older than RECENT)
+const RECENT_MIN_GROUP = parseInt(String(process.env.EG_CONSOLIDATION_RECENT_MIN_GROUP), 10) || 2;  // promote/merge recent pairs
+const DEEP_MIN_GROUP   = parseInt(String(process.env.EG_CONSOLIDATION_DEEP_MIN_GROUP), 10) || 3;   // require clusters for deep
+
 const CONSOLIDATION_BATCH_SIZE = 15; // Max groups to process per cycle
-const MIN_MEMORIES_TO_CONSOLIDATE = 3; // Don't consolidate unless we have at least 3 related memories
+const MIN_MEMORIES_TO_CONSOLIDATE = 3; // Legacy default; tiers pass their own min-group instead.
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -41,14 +53,20 @@ export interface ConsolidationAction {
 
 export class ConsolidationEngine {
   /**
-   * Query the database for memories older than the threshold, grouped by consolidation_hash.
-   * Only groups with MIN_MEMORIES_TO_CONSOLIDATE+ members are returned (cheap pre-filter).
+   * Query the database for memories within `maxAgeDays` that have been accessed at
+   * least `minAccess` times, grouped by consolidation_hash. Only groups with
+   * `minGroup`+ members are returned (cheap pre-filter).
+   *
+   * The 7-day hard gate was removed: callers choose the window (recent tier = last
+   * few days, deep tier = older window) so standing rules get promoted promptly.
    */
-  private async fetchConsolidationGroups(): Promise<Map<string | null, MemoryCandidate[]>> {
+  private async fetchConsolidationGroups(
+    maxAgeDays: number,
+    minGroup: number,
+    minAccess = 1,
+  ): Promise<Map<string | null, MemoryCandidate[]>> {
     const db = kit_make_db(run_async, all_async);
 
-    // Fetch memories older than 7 days that have been accessed at least once.
-    // Grouped by consolidation_hash.
     const query = `
       SELECT id, content,
              COALESCE((metadata->>'sector')::text, 'semantic') as sector,
@@ -58,8 +76,8 @@ export class ConsolidationEngine {
              consolidation_hash
       FROM "public"."memories"
        WHERE memory_tier != 'archived'
-         AND recorded_at < NOW() - INTERVAL '7 days'
-       AND COALESCE((metadata->>'access_count')::int, 0) >= 1
+         AND recorded_at < NOW() - INTERVAL '1 day' * ${maxAgeDays}
+         AND COALESCE((metadata->>'access_count')::int, 0) >= ${minAccess}
       ORDER BY consolidation_hash ASC, recorded_at ASC
     `;
 
@@ -82,9 +100,9 @@ export class ConsolidationEngine {
         });
       }
 
-      // Filter out groups smaller than MIN_MEMORIES_TO_CONSOLIDATE (cheap pre-filter)
+      // Filter out groups smaller than minGroup (cheap pre-filter)
       for (const [hash, batch] of grouped) {
-        if (batch.length < MIN_MEMORIES_TO_CONSOLIDATE) {
+        if (batch.length < minGroup) {
           grouped.delete(hash);
         }
       }
@@ -386,14 +404,30 @@ If no actions are needed, return exactly: []
   }
 
   /**
-   * Main entry point to trigger consolidation.
+   * Main entry point to trigger consolidation. Runs BOTH tiers:
+   *  - RECENT: last RECENT_MAX_AGE_DAYS, min-group RECENT_MIN_GROUP (promote/merge prompt)
+   *  - DEEP: older than RECENT window up to DEEP_MAX_AGE_DAYS, min-group DEEP_MIN_GROUP
+   * Each tier is a no-op when nothing is eligible, so frequent recent runs are cheap.
    */
   public async runConsolidation(): Promise<void> {
-    logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL }, 'Starting memory consolidation cycle');
+    await this.runTier("recent", RECENT_MAX_AGE_DAYS, RECENT_MIN_GROUP, 0);
+    await this.runTier("deep", DEEP_MAX_AGE_DAYS, DEEP_MIN_GROUP, 1);
+  }
 
-    const groups = await this.fetchConsolidationGroups();
+  private async runTier(
+    tier: "recent" | "deep",
+    maxAgeDays: number,
+    minGroup: number,
+    minAccess: number,
+  ): Promise<void> {
+    logger.info(
+      { module: 'consolidationEngine', model: CONSOLIDATION_MODEL, tier, maxAgeDays, minGroup },
+      `Starting ${tier} consolidation cycle`,
+    );
+
+    const groups = await this.fetchConsolidationGroups(maxAgeDays, minGroup, minAccess);
     if (groups.size === 0) {
-      logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL }, 'No memories require consolidation at this time');
+      logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, tier }, `No ${tier} memories require consolidation at this time`);
       return;
     }
 
@@ -407,33 +441,46 @@ If no actions are needed, return exactly: []
       if (actions.length === 0) continue;
 
       await this.executeActions(actions, batch);
-      totalActions += actions.filter(a => a.action !== "merge" && a.action !== "update").length + 1; // count merge/update as one action each
+      totalActions += actions.filter(a => a.action !== "merge" && a.action !== "update").length + 1;
       processedGroups++;
     }
 
-    logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, processedGroups, totalActions }, 'Consolidation cycle complete');
+    logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, tier, processedGroups, totalActions }, `${tier} consolidation cycle complete`);
   }
 
   /**
    * Starts the background consolidation cron job. Call this once when your server boots.
+   *
+   * Two independent timers:
+   *  - RECENT tier every RECENT_INTERVAL_MS (default 4h) — prompt promotion/merge.
+   *  - DEEP tier every DEEP_INTERVAL_MS (default 24h) — long-window cleanup.
+   * Both are unref'd so they don't block process exit.
    */
   public start(): void {
-    const intervalMs = 30 * 60 * 1000; // every 30 minutes
-
-    // Run once immediately on startup, then periodically
+    // Recent tier: frequent, cheap, prompt.
     this.runConsolidation().catch((err) => {
       logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Initial consolidation cycle failed');
     });
 
-    const timer = setInterval(() => {
-      this.runConsolidation().catch((err) => {
-        logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Scheduled consolidation cycle failed');
+    const recentTimer = setInterval(() => {
+      this.runTier("recent", RECENT_MAX_AGE_DAYS, RECENT_MIN_GROUP, 0).catch((err) => {
+        logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Scheduled recent consolidation cycle failed');
       });
-    }, intervalMs);
+    }, RECENT_INTERVAL_MS);
+    recentTimer.unref?.();
 
-    timer.unref?.(); // Don't prevent process exit
+    // Deep tier: slower, catches mature clusters the recent tier misses.
+    const deepTimer = setInterval(() => {
+      this.runTier("deep", DEEP_MAX_AGE_DAYS, DEEP_MIN_GROUP, 1).catch((err) => {
+        logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Scheduled deep consolidation cycle failed');
+      });
+    }, DEEP_INTERVAL_MS);
+    deepTimer.unref?.();
 
-    logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, intervalMs: 1800000 }, 'Consolidation engine scheduled');
+    logger.info(
+      { module: 'consolidationEngine', model: CONSOLIDATION_MODEL, recentIntervalMs: RECENT_INTERVAL_MS, deepIntervalMs: DEEP_INTERVAL_MS },
+      'Consolidation engine scheduled (two-tier: recent + deep)',
+    );
   }
 }
 
