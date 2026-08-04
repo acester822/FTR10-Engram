@@ -38,14 +38,16 @@ export const PHENOTYPE_PATTERNS = [
 ] as const;
 
 export function classifyAsGenome(content: string): boolean {
+  // Only explicit, invariant truths qualify as genome. The pattern list below
+  // captures capital/definition/constant/historical-anchor phrasing.
   for (const pattern of GENOME_PATTERNS) {
     if (pattern.test(content)) return true;
   }
-  // Default heuristic: short, declarative sentences without first-person pronouns
-  const trimmed = content.trim();
-  if (trimmed.length < 50 && !/^(i|we|my|our)\b/i.test(trimmed)) {
-    return true;
-  }
+  // NOTE: the previous heuristic promoted *any* short declarative sentence (<50
+  // chars, no first-person pronoun) to genome. That flooded the genome tier with
+  // ephemeral project/debug facts. Genome is now opt-in (explicit pattern match
+  // or an explicit is_genome flag at write time) — short statements are phenotype
+  // unless they match a genome pattern above.
   return false;
 }
 

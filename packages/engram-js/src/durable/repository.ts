@@ -897,7 +897,7 @@ export async function rememberDurableMemory(
     await db.query(
       `insert into ${memories}
         (id,user_id,project_id,content,facets,contracts,metadata,observed_at,recorded_at,embedding,is_genome,decay_rate,access_count,last_accessed_at,sector)
-       values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10::vector,$11,$12,$13,$14,$15)`,
+       values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10::halfvec,$11,$12,$13,$14,$15)`,
       [
         id,
         userId,

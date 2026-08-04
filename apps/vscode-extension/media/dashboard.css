@@ -6,9 +6,9 @@
   /* FTR10 tokens (real names from the FTR10 Base theme) with VS Code
      fallbacks. The class="vscode-dark" is stripped by the webview script, so
      these resolve from the theme, never from code-server's dark defaults. */
-  --bg: var(--ftr10-bg, #0c0e13);
-  --fg: var(--ftr10-text, #cccccc);
-  --dim: var(--ftr10-text-muted, #888888);
+  --bg: transparent;
+  --fg: var(--ftr10-text, #ffffff);
+  --dim: var(--ftr10-text-muted, #ffffff99);
   --border: var(--ftr10-border, #333333);
   --surface: var(--ftr10-surface-1, var(--ftr10-glass-bg, #2a2d2e));
   --surface-hover: var(--ftr10-glass-bg-hover, #3a3d41);

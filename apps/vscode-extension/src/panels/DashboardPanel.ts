@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 
 interface ActivityEntry {
   ts: number;
@@ -29,6 +30,7 @@ export class DashboardPanel {
   private readonly _extensionUri: vscode.Uri;
   private _disposables: vscode.Disposable[] = [];
   private _lastData: ActivityData | null = null;
+  private _ftr10Watcher?: fs.FSWatcher;
 
   public static createOrShow(extensionUri: vscode.Uri) {
     const column = vscode.window.activeTextEditor
@@ -129,6 +131,7 @@ export class DashboardPanel {
 
   public dispose() {
     DashboardPanel.currentPanel = undefined;
+    this._ftr10Watcher?.close();
     this._panel.dispose();
     while (this._disposables.length) {
       const x = this._disposables.pop();
@@ -141,6 +144,49 @@ export class DashboardPanel {
   private _update() {
     const webview = this._panel.webview;
     this._panel.webview.html = this._getHtmlForWebview(webview);
+    // Keep the dashboard's colors in sync with the live FTR10 theme engine:
+    // watch ~/.ftr10/vars.json and push updates into the webview.
+    this._startFtr10Watcher();
+  }
+
+  /** Reads the live FTR10 token set from ~/.ftr10/vars.json. */
+  private _readFtr10Vars(): Record<string, string> {
+    try {
+      const varsPath = path.join(
+        process.env.HOME || process.env.USERPROFILE || '~',
+        '.ftr10',
+        'vars.json',
+      );
+      if (!fs.existsSync(varsPath)) return {};
+      const raw = fs.readFileSync(varsPath, 'utf-8');
+      const parsed = JSON.parse(raw) as { values?: Record<string, string> };
+      return parsed.values ?? {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Pushes the current FTR10 vars into the webview for live theming. */
+  private _postFtr10Vars(): void {
+    const vars = this._readFtr10Vars();
+    if (Object.keys(vars).length === 0) return;
+    this._panel.webview.postMessage({ command: 'ftr10VarsUpdate', vars });
+  }
+
+  /** Watches ~/.ftr10/vars.json so the dashboard re-themes when FTR10 changes. */
+  private _startFtr10Watcher(): void {
+    if (this._ftr10Watcher) return;
+    try {
+      const varsPath = path.join(
+        process.env.HOME || process.env.USERPROFILE || '~',
+        '.ftr10',
+        'vars.json',
+      );
+      if (!fs.existsSync(varsPath)) return;
+      this._ftr10Watcher = fs.watch(varsPath, () => this._postFtr10Vars());
+    } catch {
+      // FTR10 not installed — silently skip live theming.
+    }
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {
@@ -152,6 +198,15 @@ export class DashboardPanel {
     const cssUri = webview.asWebviewUri(
       vscode.Uri.file(path.join(this._extensionUri.fsPath, 'media', 'dashboard.css'))
     );
+
+    // Read the live FTR10 token set from ~/.ftr10/vars.json so the dashboard
+    // applies the SAME theme colors as the FTR10 Base theme (and the Hermes
+    // chat panel). The vars are injected into the webview at build time and
+    // pushed live via the host 'ftr10VarsUpdate' message.
+    const ftr10Vars = this._readFtr10Vars();
+    const ftr10VarsJson = Object.keys(ftr10Vars).length > 0
+      ? JSON.stringify(ftr10Vars)
+      : '{}';
 
     return `<!DOCTYPE html>
       <html lang="en">
@@ -254,23 +309,22 @@ export class DashboardPanel {
           document.body.classList.remove('vscode-dark', 'vscode-light');
           document.documentElement.style.colorScheme = 'normal';
           document.body.style.colorScheme = 'normal';
-          // Self-define the --ftr10-* tokens (real names) so our colors never
-          // fall through to code-server's dark --vscode-* values, even if the
-          // theme hasn't injected them into this webview's scope.
-          const rt = document.documentElement;
-          const set = (k, v) => rt.style.setProperty(k, v);
-          set('--ftr10-bg');
-          set('--ftr10-surface-1', '#2a2d2e');
-          set('--ftr10-glass-bg', '#2a2d2e');
-          set('--ftr10-glass-bg-hover', '#3a3d41');
-          set('--ftr10-text', '#cccccc');
-          set('--ftr10-text-muted', '#888888');
-          set('--ftr10-border', '#333333');
-          set('--ftr10-accent-1', '#0078d4');
-          set('--ftr10-accent-2', '#ff9800');
-          set('--ftr10-accent-3', '#e91e63');
-          set('--ftr10-accent-4', '#9c27b0');
-          set('--ftr10-success', '#4caf50');
+          // Live FTR10 theming: apply the SAME tokens the FTR10 Base theme
+          // engine pushes into every themed webview (e.g. the Hermes chat
+          // panel), so the dashboard tracks the live theme instead of a
+          // hard-coded palette. The extension reads ~/.ftr10/vars.json and
+          // injects it at build time; live changes are pushed by the host
+          // through the 'ftr10VarsUpdate' message below.
+          function applyFtr10Vars(vars) {
+            if (!vars) return;
+            const rt = document.documentElement;
+            for (const k in vars) {
+              if (Object.prototype.hasOwnProperty.call(vars, k)) {
+                rt.style.setProperty(k, vars[k], 'important');
+              }
+            }
+          }
+          applyFtr10Vars({{FTR10_VARS_JSON}});
 
           const vscode = acquireVsCodeApi();
           const $ = (id) => document.getElementById(id);
@@ -394,6 +448,7 @@ export class DashboardPanel {
           window.addEventListener('message', (ev) => {
             const m = ev.data;
             if (!m || !m.command) return;
+            if (m.command === 'ftr10VarsUpdate') { applyFtr10Vars(m.vars); return; }
             if (m.command === 'activity') renderActivity(m);
             else if (m.command === 'recallResult') renderRecall(m);
             else if (m.command === 'insights') renderInsights(m);
@@ -406,7 +461,7 @@ export class DashboardPanel {
           vscode.postMessage({ command: 'requestActivity' });
         </script>
       </body>
-      </html>`;
+      </html>`.replace('{{FTR10_VARS_JSON}}', ftr10VarsJson);
   }
 }
 
