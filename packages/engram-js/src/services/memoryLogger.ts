@@ -73,6 +73,23 @@ function isWorthRemembering(content: string): boolean {
   ];
   if (meta.some((re) => re.test(c))) return false;
 
+  // Reject "what we did this session" recaps and status self-narration: these are
+  // ephemeral and not reusable facts. This is the class that previously slipped
+  // through (e.g. "memory logging fixed with updated schema", "three files modified:",
+  // "system recovered from a freeze", "system confirms it runs the latest version").
+  const recap = [
+    /^(the )?(system|engine|memory( store| engine| logging)?|task|build|service|extension) (was |has been |is now |now )?(fixed|updated|modified|adjusted|changed|patched|corrected|improved|restored|rebuilt|recreated)/i,
+    /^(the )?(system|task|build|service) (recovered|resumed|restarted|reloaded) (from|operation)/i,
+    /^(the )?system confirms (it |the )?(runs|is running|the latest|successful)/i,
+    /^(the )?(system|build|extension|service) (runs|is) (the )?(latest|current|newest) (stable )?version/i,
+    /^(the )?(system|task|build) (is |has )?(now )?(complete|completed|working|functional|ready|stable)/i,
+    /^\d+ (files?|memories) (modified|changed|added|updated|created|deleted|removed)/i,
+    /^(added|updated|modified|fixed|removed|deleted) \d+ (files?|memories|embeddings)/i,
+    /^(verified|confirmed|tested|checked) (the |that )?(installed|running|current|latest|build)/i,
+    /^(restarting|restoring|rebuilding) [a-z]+ (resolves|fixed|clears|recovers)/i,
+  ];
+  if (recap.some((re) => re.test(c))) return false;
+
   return true;
 }
 
@@ -171,6 +188,15 @@ AI Response: ${truncatedResponse}
 ### EXECUTE EXTRACTION NOW ###
 `.trim();
 
+    // Split the directive (instructions, incl. the "DO NOT EXTRACT" rules) from the
+    // input data so the FULL directive lands in the system role. Previously the system
+    // message was truncated to 400 chars, which cut off the entire "DO NOT EXTRACT"
+    // block — so the model was told what to extract but never what to avoid, and it
+    // emitted session-recap chatter that slipped past the keyword gate.
+    const _splitAt = extractionPrompt.indexOf("### INPUT DATA ###");
+    const systemDirective = (_splitAt >= 0 ? extractionPrompt.substring(0, _splitAt) : extractionPrompt).trim();
+    const userData = (_splitAt >= 0 ? extractionPrompt.substring(_splitAt) : "").trim();
+
     logger.info(
       { module: 'memoryLogger', model: env.generative_model, userPromptLength: truncatedPrompt.length, responseLength: truncatedResponse.length },
       'Analyzing conversation for new memories'
@@ -224,8 +250,8 @@ AI Response: ${truncatedResponse}
           body: JSON.stringify({
             model: env.generative_model,
             messages: [
-              { role: "system", content: extractionPrompt.substring(0, 400) + "\n\nReturn ONLY valid JSON." },
-              { role: "user", content: extractionPrompt }
+              { role: "system", content: systemDirective },
+              { role: "user", content: userData }
             ],
             stream: false,
             temperature: 0.2,
