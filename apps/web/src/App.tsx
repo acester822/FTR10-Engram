@@ -20,6 +20,8 @@ interface Memory {
   sensitivity?: number;
   recorded_at?: string;
   observed_at?: string;
+  importance_tier?: string;
+  importance_score?: number;
 }
 
 interface RecallResult {
@@ -304,6 +306,13 @@ function StatCard({ title, value, icon }: StatCardProps) {
   );
 }
 
+const IMPORTANCE_STYLES: Record<string, string> = {
+  critical: "bg-red-100 text-red-700",
+  high: "bg-orange-100 text-orange-700",
+  medium: "bg-slate-200 text-slate-600",
+  low: "bg-gray-100 text-gray-500",
+};
+
 function MemoriesView() {
   const [memories, setMemories] = useState([]);
   const [search, setSearch] = useState("");
@@ -403,6 +412,7 @@ function MemoriesView() {
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Content</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Sector</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Type</th>
+              <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Importance</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase">Age</th>
               <th className="px-6 py-4 text-xs font-semibold text-slate-500 uppercase text-right">Actions</th>
             </tr>
@@ -459,6 +469,24 @@ function MemoriesView() {
                     )
                   )}
                 </td>
+                <td className="px-6 py-4">
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${
+                      IMPORTANCE_STYLES[m.importance_tier || "medium"] ||
+                      IMPORTANCE_STYLES.medium
+                    }`}
+                    title={`Importance tier: ${m.importance_tier || "medium"}${
+                      m.importance_score != null
+                        ? ` (${m.importance_score.toFixed(2)})`
+                        : ""
+                    }`}
+                  >
+                    {m.importance_tier || "medium"}
+                    {m.importance_score != null && (
+                      <span className="opacity-70">{m.importance_score.toFixed(2)}</span>
+                    )}
+                  </span>
+                </td>
                 <td className="px-6 py-4 text-sm text-slate-500">
                   {m.created_at ? formatDistanceToNow(new Date(m.created_at), { addSuffix: true }) : (m.recorded_at ? formatDistanceToNow(new Date(m.recorded_at), { addSuffix: true }) : "N/A")}
                 </td>
@@ -487,7 +515,7 @@ function MemoriesView() {
             ))}
             {memories.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-6 py-12 text-center text-slate-400">
+                <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
                   No memories found matching your criteria.
                 </td>
               </tr>
@@ -658,10 +686,10 @@ function ActivityView() {
   const [lastUpdated, setLastUpdated] = useState(null as null | Date);
   const [filter, setFilter] = useState("all" as "all" | "in" | "out");
   const [clearing, setClearing] = useState(false);
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [expanded, setExpanded] = useState(new Set() as Set<number>);
 
   const toggle = (idx: number) =>
-    setExpanded((prev) => {
+    setExpanded((prev: Set<number>) => {
       const next = new Set(prev);
       next.has(idx) ? next.delete(idx) : next.add(idx);
       return next;

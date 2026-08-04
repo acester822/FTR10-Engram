@@ -741,7 +741,7 @@ All four features from this plan were implemented into the Engram codebase, **ad
 ### API surface
 - `POST /memories` response now includes `importance_tier` / `importance_score` (computed at write).
 - `/recall` results include `importance_tier`, `importance_score`, `vector_score`, `lexical_score`.
-- Memory Explorer (`GET /api/dashboard/memories`) inherits the columns via `SELECT *`.
+- Memory Explorer (`GET /api/dashboard/memories`) inherits the columns via `SELECT *`; the **Memory Explorer tab now renders an IMPORTANCE column** (colored tier pill + score) in `apps/web/src/App.tsx`.
 
 ### Verification performed
 - `npm run build` (tsc strict) — clean
