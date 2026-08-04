@@ -26,7 +26,9 @@ exports[`buildDurableSchemaSql > snapshot: default public schema with default ve
       observed_at timestamptz,
       recorded_at timestamptz not null default now(),
       superseded_at timestamptz,
-      sector text not null default 'semantic'
+      sector text not null default 'semantic',
+      importance_tier text not null default 'medium',
+      importance_score real not null default 0.5
     )",
   "create table if not exists "public"."memory_versions" (
       id uuid primary key,
@@ -79,7 +81,9 @@ exports[`buildDurableSchemaSql > snapshot: full schema for custom options 1`] = 
       observed_at timestamptz,
       recorded_at timestamptz not null default now(),
       superseded_at timestamptz,
-      sector text not null default 'semantic'
+      sector text not null default 'semantic',
+      importance_tier text not null default 'medium',
+      importance_score real not null default 0.5
     )",
   "create table if not exists "engram"."memory_versions" (
       id uuid primary key,
@@ -287,5 +291,21 @@ exports[`buildDurableSchemaSql > snapshot: full schema for custom options 1`] = 
   "create index if not exists durable_extraction_candidates_event_idx on "engram"."extraction_candidates"(event_id, status)",
   "create index if not exists durable_audit_target_idx on "engram"."audit_log"(target_table, target_id)",
   "create index if not exists durable_audit_recorded_idx on "engram"."audit_log"(recorded_at)",
+  "alter table "engram"."memories" add column if not exists importance_tier text not null default 'medium'",
+  "alter table "engram"."memories" add column if not exists importance_score real not null default 0.5",
+  "create extension if not exists pg_trgm",
+  "create index if not exists durable_memories_content_trgm_idx on "engram"."memories" using gin (content gin_trgm_ops)",
+  "create table if not exists "engram"."memory_windows" (
+      id uuid primary key default gen_random_uuid(),
+      memory_id uuid not null references "engram"."memories"(id) on delete cascade,
+      window_index integer not null,
+      start_pos integer not null,
+      end_pos integer not null,
+      embedding halfvec(1536),
+      created_at timestamptz not null default now(),
+      unique(memory_id, window_index)
+    )",
+  "create index if not exists durable_memory_windows_memory_idx on "engram"."memory_windows"(memory_id)",
+  "create index if not exists durable_memory_windows_embedding_idx on "engram"."memory_windows" using hnsw (embedding halfvec_cosine_ops) where embedding is not null",
 ]
 `;

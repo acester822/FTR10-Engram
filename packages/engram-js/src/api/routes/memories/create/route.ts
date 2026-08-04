@@ -54,6 +54,8 @@ export const memory_create_route = (app: any, ctx: route_ctx) => {
         status: memory.status,
         adapter: "durable-postgres",
         memory: mem_ref(memory),
+        importance_tier: memory.importance_tier,
+        importance_score: memory.importance_score,
       });
     } catch (e: unknown) {
       fail(res, "remember_failed", e);

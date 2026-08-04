@@ -10,6 +10,7 @@ import type {
 } from "../durable/repository";
 import { rememberDurableMemory } from "../durable/repository";
 import { runDurableDecayJob, type DurableDecayJobResult } from "../durable/repository";
+import { HybridSearch } from "./hybridSearch";
 
 // ── Genome vs Phenotype classification ──────────────────────────────
 
@@ -221,6 +222,24 @@ export class MemoryInjector {
         access_count: 0,
       },
     });
+  }
+
+  /**
+   * Hybrid recall via the standalone HybridSearch service
+   * (vector + keyword evidence fusion, importance-scaled).
+   */
+  async recallMemories(
+    db: DurableExecutor,
+    query: string,
+    limit: number = 5,
+  ): Promise<Array<{ id: string; content: string; sector: string; score: number }>> {
+    const results = await new HybridSearch(db).search(query, limit);
+    return results.map((r) => ({
+      id: r.id,
+      content: r.content,
+      sector: r.sector,
+      score: r.score,
+    }));
   }
 
   /**

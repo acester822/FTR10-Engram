@@ -7,7 +7,7 @@ Implementing four advanced features from Compartment and Engraphis to enhance En
 1. **Hybrid Search** (vector + keyword with evidence fusion)
 2. **Windowed Embeddings** for long memories
 3. **Importance Tiers** for ranking
-4. **Bitemporal Tracking** (recorded_at vs observed_at)
+4. **Bitemporal Tracking** (`recorded_at vs observed_at`)
 
 ---
 
@@ -709,3 +709,42 @@ describe('Advanced Memory Features', () => {
 ```
 
 ---
+
+
+---
+
+## ✅ Implementation Summary (2026-08-04)
+
+All four features from this plan were implemented into the Engram codebase, **adapted to the actual architecture** — the plan's assumptions diverged from reality in several places (noted below). Build (`tsc`) is clean, all 63 vitest tests pass, and the Docker image was rebuilt so the live API (`:8098`) runs the new code.
+
+### What changed (files)
+
+| Area | File | Change |
+|---|---|---|
+| Schema (Phase 1) | `packages/engram-js/src/durable/schema.ts` | Added `memories.importance_tier` (`text NOT NULL DEFAULT 'medium'`) + `memories.importance_score` (`real NOT NULL DEFAULT 0.5`); `pg_trgm` extension + GIN trigram index on `memories.content`; new `memory_windows` table (halfvec embedding, `UNIQUE(memory_id, window_index)`, HNSW index). Bumped `DURABLE_SCHEMA_VERSION` → `4.0.0-advanced-features`. |
+| Windowed embeddings (Phase 2) | `src/services/windowedEmbedder.ts` (new) + `src/durable/repository.ts` | `WindowedEmbedder` class + exported pure `tokenize()`/`createWindows()` (448-token windows, 384 stride, 64 max). `rememberDurableMemory` now writes window embeddings **inside the transaction** for content >448 tokens (or `metadata.windowed === true`). Short memories keep the caller-stored full embedding — zero extra cost for the common case. |
+| Hybrid search (Phase 3) | `src/services/hybridSearch.ts` (new), `src/durable/scoring.ts`, `src/durable/repository.ts`, `src/services/memoryInjector.ts`, `src/api/routes/memories/create/route.ts` | `HybridSearch` standalone service (vector via max-pooled windows + fallback to `memories.embedding`, keyword via pg_trgm `similarity`, evidence fusion `P = 1-(1-p_vec)(1-p_lex)`, importance multiplier). Pure fusion math lives in `scoring.ts` (`vectorProbability`, `lexicalProbability`, `fuseEvidence`, `importanceMultiplier`, `hybridRecallScore`) — unit-tested. `recallDurableMemories` applies the same fusion **on by default** in vector-recall mode: pulls 3× candidates, unions a trigram keyword candidate query, re-ranks by fused score (contradiction/contract penalties preserved). Escape hatches: `hybrid: false` per call, or `EG_HYBRID_SEARCH=false` globally. Text-only recall (e.g. per-turn chat injection) is untouched. `MemoryInjector.recallMemories()` added per plan §3.2. |
+| Importance tiers (Phase 4) | `src/services/importanceCalculator.ts` (new) + `src/durable/repository.ts` | `ImportanceCalculator` exactly per plan (critical/high/medium/low, explicit-request → decision/preference → transient heuristics + sector hints). `rememberDurableMemory` computes it at the ingest chokepoint (metadata `importance_tier`/`importance_score` override wins) and returns it in the result. **Deviation:** per-tier `decay_rate` is informational only — Engram's temporal-decay engine keeps its own genome/phenotype rates, so importance does NOT clobber `memories.decay_rate`. |
+| Bitemporal (Phase 5) | `src/services/bitemporalMemory.ts` (new) + `src/durable/repository.ts` | `BitemporalMemory` service (storeWithTemporal, queryAsOf, queryValidAt, updateValidity, supersede). The `memories` table already had `observed_at`/`valid_from`/`valid_to`/`recorded_at`/`superseded_at` — `rememberDurableMemory` now writes them properly on every insert: `observed_at` = when learned, `valid_from` defaults to `observed_at`, `valid_to` optional (input fields or metadata). Extraction-path wiring (plan §5.2) was unnecessary because the defaults happen at the repository chokepoint. |
+| Tests (Phase 6) | `tests/advanced-features.test.ts` (new), `tests/schema.test.ts` (snapshots updated) | 17 new tests: ImportanceCalculator tiers, fusion math, importance multiplier, hybrid penalties, windowing (overlap, cap, single-window). |
+
+### Bonus fix
+- `rememberDurableMemory` returned hardcoded `isGenome: false` while computing the real value — now returns the actual classification.
+
+### Plan ↔ reality deviations
+1. **No versioned migration files** — this repo's migrations are an idempotent statement list in `schema.ts` run at boot (`run_migrations` in `startServer`). The proposed `4.0.0-advanced-features.ts` became a statement block there.
+2. **No `MemoryInjector.recallMemories` existed** — recall flows through `recallDurableMemories` (repository chokepoint used by `/recall`, `Memory.search`, chat injection). Hybrid fusion was integrated there so every consumer benefits; the standalone `HybridSearch` service was still added per the plan and is exercised by `MemoryInjector.recallMemories`.
+3. **`vector(768)` → `halfvec(dim)`** — the codebase stores embeddings as `halfvec` (HNSW), so window embeddings match that type and dimension (`EG_VEC_DIM`).
+4. **Backfill UPDATE skipped** — `ADD COLUMN ... NOT NULL DEFAULT` backfills existing rows metadata-only in PG 11+, and `observed_at` was already populated on every insert.
+5. **Importance `decay_rate` not applied** (see above) — kept the tuned genome/phenotype decay rates.
+
+### API surface
+- `POST /memories` response now includes `importance_tier` / `importance_score` (computed at write).
+- `/recall` results include `importance_tier`, `importance_score`, `vector_score`, `lexical_score`.
+- Memory Explorer (`GET /api/dashboard/memories`) inherits the columns via `SELECT *`.
+
+### Verification performed
+- `npm run build` (tsc strict) — clean
+- `npx vitest run -u` — **63/63 pass**
+- Docker image rebuilt; on boot the migration creates the new columns/table/index (check `docker logs` for `[MIGRATE]`; probe with `SELECT column_name FROM information_schema.columns WHERE table_name='memories' AND column_name LIKE 'importance%'`)
+- Recall is hybrid-fused by default; disable via `EG_HYBRID_SEARCH=false` if any regression appears.

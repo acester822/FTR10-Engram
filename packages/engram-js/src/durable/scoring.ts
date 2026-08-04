@@ -80,3 +80,57 @@ export function scoreDurableRecall(
     score: clamp01(weighted),
   };
 }
+
+// ── Evidence fusion (hybrid search) ──────────────────────────────────────
+// P(relevant) = 1 - (1 - p_vec)(1 - p_lex): either signal alone suffices,
+// both together compound. Scores are probabilities in [0, 1].
+
+/**
+ * Convert a raw cosine similarity (1 - distance) into a vector probability.
+ * The doc's calibration: map [0.25, 0.85] onto [0, 0.88], saturating at 0.88.
+ */
+export function vectorProbability(vectorScore: number): number {
+  if (!Number.isFinite(vectorScore)) return 0;
+  return Math.max(0, Math.min((vectorScore - 0.25) / 0.6, 0.88));
+}
+
+/** Convert a lexical score into a lexical probability, capped at 0.95. */
+export function lexicalProbability(lexicalScore: number): number {
+  if (!Number.isFinite(lexicalScore)) return 0;
+  return Math.min(Math.max(lexicalScore, 0) * 2, 0.95);
+}
+
+/** Evidence fusion of vector and lexical probabilities. */
+export function fuseEvidence(vectorScore: number, lexicalScore: number): number {
+  const pVec = vectorProbability(vectorScore);
+  const pLex = lexicalProbability(lexicalScore);
+  return 1 - (1 - pVec) * (1 - pLex);
+}
+
+/**
+ * Importance multiplier on top of the fused score.
+ * Neutral (1.0) at the default importance_score of 0.5; ranges [0.85, 1.15].
+ */
+export function importanceMultiplier(importanceScore: number): number {
+  const s = clamp01(importanceScore);
+  return 1 + 0.15 * (2 * s - 1);
+}
+
+/**
+ * Hybrid recall score: fused vector+lexical evidence scaled by importance,
+ * minus the same contradiction/contract penalties the weighted scorer applies.
+ */
+export function hybridRecallScore(input: {
+  vectorDistance: number | null;
+  lexicalScore: number;
+  importanceScore: number;
+  contradictionPenalty?: number;
+  contractPenalty?: number;
+}): number {
+  const pFused =
+    input.vectorDistance == null
+      ? fuseEvidence(0, input.lexicalScore)
+      : fuseEvidence(1 - input.vectorDistance, input.lexicalScore);
+  const penalty = (input.contradictionPenalty ?? 0) + (input.contractPenalty ?? 0);
+  return clamp01(pFused * importanceMultiplier(input.importanceScore) - penalty);
+}

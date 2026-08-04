@@ -4,10 +4,14 @@
 */
 
 import crypto from "node:crypto";
-import { scoreDurableRecall } from "./scoring";
+import { DURABLE_RECALL_SCORE_WEIGHTS, hybridRecallScore, scoreDurableRecall } from "./scoring";
 import { enrichDurableMetadata } from "./metadata";
 import { classifyMemory, DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, normalizeSector } from "../services/memoryInjector";
+import { ImportanceCalculator, type ImportanceTier, TIER_CONFIG } from "../services/importanceCalculator";
+import { WindowedEmbedder, tokenize, WINDOW_SIZE } from "../services/windowedEmbedder";
 import { computeLexicalScore } from "../utilities/keyword";
+
+const importanceCalculator = new ImportanceCalculator();
 
 export const ALLOWED_DURABLE_EDGE_TYPES = [
   "mentions",
@@ -94,12 +98,17 @@ export interface DurableRememberInput {
   source?: DurableSource;
   embedding?: number[];
   now?: Date;
+  observed_at?: string | Date;
+  valid_from?: string | Date;
+  valid_to?: string | Date;
 }
 
 export interface DurableRememberResult {
   id: string;
   status: "stored";
   isGenome: boolean;
+  importance_tier?: string;
+  importance_score?: number;
 }
 
 export type DurableRecallMode = "strict" | "historical" | "associative";
@@ -114,6 +123,7 @@ export interface DurableRecallInput {
   source?: DurableSource;
   embedding?: number[];
   candidate_ids?: string[];
+  hybrid?: boolean;
 }
 
 export interface DurableRecallResult {
@@ -131,6 +141,10 @@ export interface DurableRecallResult {
     recorded_at: string | null;
     valid_from: string | null;
     valid_to: string | null;
+    importance_tier?: string;
+    importance_score?: number;
+    vector_score?: number;
+    lexical_score?: number;
     provenance_summary: {
       count: number;
       hidden: boolean;
@@ -618,6 +632,15 @@ const asVector = (value: number[] | undefined) =>
     ? JSON.stringify(value)
     : null;
 
+const toDateOr = (value: unknown): Date | null => {
+  if (value instanceof Date) return value;
+  if (typeof value === "string" && value.trim()) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  return null;
+};
+
 const sourceObservedAt = (
   source: DurableSource | undefined,
   fallback: Date,
@@ -880,6 +903,27 @@ export async function rememberDurableMemory(
   const sector = normalizeSector((input.metadata?.sector as string) || classification.sector);
   const decayRate = input.metadata?.decay_rate ?? (isGenome ? DEFAULT_GENOME_DECAY_RATE : DEFAULT_PHENOTYPE_DECAY_RATE);
 
+  // Importance tier (v4.0.0-advanced-features): explicit metadata wins, else heuristic
+  const importance = importanceCalculator.calculate(input.content, {
+    ...(input.metadata || {}),
+    sector,
+  });
+  const importanceTier: ImportanceTier =
+    typeof input.metadata?.importance_tier === "string" &&
+    TIER_CONFIG[input.metadata.importance_tier as ImportanceTier]
+      ? (input.metadata.importance_tier as ImportanceTier)
+      : importance.tier;
+  const importanceScore =
+    typeof input.metadata?.importance_score === "number"
+      ? Math.max(0, Math.min(1, input.metadata.importance_score))
+      : importance.score;
+
+  // Bitemporal (v4.0.0-advanced-features): observed_at = when the fact was
+  // learned; valid window defaults to [observed_at, ∞) unless overridden.
+  const observedAt = toDateOr(input.observed_at) || sourceObservedAt(input.source, now);
+  const validFrom = toDateOr(input.valid_from ?? input.metadata?.valid_from) || observedAt;
+  const validTo = toDateOr(input.valid_to ?? input.metadata?.valid_to);
+
   const memoryState = {
     id,
     user_id: userId,
@@ -888,16 +932,20 @@ export async function rememberDurableMemory(
     facets: input.facets || {},
     contracts,
     metadata,
-    observed_at: sourceObservedAt(input.source, now).toISOString(),
+    observed_at: observedAt.toISOString(),
     recorded_at: now.toISOString(),
+    valid_from: validFrom.toISOString(),
+    valid_to: validTo ? validTo.toISOString() : null,
+    importance_tier: importanceTier,
+    importance_score: importanceScore,
   };
 
   await db.query("BEGIN");
   try {
     await db.query(
       `insert into ${memories}
-        (id,user_id,project_id,content,facets,contracts,metadata,observed_at,recorded_at,embedding,is_genome,decay_rate,access_count,last_accessed_at,sector)
-       values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10::halfvec,$11,$12,$13,$14,$15)`,
+        (id,user_id,project_id,content,facets,contracts,metadata,observed_at,recorded_at,valid_from,valid_to,importance_tier,importance_score,embedding,is_genome,decay_rate,access_count,last_accessed_at,sector)
+       values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13,$14::halfvec,$15,$16,$17,$18,$19)`,
       [
         id,
         userId,
@@ -908,6 +956,10 @@ export async function rememberDurableMemory(
         JSON.stringify(metadata),
         memoryState.observed_at,
         memoryState.recorded_at,
+        memoryState.valid_from,
+        memoryState.valid_to,
+        importanceTier,
+        importanceScore,
         asVector(input.embedding),
         isGenome,
         decayRate,
@@ -1038,8 +1090,23 @@ export async function rememberDurableMemory(
       ],
     );
 
+    // Windowed embeddings for long memories (v4.0.0-advanced-features).
+    // Short memories keep the full-content embedding the caller already stored.
+    if (
+      tokenize(input.content).length > WINDOW_SIZE ||
+      input.metadata?.windowed === true
+    ) {
+      await new WindowedEmbedder(db).embedMemory(id, input.content);
+    }
+
     await db.query("COMMIT");
-    return { id, status: "stored", isGenome: false };
+    return {
+      id,
+      status: "stored",
+      isGenome,
+      importance_tier: importanceTier,
+      importance_score: importanceScore,
+    };
   } catch (err) {
     await db.query("ROLLBACK");
     throw err;
@@ -1069,14 +1136,27 @@ export async function recallDurableMemories(
     Array.isArray(input.embedding) &&
     input.embedding.length > 0 &&
     input.embedding.every((value) => Number.isFinite(value));
-  const filters = [
-    useVectorRecall ? `$1::text is not null` : `m.content ilike $1`,
+  // Hybrid search (v4.0.0-advanced-features): evidence fusion is ON by default
+  // for vector recall; disable per-call (`hybrid: false`) or globally via
+  // EG_HYBRID_SEARCH=false.
+  const hybridEnabled =
+    input.hybrid !== false && process.env.EG_HYBRID_SEARCH !== "false";
+  const sharedFilters = [
     `(m.valid_from is null or m.valid_from <= $2)`,
     `(m.valid_to is null or m.valid_to > $2)`,
     `m.recorded_at <= $2`,
     `m.superseded_at is null`,
     `(m.contracts->>'expires_at' is null or (m.contracts->>'expires_at')::timestamptz > $2)`,
   ];
+  const filters = [
+    useVectorRecall ? `$1::text is not null` : `m.content ilike $1`,
+    ...sharedFilters,
+  ];
+  if (useVectorRecall && hybridEnabled) {
+    // Pull more vector candidates than the final limit so keyword-only
+    // matches have room to rank in after evidence fusion.
+    params[2] = limit * 3;
+  }
   let vectorDistanceExpr = "null::double precision";
 
   if (useVectorRecall) {
@@ -1180,6 +1260,8 @@ export async function recallDurableMemories(
       m.valid_from,
       m.valid_to,
       m.sector,
+      m.importance_tier,
+      m.importance_score,
       ranked.vector_distance,
       coalesce(p.provenance, '[]'::jsonb) as provenance,
       coalesce(c.contradictions, '[]'::jsonb) as contradictions
@@ -1216,49 +1298,165 @@ export async function recallDurableMemories(
   const result = (await db.query(sql, params)) as { rows?: any[] };
   const rows = result.rows || [];
 
+  // Hybrid search: also fetch keyword-only candidates via trigram similarity
+  // (pg_trgm) and fuse them with the vector candidates below.
+  let keywordRows: any[] = [];
+  if (useVectorRecall && hybridEnabled) {
+    const kwParams: unknown[] = [input.query, atTime];
+    const kwFilters: string[] = [
+      `(m.valid_from is null or m.valid_from <= $2)`,
+      `(m.valid_to is null or m.valid_to > $2)`,
+      `m.recorded_at <= $2`,
+      `m.superseded_at is null`,
+      `(m.contracts->>'expires_at' is null or (m.contracts->>'expires_at')::timestamptz > $2)`,
+    ];
+    if (candidateIds.length) {
+      kwParams.push(candidateIds);
+      kwFilters.push(`m.id = any($${kwParams.length}::text[])`);
+    }
+    if (input.user_id) {
+      kwParams.push(input.user_id);
+      kwFilters.push(`m.user_id = $${kwParams.length}`);
+    }
+    if (input.project_id) {
+      kwParams.push(input.project_id);
+      kwFilters.push(`(m.project_id = $${kwParams.length} or m.project_id is null)`);
+    }
+    if (input.source?.kind) {
+      kwParams.push(input.source.kind);
+      kwFilters.push(`exists (select 1 from ${provenance} ps where ps.memory_id = m.id and ps.source_kind = $${kwParams.length})`);
+    }
+    if (input.source?.id) {
+      kwParams.push(input.source.id);
+      kwFilters.push(`exists (select 1 from ${provenance} ps where ps.memory_id = m.id and ps.source_id = $${kwParams.length})`);
+    }
+    if (input.source?.uri) {
+      kwParams.push(input.source.uri);
+      kwFilters.push(`exists (select 1 from ${provenance} ps where ps.memory_id = m.id and ps.source_uri = $${kwParams.length})`);
+    }
+    if (mode === "strict") {
+      kwFilters.push(`exists (select 1 from ${provenance} strict_p where strict_p.memory_id = m.id)`);
+      kwFilters.push(`not exists (
+        select 1 from ${contradictions} strict_c
+        left join ${memories} strict_contradicted
+          on strict_contradicted.id = strict_c.contradicts_memory_id
+        where strict_c.memory_id = m.id
+          and strict_c.status = 'open'
+          and (strict_c.project_id = m.project_id or (strict_c.project_id is null and m.project_id is null))
+          and (strict_contradicted.id is null or strict_contradicted.superseded_at is null)
+      )`);
+      kwFilters.push(`coalesce(m.contracts->>'recall_allowed', 'true') <> 'false'`);
+    }
+    kwFilters.push(`similarity(m.content, $1) > 0.1`);
+    const kwResult = (await db.query(
+      `select m.id, m.content, m.facets, m.contracts, m.metadata, m.salience, m.confidence,
+              m.recorded_at, m.valid_from, m.valid_to, m.sector, m.importance_score, m.importance_tier,
+              similarity(m.content, $1) as keyword_score
+       from ${memories} m
+       where ${kwFilters.join("\n        and ")}
+       order by keyword_score desc
+       limit $${kwParams.length + 1}`,
+      [...kwParams, limit * 3],
+    )) as { rows?: any[] };
+    keywordRows = kwResult.rows || [];
+  }
+
+  const mapRow = (row: any, extra?: { score?: number; vectorScore?: number; lexicalScore?: number }) => {
+    const contracts = row.contracts || {};
+    const provenanceRows = row.provenance || [];
+    const contradictionRows = row.contradictions || [];
+    const importanceScore = Number(row.importance_score ?? 0.5);
+    const lexicalScore = computeLexicalScore(input.query, row.content || "");
+    const vectorDistance =
+      row.vector_distance == null ? null : Number(row.vector_distance);
+    const scored = scoreDurableRecall({
+      confidence: Number(row.confidence ?? 0),
+      salience: Number(row.salience ?? 0),
+      provenance_count: provenanceRows.length,
+      contradiction_count: contradictionRows.length,
+      recall_allowed: contracts.recall_allowed !== false,
+      vector_distance: vectorDistance,
+      text_match: !useVectorRecall,
+      lexical_score: lexicalScore,
+    });
+    return {
+      id: row.id,
+      content: row.content,
+      score: extra?.score ?? scored.score,
+      facets: row.facets || {},
+      contracts,
+      metadata: redactSensitiveMetadata(row.metadata || {}) as Record<
+        string,
+        unknown
+      >,
+      salience: Number(row.salience ?? 0),
+      confidence: Number(row.confidence ?? 0),
+      recorded_at: row.recorded_at ?? null,
+      valid_from: row.valid_from ?? null,
+      valid_to: row.valid_to ?? null,
+      sector: row.sector || "semantic",
+      importance_tier: row.importance_tier || "medium",
+      importance_score: importanceScore,
+      vector_score: extra?.vectorScore,
+      lexical_score: extra?.lexicalScore ?? lexicalScore,
+      provenance_summary: provenanceSummary(
+        provenanceRows,
+        contracts.source_visibility === "hidden",
+      ),
+      provenance:
+        contracts.source_visibility === "hidden" ? [] : provenanceRows,
+      contradictions: contradictionRows,
+    };
+  };
+
+  let results: any[];
+  if (useVectorRecall && hybridEnabled) {
+    // Evidence fusion: merge vector + keyword candidates, re-rank by the
+    // fused score (1 - (1-p_vec)(1-p_lex)) scaled by importance, minus the
+    // standard contradiction/contract penalties.
+    const byId = new Map<string, any>();
+    for (const row of rows) byId.set(row.id, row);
+    for (const row of keywordRows) {
+      if (row?.id && !byId.has(row.id)) byId.set(row.id, row);
+    }
+    results = Array.from(byId.values())
+      .map((row) => {
+        const vectorDistance =
+          row.vector_distance == null ? null : Number(row.vector_distance);
+        const lexicalScore = computeLexicalScore(input.query, row.content || "");
+        const importanceScore = Number(row.importance_score ?? 0.5);
+        const contradictionRows = row.contradictions || [];
+        const contracts = row.contracts || {};
+        const fused = hybridRecallScore({
+          vectorDistance,
+          lexicalScore,
+          importanceScore,
+          contradictionPenalty:
+            contradictionRows.length > 0
+              ? DURABLE_RECALL_SCORE_WEIGHTS.contradiction_penalty
+              : 0,
+          contractPenalty:
+            contracts.recall_allowed === false
+              ? DURABLE_RECALL_SCORE_WEIGHTS.contract_penalty
+              : 0,
+        });
+        return mapRow(row, {
+          score: fused,
+          vectorScore:
+            vectorDistance == null ? undefined : Math.max(0, 1 - vectorDistance),
+          lexicalScore,
+        });
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+  } else {
+    results = rows.map((row) => mapRow(row));
+  }
+
   return {
     query: input.query,
     mode,
-    results: rows.map((row) => {
-      const contracts = row.contracts || {};
-      const provenanceRows = row.provenance || [];
-      const contradictionRows = row.contradictions || [];
-      const scored = scoreDurableRecall({
-        confidence: Number(row.confidence ?? 0),
-        salience: Number(row.salience ?? 0),
-        provenance_count: provenanceRows.length,
-        contradiction_count: contradictionRows.length,
-        recall_allowed: contracts.recall_allowed !== false,
-        vector_distance:
-          row.vector_distance == null ? null : Number(row.vector_distance),
-        text_match: !useVectorRecall,
-        lexical_score: computeLexicalScore(input.query, row.content || ""),
-      });
-      return {
-        id: row.id,
-        content: row.content,
-        score: scored.score,
-        facets: row.facets || {},
-        contracts,
-        metadata: redactSensitiveMetadata(row.metadata || {}) as Record<
-          string,
-          unknown
-        >,
-        salience: Number(row.salience ?? 0),
-        confidence: Number(row.confidence ?? 0),
-        recorded_at: row.recorded_at ?? null,
-        valid_from: row.valid_from ?? null,
-        valid_to: row.valid_to ?? null,
-        sector: row.sector || "semantic",
-        provenance_summary: provenanceSummary(
-          provenanceRows,
-          contracts.source_visibility === "hidden",
-        ),
-        provenance:
-          contracts.source_visibility === "hidden" ? [] : provenanceRows,
-        contradictions: contradictionRows,
-      };
-    }),
+    results,
   };
 }
 

@@ -3,7 +3,7 @@
  - what is the file used for
 */
 
-export const DURABLE_SCHEMA_VERSION = "3.0.0-genome-decay";
+export const DURABLE_SCHEMA_VERSION = "4.0.0-advanced-features";
 
 export const DURABLE_EDGE_TYPES = [
   "mentions",
@@ -21,6 +21,7 @@ export const DURABLE_EDGE_TYPES = [
 export const DURABLE_TABLES = [
   "memories",
   "memory_versions",
+  "memory_windows",
   "entities",
   "memory_entities",
   "edges",
@@ -50,6 +51,7 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
 
   const memories = table(schema, "memories");
   const memoryVersions = table(schema, "memory_versions");
+  const memoryWindows = table(schema, "memory_windows");
   const entities = table(schema, "entities");
   const memoryEntities = table(schema, "memory_entities");
   const edges = table(schema, "edges");
@@ -90,7 +92,9 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
       observed_at timestamptz,
       recorded_at timestamptz not null default now(),
       superseded_at timestamptz,
-      sector text not null default 'semantic'
+      sector text not null default 'semantic',
+      importance_tier text not null default 'medium',
+      importance_score real not null default 0.5
     )`,
     `create table if not exists ${memoryVersions} (
       id uuid primary key,
@@ -299,5 +303,25 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
     `create index if not exists durable_extraction_candidates_event_idx on ${extractionCandidates}(event_id, status)`,
     `create index if not exists durable_audit_target_idx on ${auditLog}(target_table, target_id)`,
     `create index if not exists durable_audit_recorded_idx on ${auditLog}(recorded_at)`,
+    // Advanced memory features (v4.0.0-advanced-features)
+    // Importance tiers (critical/high/medium/low) — ranking signal on top of salience/decay
+    `alter table ${memories} add column if not exists importance_tier text not null default 'medium'`,
+    `alter table ${memories} add column if not exists importance_score real not null default 0.5`,
+    // Hybrid search: trigram index for lexical evidence
+    `create extension if not exists pg_trgm`,
+    `create index if not exists durable_memories_content_trgm_idx on ${memories} using gin (content gin_trgm_ops)`,
+    // Windowed embeddings: per-window vectors for long memories
+    `create table if not exists ${memoryWindows} (
+      id uuid primary key default gen_random_uuid(),
+      memory_id uuid not null references ${memories}(id) on delete cascade,
+      window_index integer not null,
+      start_pos integer not null,
+      end_pos integer not null,
+      embedding halfvec(${vectorDim}),
+      created_at timestamptz not null default now(),
+      unique(memory_id, window_index)
+    )`,
+    `create index if not exists durable_memory_windows_memory_idx on ${memoryWindows}(memory_id)`,
+    `create index if not exists durable_memory_windows_embedding_idx on ${memoryWindows} using hnsw (embedding halfvec_cosine_ops) where embedding is not null`,
   ];
 }
