@@ -317,11 +317,16 @@ export const dashboard_route = (app: any) => {
     }
   });
 
-  // POST /api/dashboard/consolidate — manual consolidation trigger
-  app.post("/api/dashboard/consolidate", async (_req: any, res: any) => {
+  // POST /api/dashboard/consolidate — manual consolidation trigger (?tier=recent|deep|all)
+  app.post("/api/dashboard/consolidate", async (req: any, res: any) => {
     try {
+      const tier = String(req.query?.tier || "all");
+      if (tier === "recent" || tier === "deep") {
+        await (consolidationEngine as any).runTierByName(tier);
+        return res.json({ success: true, tier, message: `${tier} consolidation cycle triggered` });
+      }
       await (consolidationEngine as any).runConsolidation();
-      return res.json({ success: true, message: "Consolidation cycle triggered" });
+      return res.json({ success: true, tier: "all", message: "Consolidation cycle triggered" });
     } catch (e: unknown) {
       fail(res, "dashboard_consolidate_failed", e);
     }

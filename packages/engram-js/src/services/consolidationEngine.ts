@@ -434,6 +434,15 @@ If no actions are needed, return: {"actions": []}
     await this.runTier("deep", RECENT_MAX_AGE_DAYS, DEEP_MAX_AGE_DAYS, DEEP_MIN_GROUP, 1);
   }
 
+  /** Trigger a single tier manually (used by the GUI's per-tier consolidation buttons). */
+  public async runTierByName(tier: "recent" | "deep"): Promise<void> {
+    if (tier === "recent") {
+      await this.runTier("recent", 0, RECENT_MAX_AGE_DAYS, RECENT_MIN_GROUP, 0);
+    } else {
+      await this.runTier("deep", RECENT_MAX_AGE_DAYS, DEEP_MAX_AGE_DAYS, DEEP_MIN_GROUP, 1);
+    }
+  }
+
   private async runTier(
     tier: "recent" | "deep",
     minAgeDays: number,

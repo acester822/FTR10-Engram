@@ -102,7 +102,7 @@ Two-tier background cron (intervals/windows/min-groups overridable via `EG_CONSO
 5. **Generate Actions** — LLM returns merge/update/promote/delete decisions as JSON (`response_format: json_object` + tolerant parsing); model resolved via the settings registry.
 6. **Execute Actions** — applied per-action against the DB with transaction rollback on failure.
 
-Manual trigger via API: `POST /api/dashboard/consolidate`
+Manual trigger via API: `POST /api/dashboard/consolidate` (`?tier=recent` / `?tier=deep` / both by default)
 
 ### Model Selection Guide:
 Models/providers are configured in the **web GUI Settings tab** (persisted in Postgres `app_settings`) — it is the single source of truth. Resolution (see `src/database/modelRegistry.ts`): **Settings → env override → fail with a clear message**. There are NO hardcoded model-name defaults anywhere in the codebase.

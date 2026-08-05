@@ -201,20 +201,20 @@ function DashboardView({
   stats: Stats | null;
   onRefresh: () => void;
 }) {
-  const [consolidating, setConsolidating] = useState(false);
+  const [consolidating, setConsolidating] = useState("" as string);
   const [consolidateMsg, setConsolidateMsg] = useState("");
 
-  const triggerConsolidation = async () => {
-    setConsolidating(true);
+  const triggerConsolidation = async (tier: string) => {
+    setConsolidating(tier);
     setConsolidateMsg("");
     try {
-      await fetch(`${API_BASE}/consolidate`, { method: "POST" });
-      setConsolidateMsg("Consolidation triggered successfully");
+      await fetch(`${API_BASE}/consolidate?tier=${tier}`, { method: "POST" });
+      setConsolidateMsg(`${tier} consolidation triggered successfully`);
       setTimeout(() => onRefresh(), 1500);
     } catch {
-      setConsolidateMsg("Failed to trigger consolidation");
+      setConsolidateMsg(`Failed to trigger ${tier} consolidation`);
     } finally {
-      setConsolidating(false);
+      setConsolidating("");
     }
   };
 
@@ -226,14 +226,26 @@ function DashboardView({
     <div className="space-y-8">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800">Cognitive Overview</h2>
-        <button
-          onClick={triggerConsolidation}
-          disabled={consolidating}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
-        >
-          <RefreshCw size={18} className={consolidating ? "animate-spin" : ""} />
-          Run Consolidation
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => triggerConsolidation("recent")}
+            disabled={!!consolidating}
+            title="Recent tier: last 7 days (scheduled every 4h)"
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={18} className={consolidating === "recent" ? "animate-spin" : ""} />
+            Recent
+          </button>
+          <button
+            onClick={() => triggerConsolidation("deep")}
+            disabled={!!consolidating}
+            title="Deep tier: memories 7–30 days old (scheduled every 24h)"
+            className="flex items-center gap-2 bg-slate-700 hover:bg-slate-800 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={18} className={consolidating === "deep" ? "animate-spin" : ""} />
+            Deep
+          </button>
+        </div>
       </div>
 
       {consolidateMsg && (
@@ -1497,6 +1509,9 @@ function ServerLogsView() {
     }
   });
 
+  // Newest logs at the top (the log file is oldest-first)
+  const displayLogs = [...filteredLogs].reverse();
+
   if (loading) return <div className="text-slate-500">Loading server logs...</div>;
 
   return (
@@ -1551,7 +1566,7 @@ function ServerLogsView() {
           {filteredLogs.length === 0 ? (
             <p className="text-center text-slate-500 py-8">No log entries matching filter.</p>
           ) : (
-            filteredLogs.map((line: string, idx: number) => {
+            displayLogs.map((line: string, idx: number) => {
               const parsed = tryParseLogLine(line);
               const levelColor = levelToColor(parsed.level);
               return (

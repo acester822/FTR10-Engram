@@ -94,7 +94,7 @@ A background cron (started 2s after boot) with **two env-overridable tiers**:
 | **RECENT** | `EG_CONSOLIDATION_RECENT_INTERVAL_MS` (4h) | last `…_RECENT_MAX_AGE_DAYS` (7d) | 2         | Promote standing rules / catch near-dupes within hours |
 | **DEEP**   | `EG_CONSOLIDATION_DEEP_INTERVAL_MS` (24h)  | up to `…_DEEP_MAX_AGE_DAYS` (30d) | 3         | Long-window cleanup (requires `access_count >= 1`)     |
 
-Each cycle groups non-archived memories by `consolidation_hash` (max 15 groups), sends each group (chunked to ≤150 memories per call) to the generative model, and applies the returned `merge | update | promote | delete` actions in **one transaction** — any error rolls back the whole batch. If the LLM omits `new_content` for a merge/update, the consolidation model synthesizes it. Manual trigger: `POST /api/dashboard/consolidate`.
+Each cycle groups non-archived memories by `consolidation_hash` (max 15 groups), sends each group (chunked to ≤150 memories per call) to the generative model, and applies the returned `merge | update | promote | delete` actions in **one transaction** — any error rolls back the whole batch. If the LLM omits `new_content` for a merge/update, the consolidation model synthesizes it. Manual trigger: `POST /api/dashboard/consolidate` (`?tier=recent` / `?tier=deep` / default = both tiers).
 
 ### Memory decay engine
 
@@ -444,7 +444,7 @@ The server exposes two families: **root-level API routes** (used by clients and 
 | `/api/dashboard/memories/:id`                                                                                                | PUT/DELETE           | Update / delete a memory                                                |
 | `/api/dashboard/logs` / `/api/dashboard/log`                                                                                 | GET                  | Interaction logs / full Pino log file                                   |
 | `/api/dashboard/recall`                                                                                                      | POST                 | Recall engine (browser-reachable duplicate of `/recall`)                |
-| `/api/dashboard/consolidate`                                                                                                 | POST                 | Trigger consolidation manually                                          |
+| `/api/dashboard/consolidate`                                                                                                 | POST                 | Trigger consolidation (`?tier=recent` / `?tier=deep` / both)           |
 | `/api/dashboard/perf`                                                                                                        | GET                  | Server performance metrics                                              |
 | `/api/dashboard/activity`                                                                                                    | GET                  | Live memory activity feed (ring buffer)                                 |
 | `/api/dashboard/activity/clear`                                                                                              | POST                 | Clear the activity feed                                                 |
