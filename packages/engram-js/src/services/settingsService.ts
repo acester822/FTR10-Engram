@@ -63,13 +63,11 @@ export interface GeneralSettingDef {
 
 export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   // Server
-  { key: "general.port", env: "EG_PORT", type: "number", label: "Server Port", section: "server" },
   { key: "general.vec_dim", env: "EG_VEC_DIM", type: "number", label: "Embedding Dimensions", section: "server" },
   { key: "general.max_payload_size", env: "EG_MAX_PAYLOAD_SIZE", type: "number", label: "Max Payload Size (bytes)", section: "server" },
   { key: "general.require_api_key", env: "EG_REQUIRE_API_KEY", type: "bool", label: "Require API Key", section: "server" },
   { key: "general.api_key", env: "EG_API_KEY", type: "string", label: "API Key", section: "server" },
   // Embedding
-  { key: "general.embeddings", env: "EG_EMBEDDINGS", type: "string", label: "Embedding Provider Kind", section: "embedding" },
   { key: "general.embed_timeout_ms", env: "EG_EMBED_TIMEOUT_MS", type: "number", label: "Embedding Timeout (ms)", section: "embedding" },
   // Rate limits
   { key: "general.rate_limit_enabled", env: "EG_RATE_LIMIT_ENABLED", type: "bool", label: "Rate Limit Enabled", section: "rate_limit" },
@@ -96,6 +94,78 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.consol_deep_min_group", env: "EG_CONSOLIDATION_DEEP_MIN_GROUP", type: "number", label: "Deep Tier Min Group", section: "consolidation" },
 ];
 
+// ── Advanced (infra / secrets / misc) settings — shown in a warning-labeled table.
+//    Most apply at boot; DB/Redis connection vars are read at startup BEFORE the
+//    settings store is available (the pool needs the DB to load settings), so those
+//    require a docker-compose/.env change + container recreate. ──
+export const ADVANCED_SETTINGS: GeneralSettingDef[] = [
+  // Database (compose-level — read at startup, before settings load)
+  { key: "advanced.pg_host", env: "EG_PG_HOST", type: "string", label: "Postgres Host", section: "Database" },
+  { key: "advanced.pg_port", env: "EG_PG_PORT", type: "number", label: "Postgres Port", section: "Database" },
+  { key: "advanced.pg_db", env: "EG_PG_DB", type: "string", label: "Postgres Database", section: "Database" },
+  { key: "advanced.pg_user", env: "EG_PG_USER", type: "string", label: "Postgres User", section: "Database" },
+  { key: "advanced.pg_password", env: "EG_PG_PASSWORD", type: "string", label: "Postgres Password", section: "Database" },
+  { key: "advanced.pg_schema", env: "EG_PG_SCHEMA", type: "string", label: "Postgres Schema", section: "Database" },
+  { key: "advanced.pg_ssl", env: "EG_PG_SSL", type: "string", label: "Postgres SSL (require/disable)", section: "Database" },
+  { key: "advanced.redis_url", env: "EG_REDIS_URL", type: "string", label: "Redis URL", section: "Database" },
+  // Provider keys (dormant providers / integrations)
+  { key: "advanced.openai_api_key", env: "EG_OPENAI_API_KEY", type: "string", label: "OpenAI API Key", section: "Provider Keys" },
+  { key: "advanced.gemini_key", env: "EG_GEMINI_API_KEY", type: "string", label: "Gemini API Key", section: "Provider Keys" },
+  { key: "advanced.aws_region", env: "EG_AWS_REGION", type: "string", label: "AWS Region", section: "Provider Keys" },
+  { key: "advanced.aws_access_key_id", env: "EG_AWS_ACCESS_KEY_ID", type: "string", label: "AWS Access Key ID", section: "Provider Keys" },
+  { key: "advanced.aws_secret_access_key", env: "EG_AWS_SECRET_ACCESS_KEY", type: "string", label: "AWS Secret Access Key", section: "Provider Keys" },
+  { key: "advanced.siray_key", env: "EG_SIRAY_API_KEY", type: "string", label: "Siray API Key", section: "Provider Keys" },
+  { key: "advanced.siray_token", env: "EG_SIRAY_API_TOKEN", type: "string", label: "Siray API Token", section: "Provider Keys" },
+  { key: "advanced.siray_base_url", env: "EG_SIRAY_BASE_URL", type: "string", label: "Siray Base URL", section: "Provider Keys" },
+  { key: "advanced.google_credentials_json", env: "EG_GOOGLE_CREDENTIALS_JSON", type: "string", label: "Google Credentials JSON", section: "Provider Keys" },
+  { key: "advanced.google_service_account_file", env: "EG_GOOGLE_SERVICE_ACCOUNT_FILE", type: "string", label: "Google Service Account File", section: "Provider Keys" },
+  { key: "advanced.notion_key", env: "EG_NOTION_API_KEY", type: "string", label: "Notion API Key", section: "Provider Keys" },
+  { key: "advanced.onedrive_token", env: "EG_ONEDRIVE_ACCESS_TOKEN", type: "string", label: "OneDrive Access Token", section: "Provider Keys" },
+  { key: "advanced.openmemory_key", env: "EG_OPENMEMORY_API_KEY", type: "string", label: "OpenMemory API Key", section: "Provider Keys" },
+  { key: "advanced.openmemory_url", env: "EG_OPENMEMORY_URL", type: "string", label: "OpenMemory URL", section: "Provider Keys" },
+  // Vector store
+  { key: "advanced.vector_store", env: "EG_VECTOR_STORE", type: "string", label: "Vector Store", section: "Vector Store" },
+  { key: "advanced.vector_url", env: "EG_VECTOR_URL", type: "string", label: "Vector Store URL", section: "Vector Store" },
+  { key: "advanced.vector_api_key", env: "EG_VECTOR_API_KEY", type: "string", label: "Vector Store API Key", section: "Vector Store" },
+  { key: "advanced.vector_collection", env: "EG_VECTOR_COLLECTION", type: "string", label: "Vector Collection", section: "Vector Store" },
+  { key: "advanced.vector_timeout_ms", env: "EG_VECTOR_TIMEOUT_MS", type: "number", label: "Vector Timeout (ms)", section: "Vector Store" },
+  // Misc
+  { key: "advanced.mode", env: "EG_MODE", type: "string", label: "Mode (standard/production)", section: "Misc" },
+  { key: "advanced.storage", env: "EG_STORAGE", type: "string", label: "Storage Backend", section: "Misc" },
+  { key: "advanced.sqlite_path", env: "EG_SQLITE_PATH", type: "string", label: "SQLite Path", section: "Misc" },
+  { key: "advanced.http_timeout_ms", env: "EG_HTTP_TIMEOUT_MS", type: "number", label: "HTTP Timeout (ms)", section: "Misc" },
+  { key: "advanced.log_auth", env: "EG_LOG_AUTH", type: "bool", label: "Log Auth", section: "Misc" },
+  { key: "advanced.log_dir", env: "EG_LOG_DIR", type: "string", label: "Log Directory", section: "Misc" },
+  { key: "advanced.log_max_lines", env: "EG_LOG_MAX_LINES", type: "number", label: "Log Max Lines", section: "Misc" },
+  { key: "advanced.telemetry", env: "EG_TELEMETRY", type: "bool", label: "Telemetry", section: "Misc" },
+  { key: "advanced.internal_api_key", env: "EG_INTERNAL_API_KEY", type: "string", label: "Internal API Key", section: "Misc" },
+];
+
+const ADVANCED_BY_KEY = new Map(ADVANCED_SETTINGS.map((d) => [d.key, d]));
+
+// Provider Type → embedding provider kind (EG_EMBEDDINGS). The Provider Settings
+// section is the single place for provider type; the embedding backend kind is
+// derived from it (openai-compatible → openai).
+const PROVIDER_KIND_MAP: Record<string, string> = {
+  "openai-compatible": "openai",
+};
+
+export function applyProviderDerived(): void {
+  const t = cache.get(SETTING_KEYS.providerType) || "openai-compatible";
+  const kind = PROVIDER_KIND_MAP[t] || t;
+  if (kind) process.env.EG_EMBEDDINGS = kind;
+}
+
+/** Effective advanced values for the GUI (process.env after apply). */
+export function advancedSettingsView(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const def of ADVANCED_SETTINGS) {
+    const short = def.key.replace(/^advanced\./, "");
+    out[short] = process.env[def.env] || "";
+  }
+  return out;
+}
+
 const GENERAL_BY_KEY = new Map(GENERAL_SETTINGS.map((d) => [d.key, d]));
 
 /** Mirror cached general settings into process.env (settings win over .env). */
@@ -104,6 +174,11 @@ export function applySettingsToEnv(): void {
     const v = cache.get(def.key);
     if (v !== undefined && v !== "") process.env[def.env] = v;
   }
+  for (const def of ADVANCED_SETTINGS) {
+    const v = cache.get(def.key);
+    if (v !== undefined && v !== "") process.env[def.env] = v;
+  }
+  applyProviderDerived();
 }
 
 /** Effective values for the GUI: process.env after apply (reflects .env defaults too). */
@@ -161,8 +236,9 @@ export async function saveSettings(patch: Record<string, string | undefined>): P
       [key, v],
     );
     cache.set(key, v);
-    const def = GENERAL_BY_KEY.get(key);
+    const def = GENERAL_BY_KEY.get(key) || ADVANCED_BY_KEY.get(key);
     if (def) process.env[def.env] = v; // live-apply (runtime readers see it immediately)
+    if (key === SETTING_KEYS.providerType) applyProviderDerived();
   }
 }
 

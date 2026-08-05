@@ -12,7 +12,9 @@ import {
   saveSettings,
   SETTING_KEYS,
   GENERAL_SETTINGS,
+  ADVANCED_SETTINGS,
   generalSettingsView,
+  advancedSettingsView,
 } from "../../../services/settingsService";
 import {
   resolveGenerativeModel,
@@ -62,6 +64,13 @@ function flattenSettings(body: any): Record<string, string | undefined> {
     const short = def.key.replace(/^general\./, "");
     if (general[short] !== undefined) out[def.key] = String(general[short]).trim();
   }
+
+  // Advanced (infra/secrets/misc) settings: { advanced: { <short>: value } } → "advanced.<short>"
+  const advanced = body.advanced || {};
+  for (const def of ADVANCED_SETTINGS) {
+    const short = def.key.replace(/^advanced\./, "");
+    if (advanced[short] !== undefined) out[def.key] = String(advanced[short]).trim();
+  }
   return out;
 }
 
@@ -96,6 +105,7 @@ function settingsView() {
       reflective: s[SETTING_KEYS.facetReflective] || "",
     },
     general: generalSettingsView(),
+    advanced: advancedSettingsView(),
   };
 }
 
@@ -203,15 +213,15 @@ export const settings_route = (app: any) => {
       if (hostErr) return bad(res, "provider.host", hostErr);
       const portErr = validatePort(port);
       if (portErr) return bad(res, "provider.port", portErr);
-      // Validate general (non-model) settings by declared type
-      for (const def of GENERAL_SETTINGS) {
+      // Validate general + advanced (non-model) settings by declared type
+      for (const def of [...GENERAL_SETTINGS, ...ADVANCED_SETTINGS]) {
         const v = flat[def.key];
         if (v === undefined || v === "") continue;
         if (def.type === "number" && !Number.isFinite(Number(v))) {
-          return bad(res, `general.${def.key.replace(/^general\./, "")}`, `${def.label} must be a number`);
+          return bad(res, `${def.key}`, `${def.label} must be a number`);
         }
         if (def.type === "bool" && !["true", "false", "1", "0"].includes(v.toLowerCase())) {
-          return bad(res, `general.${def.key.replace(/^general\./, "")}`, `${def.label} must be true/false`);
+          return bad(res, `${def.key}`, `${def.label} must be true/false`);
         }
       }
       await saveSettings(flat);

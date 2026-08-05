@@ -945,7 +945,6 @@ const GENERAL_GROUPS = [
   {
     title: "Server",
     fields: [
-      ["port", "Server Port", "number"],
       ["vec_dim", "Embedding Dimensions", "number"],
       ["max_payload_size", "Max Payload Size (bytes)", "number"],
       ["require_api_key", "Require API Key", "bool"],
@@ -954,10 +953,7 @@ const GENERAL_GROUPS = [
   },
   {
     title: "Embedding",
-    fields: [
-      ["embeddings", "Provider Kind", "string"],
-      ["embed_timeout_ms", "Timeout (ms)", "number"],
-    ],
+    fields: [["embed_timeout_ms", "Timeout (ms)", "number"]],
   },
   {
     title: "Rate Limits",
@@ -1000,6 +996,65 @@ const GENERAL_GROUPS = [
   },
 ];
 
+const ADVANCED_GROUPS = [
+  {
+    title: "Database",
+    fields: [
+      ["pg_host", "Postgres Host", "string"],
+      ["pg_port", "Postgres Port", "number"],
+      ["pg_db", "Postgres Database", "string"],
+      ["pg_user", "Postgres User", "string"],
+      ["pg_password", "Postgres Password", "string"],
+      ["pg_schema", "Postgres Schema", "string"],
+      ["pg_ssl", "Postgres SSL (require/disable)", "string"],
+      ["redis_url", "Redis URL", "string"],
+    ],
+  },
+  {
+    title: "Provider Keys",
+    fields: [
+      ["openai_api_key", "OpenAI API Key", "string"],
+      ["gemini_key", "Gemini API Key", "string"],
+      ["aws_region", "AWS Region", "string"],
+      ["aws_access_key_id", "AWS Access Key ID", "string"],
+      ["aws_secret_access_key", "AWS Secret Access Key", "string"],
+      ["siray_key", "Siray API Key", "string"],
+      ["siray_token", "Siray API Token", "string"],
+      ["siray_base_url", "Siray Base URL", "string"],
+      ["google_credentials_json", "Google Credentials JSON", "string"],
+      ["google_service_account_file", "Google Service Account File", "string"],
+      ["notion_key", "Notion API Key", "string"],
+      ["onedrive_token", "OneDrive Access Token", "string"],
+      ["openmemory_key", "OpenMemory API Key", "string"],
+      ["openmemory_url", "OpenMemory URL", "string"],
+    ],
+  },
+  {
+    title: "Vector Store",
+    fields: [
+      ["vector_store", "Vector Store", "string"],
+      ["vector_url", "Vector Store URL", "string"],
+      ["vector_api_key", "Vector Store API Key", "string"],
+      ["vector_collection", "Vector Collection", "string"],
+      ["vector_timeout_ms", "Vector Timeout (ms)", "number"],
+    ],
+  },
+  {
+    title: "Misc",
+    fields: [
+      ["mode", "Mode (standard/production)", "string"],
+      ["storage", "Storage Backend", "string"],
+      ["sqlite_path", "SQLite Path", "string"],
+      ["http_timeout_ms", "HTTP Timeout (ms)", "number"],
+      ["log_auth", "Log Auth", "bool"],
+      ["log_dir", "Log Directory", "string"],
+      ["log_max_lines", "Log Max Lines", "number"],
+      ["telemetry", "Telemetry", "bool"],
+      ["internal_api_key", "Internal API Key", "string"],
+    ],
+  },
+];
+
 function SettingsView() {
   const emptyForm = () => ({
     provider: { type: "openai-compatible", host: "", port: "" },
@@ -1020,6 +1075,7 @@ function SettingsView() {
       reflective: "",
     },
     general: {},
+    advanced: {},
   });
 
   const [form, setForm] = useState(emptyForm() as any);
@@ -1346,6 +1402,53 @@ function SettingsView() {
             {saveMsg.text}
           </div>
         )}
+
+        {/* Advanced Settings */}
+        <div className="mt-6 pt-4 border-t border-gray-100">
+          <h4 className="text-sm font-semibold text-slate-700 mb-2">Advanced Settings</h4>
+          <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">
+            ⚠️ <b>Advanced settings</b> — do not edit unless necessary. Values persist and apply at
+            next restart. Database/Redis connection values are read at startup before the settings
+            store is available — change those in docker-compose/.env and recreate the container.
+          </div>
+          <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+            <tbody>
+              {ADVANCED_GROUPS.map((g: any) => (
+                <React.Fragment key={g.title}>
+                  <tr className="bg-gray-50">
+                    <td colSpan={2} className="px-3 py-2 text-xs font-semibold text-slate-600">
+                      {g.title}
+                    </td>
+                  </tr>
+                  {g.fields.map((f: any) => (
+                    <tr key={f[0]} className="border-t border-gray-100">
+                      <td className="px-3 py-1.5 text-xs text-slate-500 w-1/2">{f[1]}</td>
+                      <td className="px-3 py-1.5">
+                        {f[2] === "bool" ? (
+                          <select
+                            className="w-full px-2 py-1 rounded border border-gray-300 text-xs text-gray-900"
+                            value={form.advanced[f[0]] || ""}
+                            onChange={(e: any) => set(["advanced", f[0]], e.target.value)}
+                          >
+                            <option value="">(default)</option>
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                          </select>
+                        ) : (
+                          <input
+                            className="w-full px-2 py-1 rounded border border-gray-300 text-xs text-gray-900"
+                            value={form.advanced[f[0]] || ""}
+                            onChange={(e: any) => set(["advanced", f[0]], e.target.value)}
+                          />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

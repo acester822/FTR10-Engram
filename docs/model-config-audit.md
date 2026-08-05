@@ -223,3 +223,36 @@ creating shell** (not in `.env`) — a bare `docker compose up` silently renders
 - Settings: live mirror ✓, boot-apply-before-config ✓ (scheduler const 3600000 after restart),
   persistence ✓, per-type validation ✓.
 - IDE events: skipped ✓, store unchanged ✓, purge 223 → 0 ✓.
+
+
+---
+
+# Implementation Summary — advanced settings table + port/kind de-dup — 2026-08-05
+
+## Advanced Settings table (GUI)
+- 36 remaining env vars added as an **Advanced Settings** table at the bottom of the
+  General Settings card, grouped (Database / Provider Keys / Vector Store / Misc), with a
+  warning banner: *"Advanced settings — do not edit unless necessary. Values persist and
+  apply at next restart. Database/Redis connection values are read at startup before the
+  settings store is available — change those in docker-compose/.env and recreate the
+  container."* (The DB pool is built at module load, before settings can be read — genuine
+  chicken-and-egg, so PG/Redis rows are informational in the GUI.)
+- `ADVANCED_SETTINGS` in settingsService mirrors them into process.env at boot; type
+  validation (number/bool/string) on PUT.
+
+## Duplicate-setting audit (user-reported)
+- **Server Port** (`general.port` → `EG_PORT`): verified WIRED — it is the server's own
+  *listen* port (`app.listen(env.port)`), which in the Docker deployment is fixed by the
+  compose port mapping (`8098:8080`). It is NOT the same as `provider.port` (the LLM port
+  in Provider Settings). Since it is effectively compose wiring, it was **removed from the
+  GUI** (no reroute target exists; documented).
+- **Provider Kind** (`general.embeddings` → `EG_EMBEDDINGS`): verified WIRED — selects the
+  embedding backend implementation (`env.emb_kind` → emb_openai/gemini/aws/siray/local).
+  This IS the same axis as Provider Type, so it was **rerouted**: `applyProviderDerived()`
+  maps `provider.type` → `EG_EMBEDDINGS` (`openai-compatible` → `openai`) at boot and on
+  save, and the duplicate GUI field was removed.
+- Verified live: general section no longer contains port/embeddings; advanced has 36 keys;
+  PUT persists; embedding test still passes (768 dims); stale rows absent.
+
+## Verification
+- tsc clean, web build clean, both containers healthy, GUI bundle contains the note.
