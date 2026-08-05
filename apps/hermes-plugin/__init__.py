@@ -162,6 +162,33 @@ class _EngramClient:
             return []
         return res.get("results", []) or []
 
+    def cognitive_context(
+        self,
+        query: str,
+        genome_limit: int = 15,
+        phenotype_limit: int = 5,
+        allow_web: bool = True,
+    ) -> Optional[dict]:
+        """Ask Engram for a fully-SHAPED context block (inward recall + gated outward).
+
+        New in Engram: POST /api/cognitive-context composes genome + phenotype +
+        (only if inward recall is weak) outward web search into one block, reusing
+        the proxy's exact logic. Returns {context, web_used, genome_count,
+        phenotype_count, shaped}. Returns None if the endpoint is absent (older
+        Engram build) so callers can fall back to local recall.
+        """
+        payload: dict = {
+            "query": query,
+            "genome_limit": genome_limit,
+            "phenotype_limit": phenotype_limit,
+            "allow_web": allow_web,
+        }
+        if self._recall_user_id:
+            payload["user_id"] = self._recall_user_id
+        if self.project_id:
+            payload["project_id"] = self.project_id
+        return self._post("/api/cognitive-context", payload)
+
     def remember(self, content: str, metadata: Optional[dict] = None) -> Optional[dict]:
         payload: dict = {"content": content, "user_id": self.user_id}
         if self.project_id:
@@ -439,6 +466,28 @@ class EngramMemoryProvider(MemoryProvider):
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         if not self._client:
             return ""
+        # Option #3: Engram shapes the request (inward-first, gated outward).
+        # All dynamic + outward context stays in this (user-message) injection so
+        # the host's system prompt stays byte-stable (prompt-cache safe).
+        try:
+            res = self._client.cognitive_context(
+                query,
+                genome_limit=self._genome_limit,
+                phenotype_limit=self._recall_limit,
+            )
+            if res and res.get("context"):
+                return res["context"]
+        except Exception as e:
+            logger.debug("Engram cognitive-context prefetch failed: %s", e)
+        # Down-level Engram (no /api/cognitive-context): fall back to local recall.
+        return self._legacy_prefetch(query)
+
+    def _legacy_prefetch(self, query: str) -> str:
+        """Pre-#3 behavior — kept as a fallback for Engram builds without the
+        shaped /api/cognitive-context route. Genome + phenotype via local recall,
+        no outward web step."""
+        if not self._client:
+            return ""
         blocks: List[str] = []
 
         # Genome: always-on core directives (cached, no network).
@@ -466,7 +515,7 @@ class EngramMemoryProvider(MemoryProvider):
                     if lines:
                         blocks.append("## Recalled from Engram memory (phenotype)\n" + "\n".join(lines))
             except Exception as e:
-                logger.debug("Engram prefetch recall failed: %s", e)
+                logger.debug("Engram legacy prefetch recall failed: %s", e)
 
         return "\n\n".join(blocks)
 

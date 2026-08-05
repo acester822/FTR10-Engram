@@ -30,6 +30,7 @@ import { memory_reinforce_route } from "./memories/reinforce/route";
 import { memory_tier_route } from "./memories/tier/route";
 import { memory_update_route } from "./memories/update/route";
 import { recall_route } from "./recall/route";
+import { cognitive_context_route } from "./cognitive-context/route";
 import { source_ingest_route } from "./sources/ingest/route";
 import { dashboard_route } from "./dashboard/route";
 import { settings_route } from "./settings/route";
@@ -41,6 +42,7 @@ export function routes(app: any) {
   health_route(app);
   memory_create_route(app, ctx);
   recall_route(app, ctx);
+  cognitive_context_route(app, ctx);
   memory_list_route(app, ctx);
   memory_get_route(app, ctx);
   memory_explain_route(app, ctx);
