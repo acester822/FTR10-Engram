@@ -290,3 +290,33 @@ embedding test returns 768 dims, consolidation runs — nothing lost.
 - Settings boot-apply proven: EG_VEC_DIM not in .env, yet vec_dim=768 in the API and the
   embedding test returns dims=768. Consolidation: chunks 150/150/76, all returned actions.
 - Web GUI 200, bundle contains the read-only note.
+
+
+---
+
+# Implementation Summary — logs GUI fix + .env URLs made authoritative — 2026-08-05
+
+## Logs GUI was empty (regression from the .env trim)
+- The logger resolves its file at **static import time**: `LOG_DIR = EG_LOG_DIR || path.resolve(cwd,"../..","logs")`
+  → in the container that default is unwritable, so writes silently failed and
+  `/api/dashboard/log` returned `lines: []`.
+- `EG_LOG_DIR` / `EG_LOG_MAX_LINES` are read BEFORE settings can load (logger is in the
+  static import chain) → they can never be GUI-applied → they belong in .env. Restored
+  from git history (the .env was once committed): `EG_LOG_DIR=/home/ftr/Apps/Engram/logs`
+  (matches the compose bind mount `./logs:/home/ftr/Apps/Engram/logs`),
+  `EG_LOG_MAX_LINES=3000`. Logs GUI verified working again (3000-line rolling file).
+
+## Why the three URLs are in .env — and their new status
+`EG_GENERATIVE_URL` / `EG_UPSTREAM_LLM_URL` / `EG_OPENAI_BASE_URL` (+ `EG_OPENAI_API_KEY`):
+- Read at startup (config module bakes `env.generative_url`/`env.llm_url`/
+  `env.openai_base_url`/`env.openai_key`) and are the first-boot seed source for the
+  provider settings.
+- The GUI edits them **effectively** via Provider Settings — the registry resolves
+  provider URLs from settings FIRST; env is fallback.
+- **Previously** docker-compose's `environment:` block OVERRODE them from
+  `${REMOTE_LLM_URL}` (a shell export, not in .env) — the recurring gotcha.
+- **Now fixed:** the compose overrides were removed — the .env values ARE the container
+  values (env_file), no `REMOTE_LLM_URL`/`REMOTE_LLM_API_KEY` needed anywhere.
+  Verified: plain `docker compose up -d` (no supplementary env file) → correct URLs in
+  the container, health 200, logs flowing, embedding test 768 dims.
+- `EG_EMBEDDINGS` compose override also removed (derived from provider.type at boot).

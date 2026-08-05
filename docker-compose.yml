@@ -48,11 +48,6 @@ services:
     environment:
       EG_PG_HOST: postgres
       EG_REDIS_URL: redis://redis:6379
-      EG_EMBEDDINGS: "openai"
-      EG_OPENAI_BASE_URL: "${REMOTE_LLM_URL}/v1"
-      EG_OPENAI_API_KEY: "${REMOTE_LLM_API_KEY}"
-      EG_GENERATIVE_URL: "${REMOTE_LLM_URL}/v1"
-      EG_UPSTREAM_LLM_URL: "${REMOTE_LLM_URL}/v1"
       EG_INTERNAL_API_KEY: "${EG_INTERNAL_API_KEY}"
       TZ: America/Chicago
     volumes:
