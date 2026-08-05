@@ -256,3 +256,37 @@ creating shell** (not in `.env`) — a bare `docker compose up` silently renders
 
 ## Verification
 - tsc clean, web build clean, both containers healthy, GUI bundle contains the note.
+
+
+---
+
+# Implementation Summary — .env minimization + read-only advanced table — 2026-08-05
+
+## .env / .env.example trimmed to MUST-haves only (73 vars → 15)
+The .env now contains ONLY values that cannot be GUI-edited:
+- LLM box: `REMOTE_LLM_URL`, `REMOTE_LLM_API_KEY` (compose substitution), plus the derived
+  app URLs `EG_GENERATIVE_URL` / `EG_UPSTREAM_LLM_URL` / `EG_OPENAI_BASE_URL` /
+  `EG_OPENAI_API_KEY` (read at boot, seed source, embed/proxy URLs)
+- Database/Redis: `EG_PG_*`, `EG_REDIS_URL` (read at startup BEFORE the settings store)
+- Internal/runtime: `EG_INTERNAL_API_KEY`, `LOG_LEVEL`, `NODE_ENV`
+Everything else (models, provider, server tuning, rate limits, compaction, auto-search,
+consolidation tiers, API key, provider secrets, vector store, misc) is GUI-managed.
+**Migration:** before trimming, all non-empty GUI-managed values were persisted into the
+settings store via the API (vec_dim 768, embed_timeout 30000, compact_* , rate_limit_*,
+require_api_key, max_payload_size, max_raw_turns, compaction_cooldown). Verified after a
+container recreate with the trimmed .env: general settings applied at boot (vec_dim=768),
+embedding test returns 768 dims, consolidation runs — nothing lost.
+
+## Advanced table is now READ-ONLY display
+- All 36 advanced rows render as read-only text (no inputs); the note now states they are
+  "shown for visibility only… cannot be edited here" and reflect the .env / container env.
+- `advanced` is stripped from save/test payloads in the GUI, so it can never be re-written.
+- Values shown: pg_host=postgres, redis url, openai key (present), dormant secrets empty.
+
+## Verification
+- tsc + web build clean; both containers healthy after recreate with 15-var .env.
+- Container env: dropped vars absent (0 matches for EG_MODEL_GENERATIVE=/EG_VEC_DIM=),
+  must-haves present (3 matches).
+- Settings boot-apply proven: EG_VEC_DIM not in .env, yet vec_dim=768 in the API and the
+  embedding test returns dims=768. Consolidation: chunks 150/150/76, all returned actions.
+- Web GUI 200, bundle contains the read-only note.

@@ -1126,10 +1126,12 @@ function SettingsView() {
     setTesting(section);
     setTestResult(null);
     try {
+      const settingsBody = JSON.parse(JSON.stringify(form));
+      delete settingsBody.advanced; // advanced is read-only display
       const res = await fetch("/api/settings/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ section, settings: form }),
+        body: JSON.stringify({ section, settings: settingsBody }),
       });
       const data = await res.json();
       setTestResult({ section, ...data });
@@ -1145,10 +1147,12 @@ function SettingsView() {
     setSaving(true);
     setSaveMsg(null);
     try {
+      const body = JSON.parse(JSON.stringify(form));
+      delete body.advanced; // advanced is read-only display
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (res.ok) {
@@ -1407,9 +1411,10 @@ function SettingsView() {
         <div className="mt-6 pt-4 border-t border-gray-100">
           <h4 className="text-sm font-semibold text-slate-700 mb-2">Advanced Settings</h4>
           <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">
-            ⚠️ <b>Advanced settings</b> — do not edit unless necessary. Values persist and apply at
-            next restart. Database/Redis connection values are read at startup before the settings
-            store is available — change those in docker-compose/.env and recreate the container.
+            ⚠️ <b>Advanced settings</b> — shown for visibility only; they are read from the .env /
+            container environment and <b>cannot be edited here</b>. Do not change these unless
+            necessary. Database/Redis values are read at startup, before the settings store is
+            available — change them in .env / docker-compose and recreate the container.
           </div>
           <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
             <tbody>
@@ -1424,23 +1429,9 @@ function SettingsView() {
                     <tr key={f[0]} className="border-t border-gray-100">
                       <td className="px-3 py-1.5 text-xs text-slate-500 w-1/2">{f[1]}</td>
                       <td className="px-3 py-1.5">
-                        {f[2] === "bool" ? (
-                          <select
-                            className="w-full px-2 py-1 rounded border border-gray-300 text-xs text-gray-900"
-                            value={form.advanced[f[0]] || ""}
-                            onChange={(e: any) => set(["advanced", f[0]], e.target.value)}
-                          >
-                            <option value="">(default)</option>
-                            <option value="true">true</option>
-                            <option value="false">false</option>
-                          </select>
-                        ) : (
-                          <input
-                            className="w-full px-2 py-1 rounded border border-gray-300 text-xs text-gray-900"
-                            value={form.advanced[f[0]] || ""}
-                            onChange={(e: any) => set(["advanced", f[0]], e.target.value)}
-                          />
-                        )}
+                        <code className="text-xs text-slate-700 break-all">
+                          {form.advanced[f[0]] || "—"}
+                        </code>
                       </td>
                     </tr>
                   ))}
