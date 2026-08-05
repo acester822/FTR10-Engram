@@ -111,6 +111,45 @@ function parseConsolidationJson(raw: string): ConsolidationAction[] | null {
   return null;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUuid(v: string): boolean {
+  return UUID_RE.test(v.trim());
+}
+
+/**
+ * The consolidation LLM sometimes returns LIST-POSITION numbers (e.g. "10" for the
+ * 10th memory in the chunk) instead of the real UUIDs shown in the prompt. Resolve
+ * every target_id: keep valid UUIDs, map integer positions -> candidate id, and drop
+ * ids that resolve to nothing. Actions left with zero targets are dropped.
+ */
+function resolveActionIds(actions: ConsolidationAction[], candidates: MemoryCandidate[]): ConsolidationAction[] {
+  const byPosition = new Map<string, string>();
+  candidates.forEach((c, i) => byPosition.set(String(i + 1), c.id));
+  const out: ConsolidationAction[] = [];
+  for (const a of actions) {
+    const seen = new Set<string>();
+    const ids: string[] = [];
+    for (const raw of a.target_ids || []) {
+      const t = String(raw).trim();
+      const resolved = isUuid(t) ? t : byPosition.get(t) || "";
+      if (resolved && !seen.has(resolved)) {
+        seen.add(resolved);
+        ids.push(resolved);
+      }
+    }
+    if (ids.length === 0) {
+      logger.warn({ module: 'consolidationEngine', action: a.action, reason: a.reason }, 'Dropping action with unresolvable target_ids');
+      continue;
+    }
+    if (ids.length !== (a.target_ids || []).length) {
+      logger.info({ module: 'consolidationEngine', action: a.action, resolved: ids, raw: a.target_ids }, 'Resolved positional target_ids to memory UUIDs');
+    }
+    out.push({ ...a, target_ids: ids });
+  }
+  return out;
+}
+
 // ── Consolidation Engine ──
 
 export class ConsolidationEngine {
@@ -234,7 +273,7 @@ Synthesized Memory:`;
    */
   private async generateConsolidationActions(candidates: MemoryCandidate[]): Promise<ConsolidationAction[]> {
     const memoryList = candidates.map((m, i) =>
-      `[${i + 1}] ID: ${m.id} | Sector: ${m.sector} | Genome: ${m.is_genome} | Accesses: ${m.access_count}\n    Content: "${m.content}"`
+      `[${i + 1}] ID: "${m.id}" | Sector: ${m.sector} | Genome: ${m.is_genome} | Accesses: ${m.access_count}\n    Content: "${m.content}"`
     ).join("\n");
 
     const prompt = `### SYSTEM DIRECTIVE ###
@@ -314,6 +353,7 @@ If no actions are needed, return: {"actions": []}
             'Consolidation LLM returned unparseable output — retrying',
           );
         } else {
+          parsed = resolveActionIds(parsed, candidates);
           logger.info(
             { module: 'consolidationEngine', model: consolidationModel(), candidateCount: candidates.length, actionCount: parsed.length, promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens },
             'Consolidation LLM returned actions',
@@ -347,8 +387,13 @@ If no actions are needed, return: {"actions": []}
           logger.info({ module: 'consolidationEngine', model: consolidationModel(), action: action.action, reason: action.reason }, `Executing ${action.action.toUpperCase()}`);
 
           if (action.action === "delete") {
-            const placeholders = action.target_ids.map((_, i) => `$${i + 1}`).join(",");
-            await db.query(`DELETE FROM "public"."memories" WHERE id IN (${placeholders})`, action.target_ids);
+            const validIds = action.target_ids.filter((id) => isUuid(id));
+            if (validIds.length === 0) {
+              logger.warn({ module: 'consolidationEngine', action: action.action }, 'DELETE skipped — no valid UUID targets');
+              continue;
+            }
+            const placeholders = validIds.map((_, i) => `$${i + 1}`).join(",");
+            await db.query(`DELETE FROM "public"."memories" WHERE id IN (${placeholders})`, validIds);
           }
           else if (action.action === "merge" || action.action === "update") {
             // For merge/update, new_content is REQUIRED. If LLM forgot it, synthesize from the source memories.
@@ -370,8 +415,13 @@ If no actions are needed, return: {"actions": []}
             const decayRate = isGenome ? DEFAULT_GENOME_DECAY_RATE : DEFAULT_PHENOTYPE_DECAY_RATE;
 
             // For merge/update, we update the first target ID and delete the rest to avoid duplicates
-            const primaryId = action.target_ids[0];
-            const idsToDelete = action.target_ids.slice(1);
+            const validIds = action.target_ids.filter((id) => isUuid(id));
+            if (validIds.length === 0) {
+              logger.warn({ module: 'consolidationEngine', action: action.action }, `${action.action.toUpperCase()} skipped — no valid UUID targets`);
+              continue;
+            }
+            const primaryId = validIds[0];
+            const idsToDelete = validIds.slice(1);
 
             await db.query(
               `UPDATE "public"."memories"
@@ -388,7 +438,7 @@ If no actions are needed, return: {"actions": []}
           }
           else if (action.action === "promote") {
             // Promote each target individually — content stays the same, just set is_genome=true
-            for (const targetId of action.target_ids) {
+            for (const targetId of action.target_ids.filter((id) => isUuid(id))) {
               const candidate = candidateMap.get(targetId);
               const newSector = normalizeSector(action.new_sector || candidate?.sector || "semantic");
               const decayRate = DEFAULT_GENOME_DECAY_RATE;
