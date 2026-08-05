@@ -7,6 +7,7 @@ import { env } from "../../../../configuration";
 import { consolidationEngine } from "../../../../services/consolidationEngine";
 import { compactionEngine } from "../../../../services/compactionEngine";
 import { classifyMemory, DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, computeDecaySalience, MemoryInjector } from "../../../../services/memoryInjector";
+import { embed } from "../../../../embeddings/embed";
 import { buildInjectionStatus, buildExtractionStatus, stripEngramStatus, isEngramStatus } from "../../../../services/engramStatus";
 import { genomeCache } from "../../../../services/genomeCache";
 import { logger } from "../../../../utils/logger";
@@ -247,7 +248,10 @@ export const chat_completions_route = (app: any) => {
       // Fetch phenotype memories via vector search on user prompt
       let phenotypeMemories: PhenotypeMemory[] = [];
       try {
-        const recallResult = await recallDurableMemories(db, { query: userPrompt, limit: 5 });
+        // Embed the query so recall uses vector + hybrid search (keyword-only
+        // ILIKE matches almost nothing for a full question sentence).
+        const queryEmbedding = await embed(userPrompt).catch(() => undefined);
+        const recallResult = await recallDurableMemories(db, { query: userPrompt, limit: 5, embedding: queryEmbedding });
         phenotypeMemories = recallResult.results.slice(0, 5).map((r: any) => ({
           id: r.id,
           content: r.content,
