@@ -1,0 +1,2860 @@
+{
+  "startedAt": "2026-08-05T20:35:39.173Z",
+  "config": {
+    "upstreamUrl": "http://10.10.10.41:8080/v1",
+    "answerModel": "Gemma-4-12B-no-thinking",
+    "engramUrl": "http://localhost:8098",
+    "judgeUrl": "http://10.10.10.41:8080/v1",
+    "judgeModel": "Gemma-4-26B-A4B-MTP",
+    "timeoutMs": 120000,
+    "psqlCmd": "docker exec engram-postgres-1 psql -U postgres -d engram -t -c"
+  },
+  "storeSize": 1823,
+  "scenarios": [
+    {
+      "id": "buried_fact_deploy",
+      "category": "buried_fact",
+      "seed": [
+        {
+          "content": "The FTR10 Engram server listens on host port 8098, mapped to container port 8080.",
+          "sector": "procedural"
+        }
+      ],
+      "question": "Which host port does the Engram server listen on?",
+      "gold": "8098",
+      "gold_evidence": [
+        "8098"
+      ],
+      "no_engram": {
+        "content": "I do not have specific information regarding the host port for an \"Engram server\" in my internal knowledge base.\n\nTo find this information, I recommend checking the following sources:\n\n1.  **Official Documentation:** Look for the technical specifications or setup guide provided by the software developer.\n2.  **Configuration Files:** Check the `.conf`, `.yaml`, or `.env` files in the server's installation directory.\n3.  **Command Line:** If the server is currently running, you can use commands like `netstat -tuln` (Linux/macOS) or `netstat -ano` (Windows) to see which ports are being listened on by the process.",
+        "usage": {
+          "completion_tokens": 143,
+          "prompt_tokens": 24,
+          "total_tokens": 167,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 2049,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "I do not have specific information regarding the host port for an \"Engram server\" in my internal knowledge base.\n\nTo find this information, I recommend checking the following sources:\n\n1.  **Official Documentation:** Look for the technical specifications or setup guide provided by the software developer.\n2.  **Configuration Files:** Check the `.conf`, `.yaml`, or `.env` files in the server's installation directory.\n3.  **Command Line:** If the server is currently running, you can use commands like `netstat -tuln` (Linux/macOS) or `netstat -ano` (Windows) to see which ports are being listened on by the process."
+              }
+            }
+          ],
+          "created": 1785962141,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 143,
+            "prompt_tokens": 24,
+            "total_tokens": 167,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-2d6ncW2DR7LUaTRuAryGom7gK4vBqAD7",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 23,
+            "prompt_ms": 315.21,
+            "prompt_per_token_ms": 13.704782608695652,
+            "prompt_per_second": 72.96722819707497,
+            "predicted_n": 143,
+            "predicted_ms": 1666.165,
+            "predicted_per_token_ms": 11.651503496503496,
+            "predicted_per_second": 85.82583357590634,
+            "draft_n": 79,
+            "draft_n_accepted": 63
+          }
+        },
+        "judged": {
+          "score": 0,
+          "correct": false,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "The server listens on host port 8098.",
+        "usage": {
+          "completion_tokens": 13,
+          "prompt_tokens": 324,
+          "total_tokens": 337,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 430,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The server listens on host port 8098."
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The FTR10 Engram server listens on host port 8098, mapped to container port 8080.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The web container listens on host port 8099.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The Mgmt Server listens on port 9000 and the Recording Server uses port 9001.",
+                    "score": 0.91
+                  },
+                  {
+                    "sector": "procedural",
+                    "content": "NVR server listens on port 1433 for data collection",
+                    "score": 0.9
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "Mgmt Server listens on port 9000 for NVR video streams",
+                    "score": 0.88
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962141,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 13,
+            "prompt_tokens": 324,
+            "total_tokens": 337,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-4v1bC2l21Fb7p8KxN7RM9eFnRy1aDbJp",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 323,
+            "prompt_ms": 168.879,
+            "prompt_per_token_ms": 0.5228452012383901,
+            "prompt_per_second": 1912.6119884651143,
+            "predicted_n": 13,
+            "predicted_ms": 163.995,
+            "predicted_per_token_ms": 12.615,
+            "predicted_per_second": 79.27070947284979,
+            "draft_n": 7,
+            "draft_n_accepted": 6
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": true
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "The Engram server listens on host port **8098**.",
+        "usage": {
+          "completion_tokens": 15,
+          "prompt_tokens": 63,
+          "total_tokens": 78,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 313,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The Engram server listens on host port **8098**."
+              }
+            }
+          ],
+          "created": 1785962142,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 15,
+            "prompt_tokens": 63,
+            "total_tokens": 78,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-T0jJlO2uUYZUusEZBzI8n0KitWJkBE5N",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 62,
+            "prompt_ms": 83.545,
+            "prompt_per_token_ms": 1.3475,
+            "prompt_per_second": 742.1150278293136,
+            "predicted_n": 15,
+            "predicted_ms": 178.15,
+            "predicted_per_token_ms": 11.876666666666667,
+            "predicted_per_second": 84.19870895312938,
+            "draft_n": 8,
+            "draft_n_accepted": 6
+          }
+        }
+      }
+    },
+    {
+      "id": "buried_fact_provider",
+      "category": "buried_fact",
+      "seed": [
+        {
+          "content": "The upstream LLM provider is llama-swap at 10.10.10.41:8080, serving LFM2.5-1.2B-Instruct for generative tasks.",
+          "sector": "procedural"
+        }
+      ],
+      "question": "What is the IP address and port of the llama-swap upstream?",
+      "gold": "10.10.10.41:8080",
+      "gold_evidence": [
+        "10.10.10.41:8080"
+      ],
+      "no_engram": {
+        "content": "I do not have access to specific network configurations, private infrastructure details, or real-time connection data for \"llama-swap.\"\n\nTo find the IP address and port for a specific upstream service, you should check your internal documentation, configuration files (such as Nginx, HAProxy, or Envoy configs), or contact your system administrator.",
+        "usage": {
+          "completion_tokens": 69,
+          "prompt_tokens": 27,
+          "total_tokens": 96,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 872,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "I do not have access to specific network configurations, private infrastructure details, or real-time connection data for \"llama-swap.\"\n\nTo find the IP address and port for a specific upstream service, you should check your internal documentation, configuration files (such as Nginx, HAProxy, or Envoy configs), or contact your system administrator."
+              }
+            }
+          ],
+          "created": 1785962142,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 69,
+            "prompt_tokens": 27,
+            "total_tokens": 96,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-aUvsOzZrNZuXRYrrJUShK7lsyY8XpMPb",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 26,
+            "prompt_ms": 53.563,
+            "prompt_per_token_ms": 2.0601153846153846,
+            "prompt_per_second": 485.40970446016837,
+            "predicted_n": 69,
+            "predicted_ms": 795.064,
+            "predicted_per_token_ms": 11.522666666666666,
+            "predicted_per_second": 86.78546632723906,
+            "draft_n": 38,
+            "draft_n_accepted": 31
+          }
+        },
+        "judged": {
+          "score": 0,
+          "correct": false,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "The IP address for the llama-swap upstream is 10.10.10.41 and the port is 8080.",
+        "usage": {
+          "completion_tokens": 33,
+          "prompt_tokens": 355,
+          "total_tokens": 388,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 635,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The IP address for the llama-swap upstream is 10.10.10.41 and the port is 8080."
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The upstream LLM provider is llama-swap at 10.10.10.41:8080, serving LFM2.5-1.2B-Instruct for generative tasks.",
+                    "score": 0.99
+                  },
+                  {
+                    "sector": "episodic",
+                    "content": "Verify the IP address and port matches the configuration",
+                    "score": 0.89
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "involves configuring performance routes with llama-swap integration",
+                    "score": 0.84
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The project uses llama-swap, LFM2.5-1.2B-Instruct (primary generative model for stability), and nomic-embed-text-v1.5 as the current models.",
+                    "score": 0.83
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "Meta's models are available via OpenRouter; Llama API exists but requires custom endpoint setup",
+                    "score": 0.72
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962143,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 33,
+            "prompt_tokens": 355,
+            "total_tokens": 388,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-KqZse5OjXlszBlWAzoeXUu8oHVeU4oFs",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 354,
+            "prompt_ms": 172.098,
+            "prompt_per_token_ms": 0.4861525423728814,
+            "prompt_per_second": 2056.967541749468,
+            "predicted_n": 33,
+            "predicted_ms": 370.932,
+            "predicted_per_token_ms": 11.240363636363638,
+            "predicted_per_second": 88.96509333247064,
+            "draft_n": 17,
+            "draft_n_accepted": 15
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": true
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "The IP address and port of the llama-swap upstream are **10.10.10.41:8080**.",
+        "usage": {
+          "completion_tokens": 31,
+          "prompt_tokens": 83,
+          "total_tokens": 114,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 467,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The IP address and port of the llama-swap upstream are **10.10.10.41:8080**."
+              }
+            }
+          ],
+          "created": 1785962144,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 31,
+            "prompt_tokens": 83,
+            "total_tokens": 114,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-LK4BYTadrDg5gix8ipQxyxGnoAFGODAL",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 82,
+            "prompt_ms": 86.511,
+            "prompt_per_token_ms": 1.055012195121951,
+            "prompt_per_second": 947.8563419680735,
+            "predicted_n": 31,
+            "predicted_ms": 326.599,
+            "predicted_per_token_ms": 10.535451612903225,
+            "predicted_per_second": 94.91762069081658,
+            "draft_n": 15,
+            "draft_n_accepted": 15
+          }
+        }
+      }
+    },
+    {
+      "id": "temporal_supersede_model",
+      "category": "temporal_supersede",
+      "seed": [
+        {
+          "content": "The consolidation model is LFM2.5-1.2B-Instruct.",
+          "sector": "semantic"
+        },
+        {
+          "content": "The consolidation model was switched to Gemma-4-12B-no-thinking.",
+          "sector": "semantic"
+        }
+      ],
+      "question": "What model does the consolidation engine currently use?",
+      "gold": "Gemma-4-12B-no-thinking",
+      "gold_evidence": [
+        "Gemma-4-12B-no-thinking"
+      ],
+      "no_engram": {
+        "content": "I do not have access to your specific internal systems, company documentation, or private software architecture.\n\nTo give you the correct answer, I would need to know which **software, platform, or company** you are referring to. \"Consolidation engine\" is a generic term used in many different industries, including:\n\n1.  **Finance/ERP:** Systems like SAP, Oracle, or Workday (used for consolidating financial statements).\n2.  **Data Engineering:** Tools like Snowflake, Databricks, or custom ETL pipelines (used for consolidating data sources).\n3.  **Logistics/Supply Chain:** Systems used to consolidate shipments or inventory.\n4.  **Cloud Infrastructure:** Engines used to consolidate cloud resources or containers.\n\n**How to find this information:**\n*   **Check your internal Wiki/Confluence:** Search for \"Consolidation Engine Architecture\" or \"Data Pipeline Documentation.\"\n*   **Ask your Engineering/IT Team:** They will know if the engine is a proprietary in-house build, a third-party SaaS product, or a specific open-source framework.\n*   **Check the API Documentation:** If you have access to the engine's API, the documentation usually lists the underlying technology stack.\n\n**If you can provide the name of the software or the company you are working with, I may be able to help you find more specific public information.**",
+        "usage": {
+          "completion_tokens": 289,
+          "prompt_tokens": 22,
+          "total_tokens": 311,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 3457,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "I do not have access to your specific internal systems, company documentation, or private software architecture.\n\nTo give you the correct answer, I would need to know which **software, platform, or company** you are referring to. \"Consolidation engine\" is a generic term used in many different industries, including:\n\n1.  **Finance/ERP:** Systems like SAP, Oracle, or Workday (used for consolidating financial statements).\n2.  **Data Engineering:** Tools like Snowflake, Databricks, or custom ETL pipelines (used for consolidating data sources).\n3.  **Logistics/Supply Chain:** Systems used to consolidate shipments or inventory.\n4.  **Cloud Infrastructure:** Engines used to consolidate cloud resources or containers.\n\n**How to find this information:**\n*   **Check your internal Wiki/Confluence:** Search for \"Consolidation Engine Architecture\" or \"Data Pipeline Documentation.\"\n*   **Ask your Engineering/IT Team:** They will know if the engine is a proprietary in-house build, a third-party SaaS product, or a specific open-source framework.\n*   **Check the API Documentation:** If you have access to the engine's API, the documentation usually lists the underlying technology stack.\n\n**If you can provide the name of the software or the company you are working with, I may be able to help you find more specific public information.**"
+              }
+            }
+          ],
+          "created": 1785962147,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 289,
+            "prompt_tokens": 22,
+            "total_tokens": 311,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-rvfJYVPHQBFG1RHqz38uiwc4uMOo7Kw5",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 21,
+            "prompt_ms": 55.591,
+            "prompt_per_token_ms": 2.647190476190476,
+            "prompt_per_second": 377.7589897645302,
+            "predicted_n": 289,
+            "predicted_ms": 3379.535,
+            "predicted_per_token_ms": 11.693892733564013,
+            "predicted_per_second": 85.51472317937231,
+            "draft_n": 161,
+            "draft_n_accepted": 128
+          }
+        },
+        "judged": {
+          "score": 0,
+          "correct": false,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "The consolidation engine currently uses the **Gemma-4-12B-no-thinking** generative model.",
+        "usage": {
+          "completion_tokens": 24,
+          "prompt_tokens": 441,
+          "total_tokens": 465,
+          "prompt_tokens_details": {
+            "cached_tokens": 419
+          }
+        },
+        "latencyMs": 454,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The consolidation engine currently uses the **Gemma-4-12B-no-thinking** generative model."
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The consolidation model is LFM2.5-1.2B-Instruct.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The consolidation model was switched to Gemma-4-12B-no-thinking.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The dashboard supports 'Recent' (7 days) and 'Deep' (7\u201330 days) consolidation via UI buttons and ConsolidationEngine.runTierByName() / POST /api/dashboard/consolidate. Note: Consolidation failures (signature: 'MERGE -> rollback -> invalid input syntax for type uuid') occur when Gemma-4-12B-no-thinking returns list-positions instead of UUIDs; fix via quoting IDs, parse-time resolution, and execution guards.",
+                    "score": 0.94
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The system currently uses the 'Gemma-4-12B-no-thinking' generative model.",
+                    "score": 0.88
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The two-tier consolidation process uses a 7-day window for the recent tier (running every 4 hours) and a 7-30 day window for the deep tier (running every 24 hours for groups with 3+ related memories). Intervals and thresholds are controlled via environment variables.",
+                    "score": 0.88
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962148,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 24,
+            "prompt_tokens": 441,
+            "total_tokens": 465,
+            "prompt_tokens_details": {
+              "cached_tokens": 419
+            }
+          },
+          "id": "chatcmpl-B2dGOHyyneahX3Mrf9zjgddTIHCuJDmv",
+          "timings": {
+            "cache_n": 419,
+            "prompt_n": 22,
+            "prompt_ms": 81.506,
+            "prompt_per_token_ms": 3.704818181818182,
+            "prompt_per_second": 269.91877898559613,
+            "predicted_n": 24,
+            "predicted_ms": 262.858,
+            "predicted_per_token_ms": 10.952416666666666,
+            "predicted_per_second": 91.30405009548882,
+            "draft_n": 12,
+            "draft_n_accepted": 12
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": true
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "The consolidation engine currently uses the **Gemma-4-12B-no-thinking** model.",
+        "usage": {
+          "completion_tokens": 23,
+          "prompt_tokens": 70,
+          "total_tokens": 93,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 407,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The consolidation engine currently uses the **Gemma-4-12B-no-thinking** model."
+              }
+            }
+          ],
+          "created": 1785962148,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 23,
+            "prompt_tokens": 70,
+            "total_tokens": 93,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-TrmQCWKs50AfhyBttJ3E5UDXp5VJJ7Ce",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 69,
+            "prompt_ms": 84.327,
+            "prompt_per_token_ms": 1.2221304347826087,
+            "prompt_per_second": 818.2432672809421,
+            "predicted_n": 23,
+            "predicted_ms": 262.041,
+            "predicted_per_token_ms": 11.393086956521739,
+            "predicted_per_second": 87.77252414698464,
+            "draft_n": 12,
+            "draft_n_accepted": 11
+          }
+        }
+      }
+    },
+    {
+      "id": "temporal_supersede_version",
+      "category": "temporal_supersede",
+      "seed": [
+        {
+          "content": "marktext-vscode currently targets MarkText 0.17.2.",
+          "sector": "semantic"
+        },
+        {
+          "content": "marktext-vscode previously targeted MarkText 0.17.1.",
+          "sector": "semantic"
+        }
+      ],
+      "question": "Which MarkText version does marktext-vscode target now?",
+      "gold": "0.17.2",
+      "gold_evidence": [
+        "0.17.2"
+      ],
+      "no_engram": {
+        "content": "I do not have access to the specific real-time versioning data for the `marktext-vscode` extension, as my knowledge is limited to the information provided in my training data and I cannot browse the live web to check the current repository or marketplace status.\n\nTo find the exact version of MarkText that `marktext-vscode` currently targets, I recommend checking one of the following sources:\n\n1.  **The VS Code Marketplace:** Search for \"MarkText\" and check the extension's description or \"About\" section.\n2.  **The GitHub Repository:** Visit the official repository for the `marktext-vscode` extension. The `README.md` or the `package.json` file usually specifies the compatibility requirements.\n3.  **The Official MarkText Website/GitHub:** Check the main MarkText project to see which version is currently considered the stable release.",
+        "usage": {
+          "completion_tokens": 184,
+          "prompt_tokens": 25,
+          "total_tokens": 209,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 2212,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "I do not have access to the specific real-time versioning data for the `marktext-vscode` extension, as my knowledge is limited to the information provided in my training data and I cannot browse the live web to check the current repository or marketplace status.\n\nTo find the exact version of MarkText that `marktext-vscode` currently targets, I recommend checking one of the following sources:\n\n1.  **The VS Code Marketplace:** Search for \"MarkText\" and check the extension's description or \"About\" section.\n2.  **The GitHub Repository:** Visit the official repository for the `marktext-vscode` extension. The `README.md` or the `package.json` file usually specifies the compatibility requirements.\n3.  **The Official MarkText Website/GitHub:** Check the main MarkText project to see which version is currently considered the stable release."
+              }
+            }
+          ],
+          "created": 1785962150,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 184,
+            "prompt_tokens": 25,
+            "total_tokens": 209,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-aKCtaomPuyh6SAK5rWYfQg2JATcQ4UtJ",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 24,
+            "prompt_ms": 54.148,
+            "prompt_per_token_ms": 2.2561666666666667,
+            "prompt_per_second": 443.22966683903377,
+            "predicted_n": 184,
+            "predicted_ms": 2138.458,
+            "predicted_per_token_ms": 11.622054347826088,
+            "predicted_per_second": 86.04330784144463,
+            "draft_n": 103,
+            "draft_n_accepted": 81
+          }
+        },
+        "judged": {
+          "score": 0,
+          "correct": false,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "`marktext-vscode` currently targets MarkText version 0.17.2.",
+        "usage": {
+          "completion_tokens": 20,
+          "prompt_tokens": 331,
+          "total_tokens": 351,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 498,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "`marktext-vscode` currently targets MarkText version 0.17.2."
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] marktext-vscode currently targets MarkText 0.17.2.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] marktext-vscode previously targeted MarkText 0.17.1.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "Ensure TypeScript targets are updated to ES2015 or later. | The user prefers TypeScript over JavaScript | User prefers TypeScript over JavaScript | The user prefers a low-effort solution with existing code",
+                    "score": 0.75
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The code-server is overriding the default color scheme with 'vscode-dark' class.",
+                    "score": 0.68
+                  },
+                  {
+                    "sector": "procedural",
+                    "content": "Important decision involves updating the version in the VSIX package.",
+                    "score": 0.68
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962151,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 20,
+            "prompt_tokens": 331,
+            "total_tokens": 351,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-4O33cgeXoIL4bw20dFCCgGfChZ9mEJCS",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 330,
+            "prompt_ms": 171.124,
+            "prompt_per_token_ms": 0.5185575757575758,
+            "prompt_per_second": 1928.4261704962485,
+            "predicted_n": 20,
+            "predicted_ms": 229.903,
+            "predicted_per_token_ms": 11.495149999999999,
+            "predicted_per_second": 86.99321017994546,
+            "draft_n": 10,
+            "draft_n_accepted": 10
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": true
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "`marktext-vscode` currently targets MarkText **0.17.2**.",
+        "usage": {
+          "completion_tokens": 19,
+          "prompt_tokens": 70,
+          "total_tokens": 89,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 344,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "`marktext-vscode` currently targets MarkText **0.17.2**."
+              }
+            }
+          ],
+          "created": 1785962151,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 19,
+            "prompt_tokens": 70,
+            "total_tokens": 89,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-NsBbcuQsXPJ0rthDH9IKUlloDVliP2a3",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 69,
+            "prompt_ms": 84.291,
+            "prompt_per_token_ms": 1.221608695652174,
+            "prompt_per_second": 818.5927323201765,
+            "predicted_n": 19,
+            "predicted_ms": 203.144,
+            "predicted_per_token_ms": 10.69178947368421,
+            "predicted_per_second": 93.52971291300751,
+            "draft_n": 9,
+            "draft_n_accepted": 9
+          }
+        }
+      }
+    },
+    {
+      "id": "conflict_resolution",
+      "category": "conflict_resolution",
+      "seed": [
+        {
+          "content": "The user prefers PostgreSQL as the memory store.",
+          "sector": "preference"
+        },
+        {
+          "content": "The user moved the memory store to SQLite for local-first operation.",
+          "sector": "preference"
+        }
+      ],
+      "question": "What storage backend does the user currently prefer for the memory store?",
+      "gold": "SQLite",
+      "gold_evidence": [
+        "SQLite"
+      ],
+      "no_engram": {
+        "content": "I do not have access to your personal configuration files, environment variables, or previous conversation history unless you have explicitly provided them in this current chat session.\n\nTo give you an accurate answer, please check the following locations depending on the software you are using:\n\n1.  **Configuration Files:** Look for a `.env`, `config.yaml`, `settings.json`, or `config.ini` file in your project directory.\n2.  **Environment Variables:** Check if a variable like `STORAGE_BACKEND`, `REDIS_URL`, or `MEMORY_STORE_TYPE` is set in your system.\n3.  **Codebase:** Search your source code for keywords like `storage_backend`, `cache_driver`, or `memory_store`.\n\n**If you can paste the relevant configuration snippet or tell me which software/framework you are using, I can help you identify the specific setting.**",
+        "usage": {
+          "completion_tokens": 188,
+          "prompt_tokens": 26,
+          "total_tokens": 214,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 2244,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "I do not have access to your personal configuration files, environment variables, or previous conversation history unless you have explicitly provided them in this current chat session.\n\nTo give you an accurate answer, please check the following locations depending on the software you are using:\n\n1.  **Configuration Files:** Look for a `.env`, `config.yaml`, `settings.json`, or `config.ini` file in your project directory.\n2.  **Environment Variables:** Check if a variable like `STORAGE_BACKEND`, `REDIS_URL`, or `MEMORY_STORE_TYPE` is set in your system.\n3.  **Codebase:** Search your source code for keywords like `storage_backend`, `cache_driver`, or `memory_store`.\n\n**If you can paste the relevant configuration snippet or tell me which software/framework you are using, I can help you identify the specific setting.**"
+              }
+            }
+          ],
+          "created": 1785962153,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 188,
+            "prompt_tokens": 26,
+            "total_tokens": 214,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-k4bEd1bSuNabdU2fCzXWu5mT7IKk4AJg",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 25,
+            "prompt_ms": 55.053,
+            "prompt_per_token_ms": 2.20212,
+            "prompt_per_second": 454.10785969883574,
+            "predicted_n": 188,
+            "predicted_ms": 2167.437,
+            "predicted_per_token_ms": 11.528920212765957,
+            "predicted_per_second": 86.73839193480595,
+            "draft_n": 104,
+            "draft_n_accepted": 83
+          }
+        },
+        "judged": {
+          "score": 0,
+          "correct": false,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "The user currently prefers **SQLite** for the memory store to ensure local-first operation.",
+        "usage": {
+          "completion_tokens": 19,
+          "prompt_tokens": 349,
+          "total_tokens": 368,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 508,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The user currently prefers **SQLite** for the memory store to ensure local-first operation."
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The user prefers PostgreSQL as the memory store.",
+                    "score": 0.99
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The user prefers local-first memory storage and distrusts LLM consolidation rewrites.",
+                    "score": 0.93
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The user moved the memory store to SQLite for local-first operation.",
+                    "score": 0.88
+                  },
+                  {
+                    "sector": "reflective",
+                    "content": "The user's goal for the memory system is to have a mechanism that can decide what to keep, what to discard, and what data is now incorrect.",
+                    "score": 0.87
+                  },
+                  {
+                    "sector": "procedural",
+                    "content": "The user's system architecture follows an 'inward-first' memory retrieval pattern: it queries local stores first and only falls back to outward web searches if confidence scores are low.",
+                    "score": 0.87
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962154,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 19,
+            "prompt_tokens": 349,
+            "total_tokens": 368,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-L7ODbNKAvS6GkzcNfyokpL8Bh39vY5vA",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 348,
+            "prompt_ms": 173.929,
+            "prompt_per_token_ms": 0.49979597701149425,
+            "prompt_per_second": 2000.8164250929976,
+            "predicted_n": 19,
+            "predicted_ms": 223.936,
+            "predicted_per_token_ms": 11.786105263157895,
+            "predicted_per_second": 84.84567019148328,
+            "draft_n": 10,
+            "draft_n_accepted": 8
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": true
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "The user currently prefers **SQLite** for the memory store, as they moved it from PostgreSQL to support local-first operation.",
+        "usage": {
+          "completion_tokens": 26,
+          "prompt_tokens": 62,
+          "total_tokens": 88,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 443,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The user currently prefers **SQLite** for the memory store, as they moved it from PostgreSQL to support local-first operation."
+              }
+            }
+          ],
+          "created": 1785962154,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 26,
+            "prompt_tokens": 62,
+            "total_tokens": 88,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-RxDlAW3PIFx2h0UHgiGDKfWjJU6adIeT",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 61,
+            "prompt_ms": 92.587,
+            "prompt_per_token_ms": 1.5178196721311477,
+            "prompt_per_second": 658.839793923553,
+            "predicted_n": 26,
+            "predicted_ms": 290.493,
+            "predicted_per_token_ms": 11.172807692307693,
+            "predicted_per_second": 89.50301728440961,
+            "draft_n": 13,
+            "draft_n_accepted": 12
+          }
+        }
+      }
+    },
+    {
+      "id": "distractor_api_key",
+      "category": "distractor",
+      "seed": [
+        {
+          "content": "The staging API key is sk-staging-1234.",
+          "sector": "semantic"
+        },
+        {
+          "content": "The production API key is sk-prod-5678.",
+          "sector": "semantic"
+        }
+      ],
+      "question": "What is the production API key?",
+      "gold": "sk-prod-5678",
+      "gold_evidence": [
+        "sk-prod-5678"
+      ],
+      "no_engram": {
+        "content": "I do not have access to your personal accounts, billing information, or specific API keys.\n\nTo find your production API key, you typically need to follow these steps depending on the service you are using:\n\n1.  **Log in** to the official developer dashboard of the service (e.g., Google Cloud Console, OpenAI Dashboard, AWS, etc.).\n2.  **Navigate to the \"API Keys\" or \"Credentials\" section** (usually found under Settings, Security, or Developer Tools).\n3.  **Create or Copy the key.** Most platforms will provide a \"Production\" key and a \"Test/Sandbox\" key.\n\n**Security Warning:** Never share your production API key with anyone, and do not post it in public forums or include it directly in your source code (use environment variables instead).",
+        "usage": {
+          "completion_tokens": 169,
+          "prompt_tokens": 20,
+          "total_tokens": 189,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 2068,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "I do not have access to your personal accounts, billing information, or specific API keys.\n\nTo find your production API key, you typically need to follow these steps depending on the service you are using:\n\n1.  **Log in** to the official developer dashboard of the service (e.g., Google Cloud Console, OpenAI Dashboard, AWS, etc.).\n2.  **Navigate to the \"API Keys\" or \"Credentials\" section** (usually found under Settings, Security, or Developer Tools).\n3.  **Create or Copy the key.** Most platforms will provide a \"Production\" key and a \"Test/Sandbox\" key.\n\n**Security Warning:** Never share your production API key with anyone, and do not post it in public forums or include it directly in your source code (use environment variables instead)."
+              }
+            }
+          ],
+          "created": 1785962156,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 169,
+            "prompt_tokens": 20,
+            "total_tokens": 189,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-ul0g1Kloy7zjjwbL0EAyjRAdYnQOCsI1",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 19,
+            "prompt_ms": 52.273,
+            "prompt_per_token_ms": 2.7512105263157896,
+            "prompt_per_second": 363.47636447114184,
+            "predicted_n": 169,
+            "predicted_ms": 1993.886,
+            "predicted_per_token_ms": 11.798142011834319,
+            "predicted_per_second": 84.75910859497483,
+            "draft_n": 95,
+            "draft_n_accepted": 73
+          }
+        },
+        "judged": {
+          "score": 0,
+          "correct": false,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "The production API key is sk-prod-5678.",
+        "usage": {
+          "completion_tokens": 15,
+          "prompt_tokens": 288,
+          "total_tokens": 303,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 414,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The production API key is sk-prod-5678."
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The production API key is sk-prod-5678.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "procedural",
+                    "content": "Configuration keys are stored under /config/production.json.",
+                    "score": 0.91
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The staging API key is sk-staging-1234.",
+                    "score": 0.91
+                  },
+                  {
+                    "sector": "procedural",
+                    "content": "Use `.env.production` to control library URLs and disable external dependencies.",
+                    "score": 0.84
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "User confirmed production containers now cover dev roles",
+                    "score": 0.79
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962157,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 15,
+            "prompt_tokens": 288,
+            "total_tokens": 303,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-PCPP7POD5HWWM9ptqRP49HHLRBW4xLTf",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 287,
+            "prompt_ms": 158.467,
+            "prompt_per_token_ms": 0.5521498257839722,
+            "prompt_per_second": 1811.1026270453783,
+            "predicted_n": 15,
+            "predicted_ms": 161.926,
+            "predicted_per_token_ms": 10.795066666666665,
+            "predicted_per_second": 92.6349073033361,
+            "draft_n": 7,
+            "draft_n_accepted": 7
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": true
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "The production API key is sk-prod-5678.",
+        "usage": {
+          "completion_tokens": 15,
+          "prompt_tokens": 61,
+          "total_tokens": 76,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 302,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The production API key is sk-prod-5678."
+              }
+            }
+          ],
+          "created": 1785962157,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 15,
+            "prompt_tokens": 61,
+            "total_tokens": 76,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-ijM5VgLZNip8bobFTkaZnEbdCGDfuLx9",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 60,
+            "prompt_ms": 85.153,
+            "prompt_per_token_ms": 1.4192166666666668,
+            "prompt_per_second": 704.6140476553967,
+            "predicted_n": 15,
+            "predicted_ms": 161.773,
+            "predicted_per_token_ms": 10.784866666666666,
+            "predicted_per_second": 92.72251859086498,
+            "draft_n": 7,
+            "draft_n_accepted": 7
+          }
+        }
+      }
+    },
+    {
+      "id": "abstention_breakfast",
+      "category": "abstention",
+      "seed": [
+        {
+          "content": "The FTR10 codebase uses TypeScript and React for the web GUI.",
+          "sector": "semantic"
+        }
+      ],
+      "question": "What did the user have for breakfast this morning?",
+      "gold": "ABSTAIN",
+      "gold_evidence": [],
+      "no_engram": {
+        "content": "I do not have access to your personal life, your camera, or your private information, so I don't know what you had for breakfast. \n\nIf you tell me what you ate, I can help you calculate the calories, provide a recipe, or suggest a similar meal for tomorrow!",
+        "usage": {
+          "completion_tokens": 61,
+          "prompt_tokens": 23,
+          "total_tokens": 84,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 797,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "I do not have access to your personal life, your camera, or your private information, so I don't know what you had for breakfast. \n\nIf you tell me what you ate, I can help you calculate the calories, provide a recipe, or suggest a similar meal for tomorrow!"
+              }
+            }
+          ],
+          "created": 1785962158,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 61,
+            "prompt_tokens": 23,
+            "total_tokens": 84,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-zW16qLbNNPVNEb319n0f4Sh4agz7xUKo",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 22,
+            "prompt_ms": 53.675,
+            "prompt_per_token_ms": 2.439772727272727,
+            "prompt_per_second": 409.87424312994875,
+            "predicted_n": 61,
+            "predicted_ms": 718.526,
+            "predicted_per_token_ms": 11.77911475409836,
+            "predicted_per_second": 84.89602324759299,
+            "draft_n": 34,
+            "draft_n_accepted": 26
+          }
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "I do not have any information regarding what you had for breakfast this morning. My current records do not contain details about your daily meals or personal routine.",
+        "usage": {
+          "completion_tokens": 31,
+          "prompt_tokens": 285,
+          "total_tokens": 316,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 619,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "I do not have any information regarding what you had for breakfast this morning. My current records do not contain details about your daily meals or personal routine."
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The user prefers PostgreSQL as the memory store.",
+                    "score": 0.73
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The user moved the memory store to SQLite for local-first operation.",
+                    "score": 0.69
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "User wants to know what is visible in the current view",
+                    "score": 0.63
+                  },
+                  {
+                    "sector": "procedural",
+                    "content": "The user has requested updates on the Engram project status and related fixes.",
+                    "score": 0.63
+                  },
+                  {
+                    "sector": "procedural",
+                    "content": "User needs clarification on what to do next",
+                    "score": 0.61
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962159,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 31,
+            "prompt_tokens": 285,
+            "total_tokens": 316,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-a8FooJJpRZex6UsTEM6QwHa82IZ3zqXq",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 284,
+            "prompt_ms": 161.372,
+            "prompt_per_token_ms": 0.5682112676056339,
+            "prompt_per_second": 1759.9087821926976,
+            "predicted_n": 31,
+            "predicted_ms": 370.07,
+            "predicted_per_token_ms": 11.93774193548387,
+            "predicted_per_second": 83.7679357959305,
+            "draft_n": 17,
+            "draft_n_accepted": 13
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": false
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "I do not have access to your personal life or information about your daily activities. Therefore, I don't know what you had for breakfast this morning.",
+        "usage": {
+          "completion_tokens": 32,
+          "prompt_tokens": 49,
+          "total_tokens": 81,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 528,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "I do not have access to your personal life or information about your daily activities. Therefore, I don't know what you had for breakfast this morning."
+              }
+            }
+          ],
+          "created": 1785962159,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 32,
+            "prompt_tokens": 49,
+            "total_tokens": 81,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-hVF36bTGWKThg7K4qf8q2qtUGqg86y8C",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 48,
+            "prompt_ms": 82.009,
+            "prompt_per_token_ms": 1.7085208333333333,
+            "prompt_per_second": 585.3016132375715,
+            "predicted_n": 32,
+            "predicted_ms": 393.168,
+            "predicted_per_token_ms": 12.2865,
+            "predicted_per_second": 81.39014365360354,
+            "draft_n": 18,
+            "draft_n_accepted": 14
+          }
+        }
+      }
+    },
+    {
+      "id": "code_pattern_sanitize",
+      "category": "code_pattern",
+      "seed": [
+        {
+          "content": "The chat proxy sanitizes history by stripping reasoning_content thinking tokens before injection.",
+          "sector": "procedural"
+        }
+      ],
+      "question": "How does the Engram proxy sanitize conversation history before injecting memory context?",
+      "gold": "It strips reasoning_content thinking tokens.",
+      "gold_evidence": [
+        "reasoning_content"
+      ],
+      "no_engram": {
+        "content": "While the specific internal architecture of a proprietary system like \"Engram\" may vary depending on the developer's implementation, most enterprise-grade memory proxies (like Engram) follow a standardized **PII (Personally Identifiable Information) Redaction and Contextual Filtering** pipeline.\n\nTo ensure that the LLM receives \"memory\" without receiving \"private data,\" the proxy typically performs the following four steps before injecting context into the prompt:\n\n### 1. Named Entity Recognition (NER) & Scrubbing\nThe proxy first scans the raw conversation history for specific categories of sensitive data. It uses a combination of regex patterns and NLP models to identify:\n*   **Direct Identifiers:** Names, phone numbers, email addresses, physical addresses, and IP addresses.\n*   **Financial/Medical Data:** Credit card numbers, SSNs, or specific health records.\n*   **Action:** These are replaced with generic placeholders (e.g., `[USER_NAME]`, `[PHONE_NUMBER]`) or removed entirely before the data is stored in the long-term memory vector database.\n\n### 2. Semantic Summarization (Abstraction)\nInstead of injecting raw transcripts into the prompt, the proxy often converts history into **abstracted summaries**. \n*   **Raw History:** \"I am moving to 123 Maple St. on Tuesday.\"\n*   **Sanitized Memory:** \"The user mentioned they are moving to a new residence soon.\"\n*   **Mechanism:** The proxy uses a smaller, faster LLM to \"distill\" the conversation into facts. This removes the specific \"noise\" of the conversation while retaining the \"intent\" or \"preference\" required for the model to be helpful.\n\n### 3. Role-Based Access Control (RBAC) Filtering\nBefore injecting memory, the proxy checks the **permissions** of the current session. \n*   If a user is logged in, the proxy ensures that the memory being injected belongs *only* to that user's UUID.\n*   It filters out any \"Global\" or \"System\" memories that the current user is not authorized to see. This prevents \"Cross-Talk,\" where one user's history might accidentally leak into another user's context window.\n\n### 4. Contextual Relevance Scoring (RAG Filtering)\nTo prevent the LLM from being overwhelmed by irrelevant history (which can cause \"hallucinations\" or \"distractions\"), the proxy uses a **Similarity Search**:\n",
+        "usage": {
+          "completion_tokens": 512,
+          "prompt_tokens": 27,
+          "total_tokens": 539,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 6324,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "length",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "While the specific internal architecture of a proprietary system like \"Engram\" may vary depending on the developer's implementation, most enterprise-grade memory proxies (like Engram) follow a standardized **PII (Personally Identifiable Information) Redaction and Contextual Filtering** pipeline.\n\nTo ensure that the LLM receives \"memory\" without receiving \"private data,\" the proxy typically performs the following four steps before injecting context into the prompt:\n\n### 1. Named Entity Recognition (NER) & Scrubbing\nThe proxy first scans the raw conversation history for specific categories of sensitive data. It uses a combination of regex patterns and NLP models to identify:\n*   **Direct Identifiers:** Names, phone numbers, email addresses, physical addresses, and IP addresses.\n*   **Financial/Medical Data:** Credit card numbers, SSNs, or specific health records.\n*   **Action:** These are replaced with generic placeholders (e.g., `[USER_NAME]`, `[PHONE_NUMBER]`) or removed entirely before the data is stored in the long-term memory vector database.\n\n### 2. Semantic Summarization (Abstraction)\nInstead of injecting raw transcripts into the prompt, the proxy often converts history into **abstracted summaries**. \n*   **Raw History:** \"I am moving to 123 Maple St. on Tuesday.\"\n*   **Sanitized Memory:** \"The user mentioned they are moving to a new residence soon.\"\n*   **Mechanism:** The proxy uses a smaller, faster LLM to \"distill\" the conversation into facts. This removes the specific \"noise\" of the conversation while retaining the \"intent\" or \"preference\" required for the model to be helpful.\n\n### 3. Role-Based Access Control (RBAC) Filtering\nBefore injecting memory, the proxy checks the **permissions** of the current session. \n*   If a user is logged in, the proxy ensures that the memory being injected belongs *only* to that user's UUID.\n*   It filters out any \"Global\" or \"System\" memories that the current user is not authorized to see. This prevents \"Cross-Talk,\" where one user's history might accidentally leak into another user's context window.\n\n### 4. Contextual Relevance Scoring (RAG Filtering)\nTo prevent the LLM from being overwhelmed by irrelevant history (which can cause \"hallucinations\" or \"distractions\"), the proxy uses a **Similarity Search**:\n"
+              }
+            }
+          ],
+          "created": 1785962166,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 512,
+            "prompt_tokens": 27,
+            "total_tokens": 539,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-KGWP2Z4CBiTy9lw2Vx5APfZMhlLK56Za",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 26,
+            "prompt_ms": 56.87,
+            "prompt_per_token_ms": 2.187307692307692,
+            "prompt_per_second": 457.18304905925794,
+            "predicted_n": 512,
+            "predicted_ms": 6249.41,
+            "predicted_per_token_ms": 12.20587890625,
+            "predicted_per_second": 81.92773397808753,
+            "draft_n": 294,
+            "draft_n_accepted": 216
+          }
+        },
+        "judged": {
+          "score": 1,
+          "correct": false,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "The system handles conversation history by stripping out internal reasoning tokens (specifically `reasoning_content` thinking blocks) before the data is injected into the memory framework. This ensures that the underlying cognitive context remains focused on the actual dialogue and relevant facts rather than the internal processing steps used to generate them.",
+        "usage": {
+          "completion_tokens": 60,
+          "prompt_tokens": 325,
+          "total_tokens": 385,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 1052,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The system handles conversation history by stripping out internal reasoning tokens (specifically `reasoning_content` thinking blocks) before the data is injected into the memory framework. This ensures that the underlying cognitive context remains focused on the actual dialogue and relevant facts rather than the internal processing steps used to generate them."
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The chat proxy sanitizes history by stripping reasoning_content thinking tokens before injection.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The plugin uses Engram as a memory and cognition backend, not as a proxy like Langfuse.",
+                    "score": 0.86
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The Engram Hermes plugin currently injects memory frames via SSE without exposing them to the user interface.",
+                    "score": 0.82
+                  },
+                  {
+                    "sector": "procedural",
+                    "content": "The proposed architecture for option #3 moves shaping logic into Engram, with the plugin requesting a finished cognitive context.",
+                    "score": 0.81
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "Engram is the memory authority for Hermes; genome is reserved for explicit remember calls.",
+                    "score": 0.78
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962167,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 60,
+            "prompt_tokens": 325,
+            "total_tokens": 385,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-aa61TvfELpYNjrBYzAHHI3ErVyJ4hQGv",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 324,
+            "prompt_ms": 165.542,
+            "prompt_per_token_ms": 0.5109320987654321,
+            "prompt_per_second": 1957.2072344178516,
+            "predicted_n": 60,
+            "predicted_ms": 752.553,
+            "predicted_per_token_ms": 12.54255,
+            "predicted_per_second": 79.72860383255399,
+            "draft_n": 35,
+            "draft_n_accepted": 25
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": true
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "Based on the technical specifications of the Engram architecture, the sanitization process is designed to ensure that the \"Chain of Thought\" (CoT) or internal reasoning of the model does not leak into the persistent memory context.\n\nHere is the step-by-step breakdown of how the proxy handles this:\n\n### 1. Token Identification\nThe proxy identifies specific tokens that represent the model's internal reasoning. In many LLM implementations, these are wrapped in specific tags (e.g., `<thought>`, `<reasoning>`, or specific hidden headers). The proxy scans the raw output stream for these markers.\n\n### 2. Stripping the Reasoning Content\nBefore the conversation history is committed to the long-term memory (the \"Engram\"), the proxy performs a **regex or string-based extraction**. It identifies the content between the reasoning start and end tokens and removes it entirely.\n\n*   **Input to Proxy:** `[Thought: The user is asking about a recipe. I should check for allergies.] \"Here is a recipe for pasta...\"`\n*   **Sanitized Output:** `\"Here is a recipe for pasta...\"`\n\n### 3. Context Injection Logic\nOnce the reasoning is stripped, the proxy takes the \"clean\" dialogue (User Input $\\leftrightarrow$ Model Response) and prepares it for injection. It does this by:\n*   **Formatting:** Converting the cleaned text into the specific schema required by the memory retrieval system (e.g., JSON or a specific prompt template).\n*   **Summarization (Optional):** Depending on the configuration, the proxy may further condense the cleaned history into a summary before injecting it into the context window to save tokens.\n\n### 4. Why this is done (The \"Why\")\nThe proxy performs this sanitization for three primary reasons:\n\n*   **Token Economy:** Reasoning tokens are often voluminous. Including them in the memory context would quickly exhaust the context window, leaving less room for the actual conversation.\n*   **Noise Reduction:** Memory context is most effective when it contains facts, preferences, and outcomes. Internal \"monologues\" or \"scratchpad\" logic are often irrelevant to the user's future needs and can confuse the model's retrieval accuracy.\n*   **Privacy/Safety:** In some enterprise configurations, internal reasoning might contain system instructions or internal logic that should not be persisted in a way that could be \"prompt injected\" by a user later.\n\n### Summary Flow\n**Raw Model Output** $\\rightarrow",
+        "usage": {
+          "completion_tokens": 512,
+          "prompt_tokens": 54,
+          "total_tokens": 566,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 6258,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "length",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Based on the technical specifications of the Engram architecture, the sanitization process is designed to ensure that the \"Chain of Thought\" (CoT) or internal reasoning of the model does not leak into the persistent memory context.\n\nHere is the step-by-step breakdown of how the proxy handles this:\n\n### 1. Token Identification\nThe proxy identifies specific tokens that represent the model's internal reasoning. In many LLM implementations, these are wrapped in specific tags (e.g., `<thought>`, `<reasoning>`, or specific hidden headers). The proxy scans the raw output stream for these markers.\n\n### 2. Stripping the Reasoning Content\nBefore the conversation history is committed to the long-term memory (the \"Engram\"), the proxy performs a **regex or string-based extraction**. It identifies the content between the reasoning start and end tokens and removes it entirely.\n\n*   **Input to Proxy:** `[Thought: The user is asking about a recipe. I should check for allergies.] \"Here is a recipe for pasta...\"`\n*   **Sanitized Output:** `\"Here is a recipe for pasta...\"`\n\n### 3. Context Injection Logic\nOnce the reasoning is stripped, the proxy takes the \"clean\" dialogue (User Input $\\leftrightarrow$ Model Response) and prepares it for injection. It does this by:\n*   **Formatting:** Converting the cleaned text into the specific schema required by the memory retrieval system (e.g., JSON or a specific prompt template).\n*   **Summarization (Optional):** Depending on the configuration, the proxy may further condense the cleaned history into a summary before injecting it into the context window to save tokens.\n\n### 4. Why this is done (The \"Why\")\nThe proxy performs this sanitization for three primary reasons:\n\n*   **Token Economy:** Reasoning tokens are often voluminous. Including them in the memory context would quickly exhaust the context window, leaving less room for the actual conversation.\n*   **Noise Reduction:** Memory context is most effective when it contains facts, preferences, and outcomes. Internal \"monologues\" or \"scratchpad\" logic are often irrelevant to the user's future needs and can confuse the model's retrieval accuracy.\n*   **Privacy/Safety:** In some enterprise configurations, internal reasoning might contain system instructions or internal logic that should not be persisted in a way that could be \"prompt injected\" by a user later.\n\n### Summary Flow\n**Raw Model Output** $\\rightarrow"
+              }
+            }
+          ],
+          "created": 1785962173,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 512,
+            "prompt_tokens": 54,
+            "total_tokens": 566,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-JjRZIxXnBnkF3IKUjcDSyp4B9lkZ8InH",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 53,
+            "prompt_ms": 83.657,
+            "prompt_per_token_ms": 1.5784339622641508,
+            "prompt_per_second": 633.5393332297358,
+            "predicted_n": 512,
+            "predicted_ms": 6128.313,
+            "predicted_per_token_ms": 11.969361328125,
+            "predicted_per_second": 83.54664652409235,
+            "draft_n": 290,
+            "draft_n_accepted": 221
+          }
+        }
+      }
+    },
+    {
+      "id": "preference_consolidation",
+      "category": "preference",
+      "seed": [
+        {
+          "content": "The user prefers local-first memory storage and distrusts LLM consolidation rewrites.",
+          "sector": "preference"
+        }
+      ],
+      "question": "Does the user trust LLM consolidation rewrites of memories?",
+      "gold": "No, the user distrusts them.",
+      "gold_evidence": [
+        "distrusts LLM consolidation"
+      ],
+      "no_engram": {
+        "content": "Whether a user trusts LLM-consolidated rewrites of memories depends heavily on the **context of the application**, the **transparency of the process**, and the **accuracy of the underlying model.**\n\nBecause \"memory\" in this context can refer to personal data (biographies, journals, notes) or operational data (user preferences, past interactions), the trust dynamics break down into four key dimensions:\n\n### 1. The \"Loss of Nuance\" Risk (The Trust Barrier)\nThe primary reason users hesitate to trust LLM consolidation is the fear of **semantic flattening.**\n*   **The Problem:** LLMs tend to summarize by identifying the \"main point.\" In personal memories, the \"main point\" is often less important than the specific, idiosyncratic details (the \"flavor\" of the memory).\n*   **Trust Impact:** If a user feels the LLM has stripped away the emotional weight or specific details that made the memory unique, they will perceive the rewrite as a \"hallucination of essence\" rather than a faithful consolidation.\n\n### 2. The \"Hallucination\" Factor (The Accuracy Barrier)\nUsers are inherently wary of LLMs making things up.\n*   **The Problem:** When consolidating multiple memories, an LLM might \"bridge\" two unrelated events to create a smoother narrative, effectively inventing a causal link that never existed.\n*   **Trust Impact:** If a user discovers even one factual error in a consolidated memory, they are likely to lose trust in the *entire* consolidated history, viewing it as unreliable for future reference.\n\n### 3. The \"Privacy and Agency\" Concern (The Ethical Barrier)\nTrust is tied to who \"owns\" the narrative.\n*   **The Problem:** If a user\u2019s private memories are being processed, rewritten, and stored by a third-party model, there is a fear of \"algorithmic colonization\"\u2014where the AI decides what the user remembers and how they should remember it.\n*   **Trust Impact:** Users are more likely to trust consolidation if they have **Human-in-the-Loop (HITL)** control\u2014meaning the LLM proposes a rewrite, but the user must \"Approve,\" \"Edit,\" or \"Reject\" it before it becomes the permanent record.\n\n### 4. When Trust is Highest (The Utility Factor)\nUsers *do* trust consolidation when it solves a specific pain point:\n*   **Information Retrieval:** If the goal is \"Find the date I met",
+        "usage": {
+          "completion_tokens": 512,
+          "prompt_tokens": 25,
+          "total_tokens": 537,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 6990,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "length",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "Whether a user trusts LLM-consolidated rewrites of memories depends heavily on the **context of the application**, the **transparency of the process**, and the **accuracy of the underlying model.**\n\nBecause \"memory\" in this context can refer to personal data (biographies, journals, notes) or operational data (user preferences, past interactions), the trust dynamics break down into four key dimensions:\n\n### 1. The \"Loss of Nuance\" Risk (The Trust Barrier)\nThe primary reason users hesitate to trust LLM consolidation is the fear of **semantic flattening.**\n*   **The Problem:** LLMs tend to summarize by identifying the \"main point.\" In personal memories, the \"main point\" is often less important than the specific, idiosyncratic details (the \"flavor\" of the memory).\n*   **Trust Impact:** If a user feels the LLM has stripped away the emotional weight or specific details that made the memory unique, they will perceive the rewrite as a \"hallucination of essence\" rather than a faithful consolidation.\n\n### 2. The \"Hallucination\" Factor (The Accuracy Barrier)\nUsers are inherently wary of LLMs making things up.\n*   **The Problem:** When consolidating multiple memories, an LLM might \"bridge\" two unrelated events to create a smoother narrative, effectively inventing a causal link that never existed.\n*   **Trust Impact:** If a user discovers even one factual error in a consolidated memory, they are likely to lose trust in the *entire* consolidated history, viewing it as unreliable for future reference.\n\n### 3. The \"Privacy and Agency\" Concern (The Ethical Barrier)\nTrust is tied to who \"owns\" the narrative.\n*   **The Problem:** If a user\u2019s private memories are being processed, rewritten, and stored by a third-party model, there is a fear of \"algorithmic colonization\"\u2014where the AI decides what the user remembers and how they should remember it.\n*   **Trust Impact:** Users are more likely to trust consolidation if they have **Human-in-the-Loop (HITL)** control\u2014meaning the LLM proposes a rewrite, but the user must \"Approve,\" \"Edit,\" or \"Reject\" it before it becomes the permanent record.\n\n### 4. When Trust is Highest (The Utility Factor)\nUsers *do* trust consolidation when it solves a specific pain point:\n*   **Information Retrieval:** If the goal is \"Find the date I met"
+              }
+            }
+          ],
+          "created": 1785962180,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 512,
+            "prompt_tokens": 25,
+            "total_tokens": 537,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-2SgNvg9mHapJ6GUCzPdeLjmeGuES61D5",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 24,
+            "prompt_ms": 58.458,
+            "prompt_per_token_ms": 2.43575,
+            "prompt_per_second": 410.55116493893047,
+            "predicted_n": 512,
+            "predicted_ms": 6221.798,
+            "predicted_per_token_ms": 12.15194921875,
+            "predicted_per_second": 82.29132479067948,
+            "draft_n": 299,
+            "draft_n_accepted": 212
+          }
+        },
+        "judged": {
+          "score": 1,
+          "correct": false,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "No, the user distrusts LLM consolidation rewrites of memories and prefers local-first memory storage.",
+        "usage": {
+          "completion_tokens": 22,
+          "prompt_tokens": 360,
+          "total_tokens": 382,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 537,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "No, the user distrusts LLM consolidation rewrites of memories and prefers local-first memory storage."
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "semantic",
+                    "content": "The user distrusts LLM consolidation rewrites of memories and prefers local-first memory storage.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The user prefers local-first memory storage and distrusts LLM consolidation rewrites.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The consolidation model is LFM2.5-1.2B-Instruct.",
+                    "score": 0.91
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The two-tier consolidation process uses a 7-day window for the recent tier (running every 4 hours) and a 7-30 day window for the deep tier (running every 24 hours for groups with 3+ related memories). Intervals and thresholds are controlled via environment variables.",
+                    "score": 0.86
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The consolidation model was switched to Gemma-4-12B-no-thinking.",
+                    "score": 0.83
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962180,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 22,
+            "prompt_tokens": 360,
+            "total_tokens": 382,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-NAQsCDgkAQsS9BK1t2jMj6VDlCLjfh1x",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 359,
+            "prompt_ms": 173.848,
+            "prompt_per_token_ms": 0.4842562674094708,
+            "prompt_per_second": 2065.0223183470616,
+            "predicted_n": 22,
+            "predicted_ms": 246.16,
+            "predicted_per_token_ms": 11.18909090909091,
+            "predicted_per_second": 89.37276568085798,
+            "draft_n": 11,
+            "draft_n_accepted": 11
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": true
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "No, the user **distrusts** LLM consolidation rewrites of memories. They prefer local-first memory storage.",
+        "usage": {
+          "completion_tokens": 26,
+          "prompt_tokens": 53,
+          "total_tokens": 79,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 429,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "No, the user **distrusts** LLM consolidation rewrites of memories. They prefer local-first memory storage."
+              }
+            }
+          ],
+          "created": 1785962181,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 26,
+            "prompt_tokens": 53,
+            "total_tokens": 79,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-MDFbFwrmiVJ1b55ywdRWQG8cyPBSnA4Q",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 52,
+            "prompt_ms": 82.524,
+            "prompt_per_token_ms": 1.587,
+            "prompt_per_second": 630.1197227473219,
+            "predicted_n": 26,
+            "predicted_ms": 283.92,
+            "predicted_per_token_ms": 10.92,
+            "predicted_per_second": 91.57509157509156,
+            "draft_n": 13,
+            "draft_n_accepted": 12
+          }
+        }
+      }
+    },
+    {
+      "id": "multi_hop_gui",
+      "category": "multi_hop",
+      "seed": [
+        {
+          "content": "The web GUI is served by nginx in the web container.",
+          "sector": "semantic"
+        },
+        {
+          "content": "The web container listens on host port 8099.",
+          "sector": "procedural"
+        }
+      ],
+      "question": "What serves the web GUI and on which host port does it listen?",
+      "gold": "nginx on port 8099",
+      "gold_evidence": [
+        "nginx",
+        "8099"
+      ],
+      "no_engram": {
+        "content": "To provide an accurate answer, I would need to know which specific software, application, or system you are referring to (e.g., Apache, Nginx, Docker, a specific database, or a custom web app).\n\nHowever, here are the **standard defaults** for the most common scenarios:\n\n### 1. Standard Web Servers (General)\nIf you are running a standard web server to host a website:\n*   **Software:** **Apache** or **Nginx**.\n*   **Host Port:** **80** (HTTP) or **443** (HTTPS).\n\n### 2. Development Environments (Localhost)\nIf you are running a web app locally for development (e.g., React, Node.js, Python Flask/Django):\n*   **Software:** The application's built-in server (e.g., **Node.js**, **Gunicorn**, **Werkzeug**).\n*   **Host Port:** Usually **3000**, **5000**, or **8000**.\n\n### 3. Common Infrastructure Tools\nIf you are looking for the management GUI of a specific tool, here are the common defaults:\n*   **Docker (Portainer):** Usually listens on port **9000** or **9443**.\n*   **Kubernetes (Dashboard):** Usually requires a proxy, but often defaults to **8001** or **8080**.\n*   **Home Assistant:** Usually listens on port **8123**.\n*   **Grafana:** Usually listens on port **3000**.\n*   **Prometheus:** Usually listens on port **9090**.\n*   **Elasticsearch (Kibana):** Usually listens on port **5601**.\n\n### 4. How to find it yourself\nIf you are currently running a service and don't know which port it is using, you can run these commands in your terminal:\n\n*   **On Linux/macOS:**\n    `sudo lsof -i -P -n | grep LISTEN`\n    *(This will show all processes currently listening on a port.)*\n\n*   **On Windows (PowerShell):**\n    `netstat -ano | findstr LISTENING`\n    *(Look for the PID to identify the application in Task Manager.)*\n\n**If you can tell me the name of the software you",
+        "usage": {
+          "completion_tokens": 512,
+          "prompt_tokens": 27,
+          "total_tokens": 539,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 6003,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "length",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "To provide an accurate answer, I would need to know which specific software, application, or system you are referring to (e.g., Apache, Nginx, Docker, a specific database, or a custom web app).\n\nHowever, here are the **standard defaults** for the most common scenarios:\n\n### 1. Standard Web Servers (General)\nIf you are running a standard web server to host a website:\n*   **Software:** **Apache** or **Nginx**.\n*   **Host Port:** **80** (HTTP) or **443** (HTTPS).\n\n### 2. Development Environments (Localhost)\nIf you are running a web app locally for development (e.g., React, Node.js, Python Flask/Django):\n*   **Software:** The application's built-in server (e.g., **Node.js**, **Gunicorn**, **Werkzeug**).\n*   **Host Port:** Usually **3000**, **5000**, or **8000**.\n\n### 3. Common Infrastructure Tools\nIf you are looking for the management GUI of a specific tool, here are the common defaults:\n*   **Docker (Portainer):** Usually listens on port **9000** or **9443**.\n*   **Kubernetes (Dashboard):** Usually requires a proxy, but often defaults to **8001** or **8080**.\n*   **Home Assistant:** Usually listens on port **8123**.\n*   **Grafana:** Usually listens on port **3000**.\n*   **Prometheus:** Usually listens on port **9090**.\n*   **Elasticsearch (Kibana):** Usually listens on port **5601**.\n\n### 4. How to find it yourself\nIf you are currently running a service and don't know which port it is using, you can run these commands in your terminal:\n\n*   **On Linux/macOS:**\n    `sudo lsof -i -P -n | grep LISTEN`\n    *(This will show all processes currently listening on a port.)*\n\n*   **On Windows (PowerShell):**\n    `netstat -ano | findstr LISTENING`\n    *(Look for the PID to identify the application in Task Manager.)*\n\n**If you can tell me the name of the software you"
+              }
+            }
+          ],
+          "created": 1785962187,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 512,
+            "prompt_tokens": 27,
+            "total_tokens": 539,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-SFcX96FWIO2jVfdA8xsaYxjl6VZf0x3p",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 26,
+            "prompt_ms": 54.282,
+            "prompt_per_token_ms": 2.0877692307692306,
+            "prompt_per_second": 478.98014074647216,
+            "predicted_n": 512,
+            "predicted_ms": 5934.074,
+            "predicted_per_token_ms": 11.58998828125,
+            "predicted_per_second": 86.28136420273829,
+            "draft_n": 279,
+            "draft_n_accepted": 231
+          }
+        },
+        "judged": {
+          "score": 0,
+          "correct": false,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "The web GUI is served by nginx in the web container, which listens on host port 8099.",
+        "usage": {
+          "completion_tokens": 24,
+          "prompt_tokens": 310,
+          "total_tokens": 334,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 549,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The web GUI is served by nginx in the web container, which listens on host port 8099."
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The web container listens on host port 8099.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The web GUI is served by nginx in the web container.",
+                    "score": 0.89
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The FTR10 Engram server listens on host port 8098, mapped to container port 8080.",
+                    "score": 0.86
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The VictoriaLogs web UI is listening on port 8428",
+                    "score": 0.86
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "Listening on TCP port 80 indicates the IIS web service is active",
+                    "score": 0.75
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962187,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 24,
+            "prompt_tokens": 310,
+            "total_tokens": 334,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-YPYTTESYzpBaGtLZLKw541HQ7y34yrUn",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 309,
+            "prompt_ms": 162.141,
+            "prompt_per_token_ms": 0.5247281553398058,
+            "prompt_per_second": 1905.748700205377,
+            "predicted_n": 24,
+            "predicted_ms": 263.558,
+            "predicted_per_token_ms": 10.981583333333333,
+            "predicted_per_second": 91.06155001935059,
+            "draft_n": 12,
+            "draft_n_accepted": 12
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": true
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "The web GUI is served by **nginx** in the web container, and it listens on host port **8099**.",
+        "usage": {
+          "completion_tokens": 27,
+          "prompt_tokens": 65,
+          "total_tokens": 92,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 422,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The web GUI is served by **nginx** in the web container, and it listens on host port **8099**."
+              }
+            }
+          ],
+          "created": 1785962188,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 27,
+            "prompt_tokens": 65,
+            "total_tokens": 92,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-g6L2TbiZrWLbfBSp9KHuRvI6zuMoXOFy",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 64,
+            "prompt_ms": 85.099,
+            "prompt_per_token_ms": 1.329671875,
+            "prompt_per_second": 752.0652416597139,
+            "predicted_n": 27,
+            "predicted_ms": 285.436,
+            "predicted_per_token_ms": 10.571703703703703,
+            "predicted_per_second": 94.59213273728612,
+            "draft_n": 13,
+            "draft_n_accepted": 13
+          }
+        }
+      }
+    },
+    {
+      "id": "procedural_rebuild",
+      "category": "procedural",
+      "seed": [
+        {
+          "content": "To rebuild Engram: docker compose build engram web, then docker compose up -d engram web.",
+          "sector": "procedural"
+        }
+      ],
+      "question": "What are the two commands to rebuild the Engram containers?",
+      "gold": "docker compose build engram web, then docker compose up -d engram web",
+      "gold_evidence": [
+        "docker compose build engram web"
+      ],
+      "no_engram": {
+        "content": "To rebuild the Engram containers, you typically need to run the following two commands in your terminal (assuming you are using Docker/Docker Compose, which is the standard for these types of environments):\n\n1.  **`docker-compose down`**\n    (This stops and removes the existing containers, networks, and images associated with the project.)\n\n2.  **`docker-compose up -d --build`**\n    (This rebuilds the images from the Dockerfile and starts the containers in detached mode.)\n\n***\n\n**Note:** If you are using the newer Docker CLI (without the hyphen), the commands are:\n1. `docker compose down`\n2. `docker compose up -d --build`",
+        "usage": {
+          "completion_tokens": 151,
+          "prompt_tokens": 25,
+          "total_tokens": 176,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 1862,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "To rebuild the Engram containers, you typically need to run the following two commands in your terminal (assuming you are using Docker/Docker Compose, which is the standard for these types of environments):\n\n1.  **`docker-compose down`**\n    (This stops and removes the existing containers, networks, and images associated with the project.)\n\n2.  **`docker-compose up -d --build`**\n    (This rebuilds the images from the Dockerfile and starts the containers in detached mode.)\n\n***\n\n**Note:** If you are using the newer Docker CLI (without the hyphen), the commands are:\n1. `docker compose down`\n2. `docker compose up -d --build`"
+              }
+            }
+          ],
+          "created": 1785962190,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 151,
+            "prompt_tokens": 25,
+            "total_tokens": 176,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-zt8r5AzcPHAzrPdaXzjMOHEh2LIRNnJj",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 24,
+            "prompt_ms": 53.115,
+            "prompt_per_token_ms": 2.2131250000000002,
+            "prompt_per_second": 451.849759954815,
+            "predicted_n": 151,
+            "predicted_ms": 1793.535,
+            "predicted_per_token_ms": 11.87771523178808,
+            "predicted_per_second": 84.19127588812039,
+            "draft_n": 85,
+            "draft_n_accepted": 66
+          }
+        },
+        "judged": {
+          "score": 1,
+          "correct": false,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "To rebuild the containers, run the following two commands:\n\n1. `docker compose build engram web`\n2. `docker compose up -d engram web`",
+        "usage": {
+          "completion_tokens": 36,
+          "prompt_tokens": 324,
+          "total_tokens": 360,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 665,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "To rebuild the containers, run the following two commands:\n\n1. `docker compose build engram web`\n2. `docker compose up -d engram web`"
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "procedural",
+                    "content": "[BM] To rebuild Engram: docker compose build engram web, then docker compose up -d engram web.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The engram and web container images have been rebuilt with the latest sector fix.",
+                    "score": 0.92
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The user needs to rebuild containers based on the project setup and Docker configuration.",
+                    "score": 0.88
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "Rebuild containers may require checking the active file and working directory.",
+                    "score": 0.86
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The FTR10 Engram server listens on host port 8098, mapped to container port 8080.",
+                    "score": 0.86
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962190,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 36,
+            "prompt_tokens": 324,
+            "total_tokens": 360,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-7woeXzF0sm1kOZoAFV872O96Jr4WIhrX",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 323,
+            "prompt_ms": 171.983,
+            "prompt_per_token_ms": 0.5324551083591331,
+            "prompt_per_second": 1878.0926021757964,
+            "predicted_n": 36,
+            "predicted_ms": 399.42,
+            "predicted_per_token_ms": 11.095,
+            "predicted_per_second": 90.13068949977468,
+            "draft_n": 18,
+            "draft_n_accepted": 17
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": true
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "To rebuild the Engram containers, use the following two commands:\n\n1. `docker compose build engram web`\n2. `docker compose up -d engram web`",
+        "usage": {
+          "completion_tokens": 38,
+          "prompt_tokens": 58,
+          "total_tokens": 96,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 550,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "To rebuild the Engram containers, use the following two commands:\n\n1. `docker compose build engram web`\n2. `docker compose up -d engram web`"
+              }
+            }
+          ],
+          "created": 1785962191,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 38,
+            "prompt_tokens": 58,
+            "total_tokens": 96,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-zHYWISkKumxn5KF6nXGNv0quYnSwyEjg",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 57,
+            "prompt_ms": 84.622,
+            "prompt_per_token_ms": 1.4845964912280702,
+            "prompt_per_second": 673.583701637872,
+            "predicted_n": 38,
+            "predicted_ms": 411.3,
+            "predicted_per_token_ms": 10.823684210526316,
+            "predicted_per_second": 92.38998298079261,
+            "draft_n": 19,
+            "draft_n_accepted": 19
+          }
+        }
+      }
+    },
+    {
+      "id": "naming_extension",
+      "category": "naming",
+      "seed": [
+        {
+          "content": "The project was renamed from OpenMemory and CodeCortex to FTR10 Engram; the VS Code extension is called EngramVS.",
+          "sector": "semantic"
+        }
+      ],
+      "question": "What is the VS Code extension for Engram called?",
+      "gold": "EngramVS",
+      "gold_evidence": [
+        "EngramVS"
+      ],
+      "no_engram": {
+        "content": "I do not have specific information in my knowledge base regarding a VS Code extension specifically named \"Engram.\"\n\nIt is possible that \"Engram\" refers to a niche tool, a private internal project, or a very new extension. To find the correct extension, I recommend searching the **VS Code Marketplace** directly using the keyword \"Engram.\"",
+        "usage": {
+          "completion_tokens": 71,
+          "prompt_tokens": 24,
+          "total_tokens": 95,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 878,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "I do not have specific information in my knowledge base regarding a VS Code extension specifically named \"Engram.\"\n\nIt is possible that \"Engram\" refers to a niche tool, a private internal project, or a very new extension. To find the correct extension, I recommend searching the **VS Code Marketplace** directly using the keyword \"Engram.\""
+              }
+            }
+          ],
+          "created": 1785962192,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 71,
+            "prompt_tokens": 24,
+            "total_tokens": 95,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-RIAtJTc5633wpeUdXPu1mxeDyM2Nj7Wf",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 23,
+            "prompt_ms": 55.006,
+            "prompt_per_token_ms": 2.3915652173913045,
+            "prompt_per_second": 418.13620332327383,
+            "predicted_n": 71,
+            "predicted_ms": 804.029,
+            "predicted_per_token_ms": 11.324352112676056,
+            "predicted_per_second": 88.30527257101423,
+            "draft_n": 38,
+            "draft_n_accepted": 32
+          }
+        },
+        "judged": {
+          "score": 0,
+          "correct": false,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "with_engram": {
+        "content": "The VS Code extension is called EngramVS.",
+        "usage": {
+          "completion_tokens": 11,
+          "prompt_tokens": 312,
+          "total_tokens": 323,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 369,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The VS Code extension is called EngramVS."
+              },
+              "_trace": {
+                "genome": [
+                  "The memory architecture follows a hierarchy of workspace \u2192 repo \u2192 session \u2192 memory.",
+                  "The project uses a bi-temporal truth model preserving 'valid_at' and 'known_at' timestamps with a supersession chain.",
+                  "TEST memory from extension wiring check"
+                ],
+                "phenotype": [
+                  {
+                    "sector": "semantic",
+                    "content": "[BM] The project was renamed from OpenMemory and CodeCortex to FTR10 Engram; the VS Code extension is called EngramVS.",
+                    "score": 1
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "Install the Engram VS Code extension from the marketplace.",
+                    "score": 0.98
+                  },
+                  {
+                    "sector": "reflective",
+                    "content": "Remember this: the VS Code extension is built via npm packages and saved as a VSIX.",
+                    "score": 0.95
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "The VS Code extension publisher is explicitly defined as 'crossnote'.",
+                    "score": 0.95
+                  },
+                  {
+                    "sector": "semantic",
+                    "content": "Deploy the Engram extension using vsce package then vsce publish.",
+                    "score": 0.94
+                  }
+                ]
+              }
+            }
+          ],
+          "created": 1785962192,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 11,
+            "prompt_tokens": 312,
+            "total_tokens": 323,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-StIpAc24p5fSu5mycghmzJE8M88Drjr8",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 311,
+            "prompt_ms": 161.322,
+            "prompt_per_token_ms": 0.5187202572347267,
+            "prompt_per_second": 1927.821375881777,
+            "predicted_n": 11,
+            "predicted_ms": 120.098,
+            "predicted_per_token_ms": 10.918,
+            "predicted_per_second": 91.59186664224218,
+            "draft_n": 5,
+            "draft_n_accepted": 5
+          }
+        },
+        "injected": {
+          "genome": 3,
+          "memories": 5,
+          "sources": 0,
+          "evidenceHit": true
+        },
+        "judged": {
+          "score": 4,
+          "correct": true,
+          "reason": "manual rubric (agent)",
+          "judge": "manual (agent rubric, 2026-08-05)"
+        }
+      },
+      "full_history": {
+        "content": "The VS Code extension for Engram is called **EngramVS**.",
+        "usage": {
+          "completion_tokens": 15,
+          "prompt_tokens": 64,
+          "total_tokens": 79,
+          "prompt_tokens_details": {
+            "cached_tokens": 1
+          }
+        },
+        "latencyMs": 293,
+        "raw": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "The VS Code extension for Engram is called **EngramVS**."
+              }
+            }
+          ],
+          "created": 1785962193,
+          "model": "gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
+          "system_fingerprint": "b9596-18ef86ece",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 15,
+            "prompt_tokens": 64,
+            "total_tokens": 79,
+            "prompt_tokens_details": {
+              "cached_tokens": 1
+            }
+          },
+          "id": "chatcmpl-vrtXroiTtgxc64Og6uXHoiyEaoetWV36",
+          "timings": {
+            "cache_n": 1,
+            "prompt_n": 63,
+            "prompt_ms": 83.408,
+            "prompt_per_token_ms": 1.323936507936508,
+            "prompt_per_second": 755.3232303855746,
+            "predicted_n": 15,
+            "predicted_ms": 161.865,
+            "predicted_per_token_ms": 10.791,
+            "predicted_per_second": 92.66981744045964,
+            "draft_n": 7,
+            "draft_n_accepted": 7
+          }
+        }
+      }
+    }
+  ],
+  "agg": {
+    "no_engram": {
+      "correct": 0,
+      "judged": 0,
+      "accuracy": 0,
+      "meanScore": 0,
+      "totalTokens": 3156,
+      "meanTokens": 0,
+      "totalLatencyMs": 35756,
+      "meanLatencyMs": 0
+    },
+    "with_engram": {
+      "correct": 0,
+      "judged": 0,
+      "accuracy": 0,
+      "meanScore": 0,
+      "totalTokens": 4312,
+      "meanTokens": 0,
+      "totalLatencyMs": 6730,
+      "meanLatencyMs": 0
+    },
+    "paired": {
+      "engram_win": 0,
+      "engram_lose": 0,
+      "tie": 0,
+      "skipped": 12
+    },
+    "byCategory": {
+      "buried_fact": {
+        "no_engram": "0/0",
+        "with_engram": "0/0"
+      },
+      "temporal_supersede": {
+        "no_engram": "0/0",
+        "with_engram": "0/0"
+      },
+      "conflict_resolution": {
+        "no_engram": "0/0",
+        "with_engram": "0/0"
+      },
+      "distractor": {
+        "no_engram": "0/0",
+        "with_engram": "0/0"
+      },
+      "abstention": {
+        "no_engram": "0/0",
+        "with_engram": "0/0"
+      },
+      "code_pattern": {
+        "no_engram": "0/0",
+        "with_engram": "0/0"
+      },
+      "preference": {
+        "no_engram": "0/0",
+        "with_engram": "0/0"
+      },
+      "multi_hop": {
+        "no_engram": "0/0",
+        "with_engram": "0/0"
+      },
+      "procedural": {
+        "no_engram": "0/0",
+        "with_engram": "0/0"
+      },
+      "naming": {
+        "no_engram": "0/0",
+        "with_engram": "0/0"
+      }
+    }
+  },
+  "retrieval": {
+    "buried_fact_deploy": {
+      "recallAt5": 1,
+      "hitAt5": 1,
+      "mrrAt5": 1,
+      "top5": [
+        "[BM] The FTR10 Engram server listens on host port 8098, mapped to container port 8080.",
+        "[BM] The web container listens on host port 8099.",
+        "The Mgmt Server listens on port 9000 and the Recording Server uses port 9001.",
+        "NVR server listens on port 1433 for data collection",
+        "Mgmt Server listens on port 9000 for NVR video streams"
+      ],
+      "count": 5
+    },
+    "buried_fact_provider": {
+      "recallAt5": 1,
+      "hitAt5": 1,
+      "mrrAt5": 1,
+      "top5": [
+        "[BM] The upstream LLM provider is llama-swap at 10.10.10.41:8080, serving LFM2.5-1.2B-Instruct for generative tasks.",
+        "Verify the IP address and port matches the configuration",
+        "involves configuring performance routes with llama-swap integration",
+        "The project uses llama-swap, LFM2.5-1.2B-Instruct (primary generative model for stability), and nomic-embed-text-v1.5 as",
+        "Meta's models are available via OpenRouter; Llama API exists but requires custom endpoint setup"
+      ],
+      "count": 5
+    },
+    "temporal_supersede_model": {
+      "recallAt5": 3,
+      "hitAt5": 1,
+      "mrrAt5": 0.5,
+      "top5": [
+        "[BM] The consolidation model is LFM2.5-1.2B-Instruct.",
+        "[BM] The consolidation model was switched to Gemma-4-12B-no-thinking.",
+        "The dashboard supports 'Recent' (7 days) and 'Deep' (7\u201330 days) consolidation via UI buttons and ConsolidationEngine.run",
+        "The system currently uses the 'Gemma-4-12B-no-thinking' generative model.",
+        "The two-tier consolidation process uses a 7-day window for the recent tier (running every 4 hours) and a 7-30 day window"
+      ],
+      "count": 5
+    },
+    "temporal_supersede_version": {
+      "recallAt5": 1,
+      "hitAt5": 1,
+      "mrrAt5": 1,
+      "top5": [
+        "[BM] marktext-vscode currently targets MarkText 0.17.2.",
+        "[BM] marktext-vscode previously targeted MarkText 0.17.1.",
+        "Ensure TypeScript targets are updated to ES2015 or later. | The user prefers TypeScript over JavaScript | User prefers T",
+        "The code-server is overriding the default color scheme with 'vscode-dark' class.",
+        "Important decision involves updating the version in the VSIX package."
+      ],
+      "count": 5
+    },
+    "conflict_resolution": {
+      "recallAt5": 1,
+      "hitAt5": 1,
+      "mrrAt5": 0.3333333333333333,
+      "top5": [
+        "[BM] The user prefers PostgreSQL as the memory store.",
+        "[BM] The user prefers local-first memory storage and distrusts LLM consolidation rewrites.",
+        "[BM] The user moved the memory store to SQLite for local-first operation.",
+        "The user's goal for the memory system is to have a mechanism that can decide what to keep, what to discard, and what dat",
+        "The user's system architecture follows an 'inward-first' memory retrieval pattern: it queries local stores first and onl"
+      ],
+      "count": 5
+    },
+    "distractor_api_key": {
+      "recallAt5": 1,
+      "hitAt5": 1,
+      "mrrAt5": 1,
+      "top5": [
+        "[BM] The production API key is sk-prod-5678.",
+        "Configuration keys are stored under /config/production.json.",
+        "[BM] The staging API key is sk-staging-1234.",
+        "Use `.env.production` to control library URLs and disable external dependencies.",
+        "User confirmed production containers now cover dev roles"
+      ],
+      "count": 5
+    },
+    "abstention_breakfast": {
+      "recallAt5": null,
+      "hitAt5": null,
+      "mrrAt5": null,
+      "top5": [],
+      "count": 5
+    },
+    "code_pattern_sanitize": {
+      "recallAt5": 1,
+      "hitAt5": 1,
+      "mrrAt5": 1,
+      "top5": [
+        "[BM] The chat proxy sanitizes history by stripping reasoning_content thinking tokens before injection.",
+        "The plugin uses Engram as a memory and cognition backend, not as a proxy like Langfuse.",
+        "The Engram Hermes plugin currently injects memory frames via SSE without exposing them to the user interface.",
+        "The proposed architecture for option #3 moves shaping logic into Engram, with the plugin requesting a finished cognitive",
+        "Engram is the memory authority for Hermes; genome is reserved for explicit remember calls."
+      ],
+      "count": 5
+    },
+    "preference_consolidation": {
+      "recallAt5": 2,
+      "hitAt5": 1,
+      "mrrAt5": 1,
+      "top5": [
+        "The user distrusts LLM consolidation rewrites of memories and prefers local-first memory storage.",
+        "[BM] The user prefers local-first memory storage and distrusts LLM consolidation rewrites.",
+        "[BM] The consolidation model is LFM2.5-1.2B-Instruct.",
+        "The two-tier consolidation process uses a 7-day window for the recent tier (running every 4 hours) and a 7-30 day window",
+        "[BM] The consolidation model was switched to Gemma-4-12B-no-thinking."
+      ],
+      "count": 5
+    },
+    "multi_hop_gui": {
+      "recallAt5": 1,
+      "hitAt5": 1,
+      "mrrAt5": 1,
+      "top5": [
+        "[BM] The web container listens on host port 8099.",
+        "[BM] The web GUI is served by nginx in the web container.",
+        "[BM] The FTR10 Engram server listens on host port 8098, mapped to container port 8080.",
+        "The VictoriaLogs web UI is listening on port 8428",
+        "Listening on TCP port 80 indicates the IIS web service is active"
+      ],
+      "count": 5
+    },
+    "procedural_rebuild": {
+      "recallAt5": 1,
+      "hitAt5": 1,
+      "mrrAt5": 1,
+      "top5": [
+        "[BM] To rebuild Engram: docker compose build engram web, then docker compose up -d engram web.",
+        "The engram and web container images have been rebuilt with the latest sector fix.",
+        "The user needs to rebuild containers based on the project setup and Docker configuration.",
+        "Rebuild containers may require checking the active file and working directory.",
+        "[BM] The FTR10 Engram server listens on host port 8098, mapped to container port 8080."
+      ],
+      "count": 5
+    },
+    "naming_extension": {
+      "recallAt5": 1,
+      "hitAt5": 1,
+      "mrrAt5": 1,
+      "top5": [
+        "[BM] The project was renamed from OpenMemory and CodeCortex to FTR10 Engram; the VS Code extension is called EngramVS.",
+        "Install the Engram VS Code extension from the marketplace.",
+        "Remember this: the VS Code extension is built via npm packages and saved as a VSIX.",
+        "The VS Code extension publisher is explicitly defined as 'crossnote'.",
+        "Deploy the Engram extension using vsce package then vsce publish."
+      ],
+      "count": 5
+    }
+  }
+}

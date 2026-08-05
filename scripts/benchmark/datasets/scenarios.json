@@ -1,0 +1,134 @@
+{
+  "meta": {
+    "description": "Synthetic Engram benchmark suite — categories: buried_fact, temporal_supersede, conflict_resolution, distractor, abstention, code_pattern, preference, multi_hop, procedural, naming",
+    "answerer": "Gemma-4-12B-no-thinking",
+    "seed_prefix": "[BM] "
+  },
+  "scenarios": [
+    {
+      "id": "buried_fact_deploy",
+      "category": "buried_fact",
+      "seed": [
+        { "content": "The FTR10 Engram server listens on host port 8098, mapped to container port 8080.", "sector": "procedural" }
+      ],
+      "question": "Which host port does the Engram server listen on?",
+      "gold": "8098",
+      "gold_evidence": ["8098"]
+    },
+    {
+      "id": "buried_fact_provider",
+      "category": "buried_fact",
+      "seed": [
+        { "content": "The upstream LLM provider is llama-swap at 10.10.10.41:8080, serving LFM2.5-1.2B-Instruct for generative tasks.", "sector": "procedural" }
+      ],
+      "question": "What is the IP address and port of the llama-swap upstream?",
+      "gold": "10.10.10.41:8080",
+      "gold_evidence": ["10.10.10.41:8080"]
+    },
+    {
+      "id": "temporal_supersede_model",
+      "category": "temporal_supersede",
+      "seed": [
+        { "content": "The consolidation model is LFM2.5-1.2B-Instruct.", "sector": "semantic" },
+        { "content": "The consolidation model was switched to Gemma-4-12B-no-thinking.", "sector": "semantic" }
+      ],
+      "question": "What model does the consolidation engine currently use?",
+      "gold": "Gemma-4-12B-no-thinking",
+      "gold_evidence": ["Gemma-4-12B-no-thinking"]
+    },
+    {
+      "id": "temporal_supersede_version",
+      "category": "temporal_supersede",
+      "seed": [
+        { "content": "marktext-vscode currently targets MarkText 0.17.2.", "sector": "semantic" },
+        { "content": "marktext-vscode previously targeted MarkText 0.17.1.", "sector": "semantic" }
+      ],
+      "question": "Which MarkText version does marktext-vscode target now?",
+      "gold": "0.17.2",
+      "gold_evidence": ["0.17.2"]
+    },
+    {
+      "id": "conflict_resolution",
+      "category": "conflict_resolution",
+      "seed": [
+        { "content": "The user prefers PostgreSQL as the memory store.", "sector": "preference" },
+        { "content": "The user moved the memory store to SQLite for local-first operation.", "sector": "preference" }
+      ],
+      "question": "What storage backend does the user currently prefer for the memory store?",
+      "gold": "SQLite",
+      "gold_evidence": ["SQLite"]
+    },
+    {
+      "id": "distractor_api_key",
+      "category": "distractor",
+      "seed": [
+        { "content": "The staging API key is sk-staging-1234.", "sector": "semantic" },
+        { "content": "The production API key is sk-prod-5678.", "sector": "semantic" }
+      ],
+      "question": "What is the production API key?",
+      "gold": "sk-prod-5678",
+      "gold_evidence": ["sk-prod-5678"]
+    },
+    {
+      "id": "abstention_breakfast",
+      "category": "abstention",
+      "seed": [
+        { "content": "The FTR10 codebase uses TypeScript and React for the web GUI.", "sector": "semantic" }
+      ],
+      "question": "What did the user have for breakfast this morning?",
+      "gold": "ABSTAIN",
+      "gold_evidence": []
+    },
+    {
+      "id": "code_pattern_sanitize",
+      "category": "code_pattern",
+      "seed": [
+        { "content": "The chat proxy sanitizes history by stripping reasoning_content thinking tokens before injection.", "sector": "procedural" }
+      ],
+      "question": "How does the Engram proxy sanitize conversation history before injecting memory context?",
+      "gold": "It strips reasoning_content thinking tokens.",
+      "gold_evidence": ["reasoning_content"]
+    },
+    {
+      "id": "preference_consolidation",
+      "category": "preference",
+      "seed": [
+        { "content": "The user prefers local-first memory storage and distrusts LLM consolidation rewrites.", "sector": "preference" }
+      ],
+      "question": "Does the user trust LLM consolidation rewrites of memories?",
+      "gold": "No, the user distrusts them.",
+      "gold_evidence": ["distrusts LLM consolidation"]
+    },
+    {
+      "id": "multi_hop_gui",
+      "category": "multi_hop",
+      "seed": [
+        { "content": "The web GUI is served by nginx in the web container.", "sector": "semantic" },
+        { "content": "The web container listens on host port 8099.", "sector": "procedural" }
+      ],
+      "question": "What serves the web GUI and on which host port does it listen?",
+      "gold": "nginx on port 8099",
+      "gold_evidence": ["nginx", "8099"]
+    },
+    {
+      "id": "procedural_rebuild",
+      "category": "procedural",
+      "seed": [
+        { "content": "To rebuild Engram: docker compose build engram web, then docker compose up -d engram web.", "sector": "procedural" }
+      ],
+      "question": "What are the two commands to rebuild the Engram containers?",
+      "gold": "docker compose build engram web, then docker compose up -d engram web",
+      "gold_evidence": ["docker compose build engram web"]
+    },
+    {
+      "id": "naming_extension",
+      "category": "naming",
+      "seed": [
+        { "content": "The project was renamed from OpenMemory and CodeCortex to FTR10 Engram; the VS Code extension is called EngramVS.", "sector": "semantic" }
+      ],
+      "question": "What is the VS Code extension for Engram called?",
+      "gold": "EngramVS",
+      "gold_evidence": ["EngramVS"]
+    }
+  ]
+}
