@@ -8,11 +8,10 @@ import { env } from "../configuration";
 import { make_db as kit_make_db, run_async, all_async, transaction } from "../api/routes/_kit";
 import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, normalizeSector } from "./memoryInjector";
 import { logger } from "../utils/logger";
-import { getLangfuse } from "./langfuseClient";
 
 // ── Configuration ─────────────────────────────────────────────────────
 
-const CONSOLIDATION_MODEL = env.generative_model;
+const CONSOLIDATION_MODEL = String(process.env.EG_CONSOLIDATION_MODEL || "").trim() || env.generative_model;
 const SYNTHESIS_MODEL   = env.fallback_model; // Fallback when the consolidation LLM omits new_content in merge/update actions
 
 // Two-tier scheduling (all overridable via env):
@@ -28,6 +27,12 @@ const DEEP_MIN_GROUP   = parseInt(String(process.env.EG_CONSOLIDATION_DEEP_MIN_G
 
 const CONSOLIDATION_BATCH_SIZE = 15; // Max groups to process per cycle
 const MIN_MEMORIES_TO_CONSOLIDATE = 3; // Legacy default; tiers pass their own min-group instead.
+
+// Max memories sent per LLM call. Groups larger than this are chunked so each
+// prompt stays within the model's context window. The "unhashed" bucket is
+// effectively the WHOLE store (consolidation_hash is never populated anywhere),
+// so without chunking a single call can carry thousands of memories.
+const MAX_MEMORIES_PER_CALL = parseInt(String(process.env.EG_CONSOLIDATION_BATCH_MEMORIES), 10) || 150;
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -49,18 +54,73 @@ export interface ConsolidationAction {
   reason: string;       // Brief explanation for logging/debugging
 }
 
-// ── Consolidation Engine ──────────────────────────────────────────────
+// ── JSON response parsing helpers ─────────────────────────────────────
+// The consolidation LLM is small/weak; even with `response_format: json_object`
+// (llama.cpp forces an OBJECT, never a bare array) it can wrap the array in an
+// arbitrary key, or emit prose around the JSON. These helpers make parsing
+// tolerant: strip fences anywhere, extract the outermost [...] / {...}, and
+// unwrap object-wrapped arrays.
+
+function extractOuterJson(s: string, open: string, close: string): string | null {
+  const i = s.indexOf(open);
+  if (i === -1) return null;
+  let depth = 0;
+  for (let j = i; j < s.length; j++) {
+    if (s[j] === open) depth++;
+    else if (s[j] === close) {
+      depth--;
+      if (depth === 0) return s.slice(i, j + 1);
+    }
+  }
+  return null;
+}
+
+function parseConsolidationJson(raw: string): ConsolidationAction[] | null {
+  const cleaned = raw.replace(/```(?:json)?\s*([\s\S]*?)```/g, "$1").trim();
+  if (!cleaned) return null;
+
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    const pairs: Array<[string, string]> = [["[", "]"], ["{", "}"]];
+    for (const [open, close] of pairs) {
+      const sub = extractOuterJson(cleaned, open, close);
+      if (sub !== null) {
+        try { parsed = JSON.parse(sub); break; } catch { /* keep trying */ }
+      }
+    }
+  }
+  if (parsed === null) return null;
+
+  if (Array.isArray(parsed)) return parsed as ConsolidationAction[];
+  if (typeof parsed === "object") {
+    // Single action object → wrap it.
+    if (typeof parsed.action === "string") return [parsed] as ConsolidationAction[];
+    // Object-wrapped array(s) under json_object grammar → concatenate all arrays.
+    const actions: any[] = [];
+    for (const v of Object.values(parsed)) {
+      if (Array.isArray(v)) actions.push(...v);
+    }
+    return actions as ConsolidationAction[];
+  }
+  return null;
+}
+
+// ── Consolidation Engine ──
 
 export class ConsolidationEngine {
   /**
-   * Query the database for memories within `maxAgeDays` that have been accessed at
-   * least `minAccess` times, grouped by consolidation_hash. Only groups with
-   * `minGroup`+ members are returned (cheap pre-filter).
+   * Query the database for memories with age in [minAgeDays, maxAgeDays) — i.e.
+   * recorded between `NOW() - maxAgeDays` and `NOW() - minAgeDays` — that have
+   * been accessed at least `minAccess` times, grouped by consolidation_hash.
+   * Only groups with `minGroup`+ members are returned (cheap pre-filter).
    *
-   * The 7-day hard gate was removed: callers choose the window (recent tier = last
-   * few days, deep tier = older window) so standing rules get promoted promptly.
+   * Tier windows (documented in readme.md): RECENT = last RECENT_MAX_AGE_DAYS
+   * days (minAgeDays=0), DEEP = older than RECENT, up to DEEP_MAX_AGE_DAYS.
    */
   private async fetchConsolidationGroups(
+    minAgeDays: number,
     maxAgeDays: number,
     minGroup: number,
     minAccess = 1,
@@ -75,9 +135,10 @@ export class ConsolidationEngine {
              recorded_at,
              consolidation_hash
       FROM "public"."memories"
-       WHERE memory_tier != 'archived'
-         AND recorded_at < NOW() - INTERVAL '1 day' * ${maxAgeDays}
-         AND COALESCE((metadata->>'access_count')::int, 0) >= ${minAccess}
+      WHERE memory_tier != 'archived'
+        AND recorded_at > NOW() - INTERVAL '1 day' * ${maxAgeDays}
+        AND recorded_at <= NOW() - INTERVAL '1 day' * ${minAgeDays}
+        AND COALESCE((metadata->>'access_count')::int, 0) >= ${minAccess}
       ORDER BY consolidation_hash ASC, recorded_at ASC
     `;
 
@@ -115,8 +176,8 @@ export class ConsolidationEngine {
   }
 
   /**
-  * Synthesizes a concise summary from related memories. Used as fallback when the LLM
-    * forgets to provide new_content in its actions.
+   * Synthesizes a concise summary from related memories. Used as fallback when the LLM
+   * forgets to provide new_content in its actions.
    */
   private async synthesizeContent(memories: MemoryCandidate[]): Promise<string> {
     const memoryList = memories.map((m, i) =>
@@ -137,68 +198,35 @@ Rules:
 Synthesized Memory:`;
 
     try {
-      let synthesized: string;
-      let generationEnded = false;
-
       const chatUrl = `${env.generative_url}/chat/completions`;
 
-      const lf = getLangfuse();
-      let generation: any;
-      if (lf) {
-        generation = lf.generation({
-          name: "consolidation-synthesize",
-          model: env.generative_model,
-          modelParameters: { temperature: 0.1 },
-          input: prompt,
-          metadata: { module: "consolidationEngine" },
-        });
-      }
+      const response = await fetch(chatUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: CONSOLIDATION_MODEL,
+          messages: [
+            { role: "system", content: prompt.substring(0, 400) + "\n\nReturn only the sentence." },
+            { role: "user", content: prompt }
+          ],
+          stream: false,
+          temperature: 0.1,
+          max_tokens: 200,
+        }),
+      });
 
-      try {
-        const response = await fetch(chatUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: env.generative_model,
-            messages: [
-              { role: "system", content: prompt.substring(0, 400) + "\n\nReturn only the sentence." },
-              { role: "user", content: prompt }
-            ],
-            stream: false,
-            temperature: 0.1,
-            max_tokens: 200,
-          }),
-        });
-
-        if (!response.ok) {
-          generation?.end({ output: "", level: "ERROR" });
-          generationEnded = true;
-          return "";
-        }
-        const data = await response.json();
-        synthesized = ((data.choices?.[0]?.message?.content || "") as string).trim().replace(/^["']|["']$/g, "");
-
-        generation?.end({
-          output: synthesized,
-          usage: {
-            promptTokens: data.usage?.prompt_tokens,
-            completionTokens: data.usage?.completion_tokens,
-          },
-        });
-        generationEnded = true;
-        return synthesized.length >= 5 ? synthesized : "";
-      } finally {
-        if (!generationEnded) {
-          generation?.end({ output: null, level: "ERROR" });
-        }
-      }
+      if (!response.ok) return "";
+      const data = await response.json();
+      const synthesized = ((data.choices?.[0]?.message?.content || "") as string).trim().replace(/^["']|["']$/g, "");
+      return synthesized.length >= 5 ? synthesized : "";
     } catch {
       return "";
     }
   }
-
   /**
-   * Prompts the 14B model to analyze a group of related memories and return consolidation actions.
+   * Prompts the consolidation LLM to analyze a group of related memories and
+   * return consolidation actions (merge/update/promote/delete) as JSON.
+   * Parsing is tolerant (see parseConsolidationJson) and retries once.
    */
   private async generateConsolidationActions(candidates: MemoryCandidate[]): Promise<ConsolidationAction[]> {
     const memoryList = candidates.map((m, i) =>
@@ -225,92 +253,80 @@ ${memoryList}
 - Optional "new_sector" MUST be EXACTLY one of: "semantic", "procedural", "episodic", "emotional", "reflective". Do NOT invent other sector names; omit it if the sector should not change.
 
 ### OUTPUT SCHEMA ###
-Return ONLY a valid JSON array of actions. No markdown, no explanations outside the "reason" field.
-[
-  {
-    "action": "merge",
-    "target_ids": ["id1", "id2"],
-    "new_content": "The merged, concise fact.",
-    "new_sector": "procedural",
-    "is_genome": false,
-    "reason": "Merged duplicate JWT auth preferences."
-  }
-]
-If no actions are needed, return exactly: []
+Return ONLY a JSON object whose "actions" value is the array of actions. No markdown, no explanations outside the "reason" field.
+{
+  "actions": [
+    {
+      "action": "merge",
+      "target_ids": ["id1", "id2"],
+      "new_content": "The merged, concise fact.",
+      "new_sector": "procedural",
+      "is_genome": false,
+      "reason": "Merged duplicate JWT auth preferences."
+    }
+  ]
+}
+If no actions are needed, return: {"actions": []}
 
 ### EXECUTE CONSOLIDATION NOW ###`.trim();
 
+    let cleanJson = "";
     try {
-      logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, candidateCount: candidates.length }, `Sending ${candidates.length} related memories to ${env.generative_model} for consolidation...`);
-
-      let cleanJson: string;
-      let generationEnded = false;
+      logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, candidateCount: candidates.length }, `Sending ${candidates.length} related memories to ${CONSOLIDATION_MODEL} for consolidation...`);
 
       const chatUrl = `${env.generative_url}/chat/completions`;
 
-      const lf = getLangfuse();
-      let generation: any;
-      if (lf) {
-        generation = lf.generation({
-          name: "consolidation-decide",
-          model: env.generative_model,
-          modelParameters: { temperature: 0.1 },
-          input: prompt,
-          metadata: { module: "consolidationEngine" },
-        });
-      }
+      let parsed: ConsolidationAction[] | null = null;
 
-      try {
+      // Retry once: a small/weak model can fall out of JSON mode under a long
+      // prompt even with response_format json_object.
+      for (let attempt = 1; attempt <= 2 && parsed === null; attempt++) {
         const response = await fetch(chatUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: env.generative_model,
+            model: CONSOLIDATION_MODEL,
             messages: [
               { role: "system", content: prompt.substring(0, 400) + "\n\nReturn ONLY valid JSON." },
-              { role: "user", content: prompt }
+              { role: "user", content: attempt > 1 ? prompt + "\n\nIMPORTANT: Reply with ONLY a JSON object. No prose, no markdown." : prompt }
             ],
             stream: false,
             temperature: 0.1,
-            max_tokens: 1500,
+            max_tokens: 4000,
+            response_format: { type: "json_object" },
           }),
         });
 
         if (!response.ok) {
-          generation?.end({ output: "", level: "ERROR" });
-          generationEnded = true;
           throw new Error(`Consolidation LLM returned status ${response.status}`);
         }
         const data = await response.json();
-        cleanJson = ((data.choices?.[0]?.message?.content || "") as string).replace(/^```json\s*|\s*```$/g, "").trim();
+        cleanJson = ((data.choices?.[0]?.message?.content || "") as string).trim();
 
-        generation?.end({
-          output: cleanJson,
-          usage: {
-            promptTokens: data.usage?.prompt_tokens,
-            completionTokens: data.usage?.completion_tokens,
-          },
-        });
-        generationEnded = true;
-      } finally {
-        if (!generationEnded) {
-          generation?.end({ output: null, level: "ERROR" });
+        parsed = parseConsolidationJson(cleanJson);
+        if (parsed === null) {
+          logger.warn(
+            { module: 'consolidationEngine', model: CONSOLIDATION_MODEL, attempt, rawSnippet: cleanJson.substring(0, 500) },
+            'Consolidation LLM returned unparseable output — retrying',
+          );
+        } else {
+          logger.info(
+            { module: 'consolidationEngine', model: CONSOLIDATION_MODEL, candidateCount: candidates.length, actionCount: parsed.length, promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens },
+            'Consolidation LLM returned actions',
+          );
         }
       }
-      let parsed: any = JSON.parse(cleanJson);
 
-      // Normalize: if LLM returned a single object instead of an array, wrap it
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return [parsed] as ConsolidationAction[];
+      if (parsed === null) {
+        throw new Error('Consolidation LLM returned unparseable output after retry');
       }
 
-      return parsed as ConsolidationAction[];
+      return parsed;
     } catch (error) {
-      logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err: error }, 'Consolidation LLM failed');
+      logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, rawSnippet: cleanJson?.substring(0, 500), err: error }, 'Consolidation LLM failed');
       return [];
     }
   }
-
   /**
    * Executes the consolidation actions against the database.
    */
@@ -410,22 +426,23 @@ If no actions are needed, return exactly: []
    * Each tier is a no-op when nothing is eligible, so frequent recent runs are cheap.
    */
   public async runConsolidation(): Promise<void> {
-    await this.runTier("recent", RECENT_MAX_AGE_DAYS, RECENT_MIN_GROUP, 0);
-    await this.runTier("deep", DEEP_MAX_AGE_DAYS, DEEP_MIN_GROUP, 1);
+    await this.runTier("recent", 0, RECENT_MAX_AGE_DAYS, RECENT_MIN_GROUP, 0);
+    await this.runTier("deep", RECENT_MAX_AGE_DAYS, DEEP_MAX_AGE_DAYS, DEEP_MIN_GROUP, 1);
   }
 
   private async runTier(
     tier: "recent" | "deep",
+    minAgeDays: number,
     maxAgeDays: number,
     minGroup: number,
     minAccess: number,
   ): Promise<void> {
     logger.info(
-      { module: 'consolidationEngine', model: CONSOLIDATION_MODEL, tier, maxAgeDays, minGroup },
+      { module: 'consolidationEngine', model: CONSOLIDATION_MODEL, tier, minAgeDays, maxAgeDays, minGroup },
       `Starting ${tier} consolidation cycle`,
     );
 
-    const groups = await this.fetchConsolidationGroups(maxAgeDays, minGroup, minAccess);
+    const groups = await this.fetchConsolidationGroups(minAgeDays, maxAgeDays, minGroup, minAccess);
     if (groups.size === 0) {
       logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, tier }, `No ${tier} memories require consolidation at this time`);
       return;
@@ -437,7 +454,14 @@ If no actions are needed, return exactly: []
     for (const [hash, batch] of groups) {
       if (processedGroups >= CONSOLIDATION_BATCH_SIZE) break;
 
-      const actions = await this.generateConsolidationActions(batch);
+      // Chunk oversized groups (the "unhashed" bucket effectively holds the whole
+      // store) so every LLM call stays within the model's context window.
+      let actions: ConsolidationAction[] = [];
+      for (let i = 0; i < batch.length; i += MAX_MEMORIES_PER_CALL) {
+        const chunk = batch.slice(i, i + MAX_MEMORIES_PER_CALL);
+        actions = actions.concat(await this.generateConsolidationActions(chunk));
+      }
+
       if (actions.length === 0) continue;
 
       await this.executeActions(actions, batch);
@@ -463,7 +487,7 @@ If no actions are needed, return exactly: []
     });
 
     const recentTimer = setInterval(() => {
-      this.runTier("recent", RECENT_MAX_AGE_DAYS, RECENT_MIN_GROUP, 0).catch((err) => {
+      this.runTier("recent", 0, RECENT_MAX_AGE_DAYS, RECENT_MIN_GROUP, 0).catch((err) => {
         logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Scheduled recent consolidation cycle failed');
       });
     }, RECENT_INTERVAL_MS);
@@ -471,7 +495,7 @@ If no actions are needed, return exactly: []
 
     // Deep tier: slower, catches mature clusters the recent tier misses.
     const deepTimer = setInterval(() => {
-      this.runTier("deep", DEEP_MAX_AGE_DAYS, DEEP_MIN_GROUP, 1).catch((err) => {
+      this.runTier("deep", RECENT_MAX_AGE_DAYS, DEEP_MAX_AGE_DAYS, DEEP_MIN_GROUP, 1).catch((err) => {
         logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Scheduled deep consolidation cycle failed');
       });
     }, DEEP_INTERVAL_MS);
