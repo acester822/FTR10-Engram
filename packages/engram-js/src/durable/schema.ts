@@ -3,7 +3,7 @@
  - what is the file used for
 */
 
-export const DURABLE_SCHEMA_VERSION = "4.0.0-advanced-features";
+export const DURABLE_SCHEMA_VERSION = "4.0.1-embedding-provenance";
 
 export const DURABLE_EDGE_TYPES = [
   "mentions",
@@ -79,6 +79,7 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
       contracts jsonb not null default '{}'::jsonb,
       metadata jsonb not null default '{}'::jsonb,
       embedding halfvec(${vectorDim}),
+      embedding_synthetic boolean not null default false,
       confidence double precision not null default 1 check(confidence >= 0 and confidence <= 1),
       salience double precision not null default 0.5 check(salience >= 0 and salience <= 1),
       memory_tier text not null default 'active',
@@ -318,10 +319,16 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
       start_pos integer not null,
       end_pos integer not null,
       embedding halfvec(${vectorDim}),
+      embedding_synthetic boolean not null default false,
       created_at timestamptz not null default now(),
       unique(memory_id, window_index)
     )`,
     `create index if not exists durable_memory_windows_memory_idx on ${memoryWindows}(memory_id)`,
     `create index if not exists durable_memory_windows_embedding_idx on ${memoryWindows} using hnsw (embedding halfvec_cosine_ops) where embedding is not null`,
+    // Embedding provenance (v4.0.1-embedding-provenance): flag rows whose
+    // stored vector came from the deterministic hash fallback (not a real
+    // semantic model), so recall can annotate or exclude them.
+    `alter table ${memories} add column if not exists embedding_synthetic boolean not null default false`,
+    `alter table ${memoryWindows} add column if not exists embedding_synthetic boolean not null default false`,
   ];
 }

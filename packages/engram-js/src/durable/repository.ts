@@ -10,6 +10,8 @@ import { classifyMemory, DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE
 import { ImportanceCalculator, type ImportanceTier, TIER_CONFIG } from "../services/importanceCalculator";
 import { WindowedEmbedder, tokenize, WINDOW_SIZE } from "../services/windowedEmbedder";
 import { computeLexicalScore } from "../utilities/keyword";
+import { isSyntheticEmbedding } from "../embeddings/embed";
+import { logger } from "../utils/logger";
 
 const importanceCalculator = new ImportanceCalculator();
 
@@ -97,6 +99,7 @@ export interface DurableRememberInput {
   edges?: DurableEdgeInput[];
   source?: DurableSource;
   embedding?: number[];
+  embedding_synthetic?: boolean;
   now?: Date;
   observed_at?: string | Date;
   valid_from?: string | Date;
@@ -109,6 +112,7 @@ export interface DurableRememberResult {
   isGenome: boolean;
   importance_tier?: string;
   importance_score?: number;
+  embedding_synthetic?: boolean;
 }
 
 export type DurableRecallMode = "strict" | "historical" | "associative";
@@ -124,6 +128,7 @@ export interface DurableRecallInput {
   embedding?: number[];
   candidate_ids?: string[];
   hybrid?: boolean;
+  exclude_synthetic?: boolean;
 }
 
 export interface DurableRecallResult {
@@ -145,6 +150,7 @@ export interface DurableRecallResult {
     importance_score?: number;
     vector_score?: number;
     lexical_score?: number;
+    embedding_synthetic?: boolean;
     provenance_summary: {
       count: number;
       hidden: boolean;
@@ -924,6 +930,16 @@ export async function rememberDurableMemory(
   const validFrom = toDateOr(input.valid_from ?? input.metadata?.valid_from) || observedAt;
   const validTo = toDateOr(input.valid_to ?? input.metadata?.valid_to);
 
+  // Embedding provenance (v4.0.1-embedding-provenance): flag rows whose
+  // vector came from the deterministic hash fallback — semantic recall on
+  // them is unreliable. Detected at the chokepoint so every write path is
+  // covered regardless of caller.
+  const embeddingSynthetic =
+    Array.isArray(input.embedding) && input.embedding.length > 0
+      ? input.embedding_synthetic ??
+        isSyntheticEmbedding(input.embedding, input.content)
+      : false;
+
   const memoryState = {
     id,
     user_id: userId,
@@ -944,8 +960,8 @@ export async function rememberDurableMemory(
   try {
     await db.query(
       `insert into ${memories}
-        (id,user_id,project_id,content,facets,contracts,metadata,observed_at,recorded_at,valid_from,valid_to,importance_tier,importance_score,embedding,is_genome,decay_rate,access_count,last_accessed_at,sector)
-       values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13,$14::halfvec,$15,$16,$17,$18,$19)`,
+        (id,user_id,project_id,content,facets,contracts,metadata,observed_at,recorded_at,valid_from,valid_to,importance_tier,importance_score,embedding,embedding_synthetic,is_genome,decay_rate,access_count,last_accessed_at,sector)
+       values ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13,$14::halfvec,$15,$16,$17,$18,$19,$20)`,
       [
         id,
         userId,
@@ -961,6 +977,7 @@ export async function rememberDurableMemory(
         importanceTier,
         importanceScore,
         asVector(input.embedding),
+        embeddingSynthetic,
         isGenome,
         decayRate,
         0,
@@ -1100,12 +1117,19 @@ export async function rememberDurableMemory(
     }
 
     await db.query("COMMIT");
+    if (embeddingSynthetic) {
+      logger.warn(
+        { module: "repository", memoryId: id, content: input.content.substring(0, 60) },
+        "Stored memory with SYNTHETIC (hash) embedding — semantic recall for this row will be unreliable",
+      );
+    }
     return {
       id,
       status: "stored",
       isGenome,
       importance_tier: importanceTier,
       importance_score: importanceScore,
+      embedding_synthetic: embeddingSynthetic,
     };
   } catch (err) {
     await db.query("ROLLBACK");
@@ -1156,6 +1180,9 @@ export async function recallDurableMemories(
     // Pull more vector candidates than the final limit so keyword-only
     // matches have room to rank in after evidence fusion.
     params[2] = limit * 3;
+  }
+  if (input.exclude_synthetic) {
+    filters.push("coalesce(m.embedding_synthetic, false) = false");
   }
   let vectorDistanceExpr = "null::double precision";
 
@@ -1262,6 +1289,7 @@ export async function recallDurableMemories(
       m.sector,
       m.importance_tier,
       m.importance_score,
+      m.embedding_synthetic,
       ranked.vector_distance,
       coalesce(p.provenance, '[]'::jsonb) as provenance,
       coalesce(c.contradictions, '[]'::jsonb) as contradictions
@@ -1347,10 +1375,13 @@ export async function recallDurableMemories(
       )`);
       kwFilters.push(`coalesce(m.contracts->>'recall_allowed', 'true') <> 'false'`);
     }
+    if (input.exclude_synthetic) {
+      kwFilters.push("coalesce(m.embedding_synthetic, false) = false");
+    }
     kwFilters.push(`similarity(m.content, $1) > 0.1`);
     const kwResult = (await db.query(
       `select m.id, m.content, m.facets, m.contracts, m.metadata, m.salience, m.confidence,
-              m.recorded_at, m.valid_from, m.valid_to, m.sector, m.importance_score, m.importance_tier,
+              m.recorded_at, m.valid_from, m.valid_to, m.sector, m.importance_score, m.importance_tier, m.embedding_synthetic,
               similarity(m.content, $1) as keyword_score
        from ${memories} m
        where ${kwFilters.join("\n        and ")}
@@ -1397,6 +1428,7 @@ export async function recallDurableMemories(
       sector: row.sector || "semantic",
       importance_tier: row.importance_tier || "medium",
       importance_score: importanceScore,
+      embedding_synthetic: Boolean(row.embedding_synthetic),
       vector_score: extra?.vectorScore,
       lexical_score: extra?.lexicalScore ?? lexicalScore,
       provenance_summary: provenanceSummary(

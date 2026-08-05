@@ -431,6 +431,34 @@ const resize_vec = (v: number[], t: number) => {
 export const embed = (text: string) => embedForFacet(text, "semantic");
 export const getEmbeddingProvider = () => env.emb_kind;
 
+/**
+ * Deterministic synthetic-embedding detector.
+ *
+ * `gen_syn_emb` is a pure function of (text, facet), so a vector that matches
+ * it was produced by the synthetic hash fallback — i.e. it is NOT a real
+ * semantic-model embedding and recall ranking on it is unreliable.
+ *
+ * `tolerance` exists because the DB stores vectors as `halfvec` (fp16), which
+ * rounds values on write; a backfill reading vectors back from Postgres must
+ * pass a small tolerance (e.g. 1e-3) to match. At write time the in-memory
+ * float64 array is compared exactly (tolerance 0).
+ */
+export function isSyntheticEmbedding(
+  embedding: number[],
+  text: string,
+  facet: string = "semantic",
+  tolerance: number = 0,
+): boolean {
+  if (!Array.isArray(embedding) || embedding.length === 0) return false;
+  const synthetic = gen_syn_emb(text, facet);
+  if (synthetic.length !== embedding.length) return false;
+  for (let i = 0; i < embedding.length; i++) {
+    const diff = Math.abs(embedding[i] - synthetic[i]);
+    if (diff > tolerance) return false;
+  }
+  return true;
+}
+
 export const getEmbeddingInfo = () => {
   const i: Record<string, any> = {
     provider: env.emb_kind,

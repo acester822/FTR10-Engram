@@ -4,7 +4,7 @@
 */
 
 import crypto from "node:crypto";
-import { embed } from "../embeddings/embed";
+import { embed, isSyntheticEmbedding } from "../embeddings/embed";
 import { logger } from "../utils/logger";
 
 export const WINDOW_SIZE = 448; // tokens
@@ -73,15 +73,24 @@ export class WindowedEmbedder {
     for (const window of windows) {
       const windowText = tokens.slice(window.start_pos, window.end_pos).join(" ");
       const embedding = await embed(windowText);
+      const synthetic = isSyntheticEmbedding(embedding, windowText);
+
+      if (synthetic) {
+        logger.warn(
+          { module: "windowedEmbedder", memoryId, windowIndex: window.window_index },
+          "Stored SYNTHETIC (hash) window embedding — recall on this window is unreliable",
+        );
+      }
 
       await this.db.query(
         `insert into ${this.windowsTable}
-          (id, memory_id, window_index, start_pos, end_pos, embedding)
-         values ($1, $2, $3, $4, $5, $6::halfvec)
+          (id, memory_id, window_index, start_pos, end_pos, embedding, embedding_synthetic)
+         values ($1, $2, $3, $4, $5, $6::halfvec, $7)
          on conflict (memory_id, window_index) do update set
            start_pos = excluded.start_pos,
            end_pos = excluded.end_pos,
-           embedding = excluded.embedding`,
+           embedding = excluded.embedding,
+           embedding_synthetic = excluded.embedding_synthetic`,
         [
           crypto.randomUUID(),
           memoryId,
@@ -89,6 +98,7 @@ export class WindowedEmbedder {
           window.start_pos,
           window.end_pos,
           `[${embedding.join(",")}]`,
+          synthetic,
         ],
       );
     }
@@ -96,9 +106,16 @@ export class WindowedEmbedder {
     // For short memories (single window), keep the full-memory embedding fresh.
     if (windows.length === 1) {
       const fullEmbedding = await embed(content);
+      const synthetic = isSyntheticEmbedding(fullEmbedding, content);
+      if (synthetic) {
+        logger.warn(
+          { module: "windowedEmbedder", memoryId },
+          "Stored SYNTHETIC (hash) embedding — semantic recall for this row will be unreliable",
+        );
+      }
       await this.db.query(
-        `update ${this.memoriesTable} set embedding = $1::halfvec where id = $2`,
-        [`[${fullEmbedding.join(",")}]`, memoryId],
+        `update ${this.memoriesTable} set embedding = $1::halfvec, embedding_synthetic = $2 where id = $3`,
+        [`[${fullEmbedding.join(",")}]`, synthetic, memoryId],
       );
     }
   }

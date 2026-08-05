@@ -13,6 +13,7 @@ exports[`buildDurableSchemaSql > snapshot: default public schema with default ve
       contracts jsonb not null default '{}'::jsonb,
       metadata jsonb not null default '{}'::jsonb,
       embedding halfvec(1536),
+      embedding_synthetic boolean not null default false,
       confidence double precision not null default 1 check(confidence >= 0 and confidence <= 1),
       salience double precision not null default 0.5 check(salience >= 0 and salience <= 1),
       memory_tier text not null default 'active',
@@ -68,6 +69,7 @@ exports[`buildDurableSchemaSql > snapshot: full schema for custom options 1`] = 
       contracts jsonb not null default '{}'::jsonb,
       metadata jsonb not null default '{}'::jsonb,
       embedding halfvec(1536),
+      embedding_synthetic boolean not null default false,
       confidence double precision not null default 1 check(confidence >= 0 and confidence <= 1),
       salience double precision not null default 0.5 check(salience >= 0 and salience <= 1),
       memory_tier text not null default 'active',
@@ -302,10 +304,13 @@ exports[`buildDurableSchemaSql > snapshot: full schema for custom options 1`] = 
       start_pos integer not null,
       end_pos integer not null,
       embedding halfvec(1536),
+      embedding_synthetic boolean not null default false,
       created_at timestamptz not null default now(),
       unique(memory_id, window_index)
     )",
   "create index if not exists durable_memory_windows_memory_idx on "engram"."memory_windows"(memory_id)",
   "create index if not exists durable_memory_windows_embedding_idx on "engram"."memory_windows" using hnsw (embedding halfvec_cosine_ops) where embedding is not null",
+  "alter table "engram"."memories" add column if not exists embedding_synthetic boolean not null default false",
+  "alter table "engram"."memory_windows" add column if not exists embedding_synthetic boolean not null default false",
 ]
 `;

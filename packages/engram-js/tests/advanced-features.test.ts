@@ -16,6 +16,10 @@ import {
   vectorProbability,
   lexicalProbability,
 } from "../src/durable/scoring";
+import {
+  isSyntheticEmbedding,
+  gen_syn_emb,
+} from "../src/embeddings/embed";
 
 describe("ImportanceCalculator", () => {
   const calc = new ImportanceCalculator();
@@ -131,6 +135,29 @@ describe("Evidence fusion (scoring.ts)", () => {
     });
     expect(contradicted).toBeLessThan(clean);
     expect(blocked).toBe(0);
+  });
+});
+
+describe("isSyntheticEmbedding (embedding provenance)", () => {
+  it("flags gen_syn_emb output as synthetic", () => {
+    const emb = gen_syn_emb("the quick brown fox jumps", "semantic");
+    expect(isSyntheticEmbedding(emb, "the quick brown fox jumps", "semantic")).toBe(true);
+  });
+
+  it("does not flag perturbed (real-model-like) vectors", () => {
+    const emb = gen_syn_emb("the quick brown fox jumps", "semantic").slice();
+    emb[0] += 0.001;
+    expect(isSyntheticEmbedding(emb, "the quick brown fox jumps", "semantic")).toBe(false);
+  });
+
+  it("matches halfvec-rounded values within tolerance", () => {
+    // Math.fround simulates fp16/fp32 rounding the DB applies to stored vectors.
+    const emb = gen_syn_emb("rotate the api key weekly", "semantic").map((x) => Math.fround(x));
+    expect(isSyntheticEmbedding(emb, "rotate the api key weekly", "semantic", 1e-3)).toBe(true);
+  });
+
+  it("returns false for empty embeddings", () => {
+    expect(isSyntheticEmbedding([], "anything")).toBe(false);
   });
 });
 

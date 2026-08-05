@@ -226,7 +226,8 @@ Engram/
 │   │                           #   exposing crawl / crawl_site / search; SearXNG sidecar config
 │   └── hermes-plugin/          # Hermes memory-provider plugin ("Option B" sidecar; stdlib urllib only)
 ├── docs/                       # plan.md, Vision.md, compaction.engine.md, model-breakdowns.md, rebrand.md, ...
-├── scripts/                    # backfill_embeddings.py, store-hygiene purge scripts (DRY-RUN by default)
+├── scripts/                    # recall-eval (recall@k harness), backfill_embeddings.py,
+│   │                           #   backfillEmbeddingProvenance.ts, store-hygiene purge scripts (DRY-RUN by default)
 ├── docker/                     # postgres init scripts (databases, vector/halfvec extensions)
 ├── docker-compose.yml          # postgres · redis · engram · searxng · searxncrawl · web
 └── bin/opm.js                  # `engram` CLI (watch → /api/dashboard/activity, memory CRUD)
@@ -378,7 +379,7 @@ cd packages/engram-js && EG_PORT=8080 npx nodemon src/server.ts
 npm run build && npm start
 ```
 
-Migrations are **idempotent** — the same `IF NOT EXISTS` statement list (`src/durable/schema.ts`, version `4.0.0-advanced-features`) executes in one transaction at every boot, so the schema is always current before the API accepts traffic.
+Migrations are **idempotent** — the same `IF NOT EXISTS` statement list (`src/durable/schema.ts`, version `4.0.1-embedding-provenance`) executes in one transaction at every boot, so the schema is always current before the API accepts traffic.
 
 ---
 
@@ -455,6 +456,10 @@ Verify PostgreSQL is running and port 8098 is free (`lsof -i :8098`). Check logs
 ### Recall returns flat / low scores
 
 Rows with NULL embeddings are invisible to the HNSW vector index (it's partial `where embedding is not null`). If extraction wrote rows without embeddings, recall degrades to flat ~0.34 scores. Fix the embedding pipeline, then backfill with `scripts/backfill_embeddings.py`.
+
+Every memory also carries an `embedding_synthetic` flag (v4.0.1): it is set at write time when the deterministic hash fallback produced the vector instead of a real semantic model (a loud `WARN` is logged, and recall results annotate the flag so consumers can exclude them with `exclude_synthetic: true`). Run `scripts/backfillEmbeddingProvenance.ts` to flag historical rows.
+
+**Measure recall quality** with `bun run tsx scripts/recall-eval.ts` — a labeled eval harness (cases in `scripts/recall-eval-cases.ts`) that runs real queries through `/recall` and reports recall@1/@3/@5 for hybrid and non-hybrid modes. Current store baseline: recall@1 ≈ 0.73, recall@3/@5 = 1.0 (15 cases).
 
 ### Cannot reach upstream LLM
 
