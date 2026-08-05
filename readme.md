@@ -30,7 +30,7 @@ A **cognitive memory proxy** that gives LLMs persistent, project-aware context a
 
 ## What Engram Is
 
-Engram (formerly OpenMemory → CodeCortex, now **FTR10 Engram**) is a hand-rolled Node.js/TypeScript HTTP server — no Express/Fastify — that acts as an intelligent proxy between clients and an LLM. It is biologically inspired (genome/phenotype memory model, Ebbinghaus decay, a "hippocampus" consolidation cron) and built around five capabilities:
+Engram is a hand-rolled Node.js/TypeScript HTTP server — no Express/Fastify — that acts as an intelligent proxy between clients and an LLM. It is biologically inspired (genome/phenotype memory model, Ebbinghaus decay, a "hippocampus" consolidation cron) and built around five capabilities:
 
 1. **Memory recall & injection** — every request is embedded, vector-searched against a PostgreSQL + pgvector store, and enriched with a `[ENGRAM COGNITIVE CONTEXT]` block before being forwarded upstream.
 2. **Generative extraction** — after each conversation, a configurable generative model extracts new durable facts from the transcript and stores them (with quality gates, dedup, and embedding).
@@ -89,10 +89,10 @@ When a conversation exceeds `EG_COMPACT_TRIGGER` messages, the compaction engine
 
 A background cron (started 2s after boot) with **two env-overridable tiers**:
 
-| Tier | Interval | Window | Min group | Purpose |
-|---|---|---|---|---|
-| **RECENT** | `EG_CONSOLIDATION_RECENT_INTERVAL_MS` (4h) | last `…_RECENT_MAX_AGE_DAYS` (7d) | 2 | Promote standing rules / catch near-dupes within hours |
-| **DEEP** | `EG_CONSOLIDATION_DEEP_INTERVAL_MS` (24h) | up to `…_DEEP_MAX_AGE_DAYS` (30d) | 3 | Long-window cleanup (requires `access_count >= 1`) |
+| Tier       | Interval                                   | Window                            | Min group | Purpose                                                |
+| ---------- | ------------------------------------------ | --------------------------------- | --------- | ------------------------------------------------------ |
+| **RECENT** | `EG_CONSOLIDATION_RECENT_INTERVAL_MS` (4h) | last `…_RECENT_MAX_AGE_DAYS` (7d) | 2         | Promote standing rules / catch near-dupes within hours |
+| **DEEP**   | `EG_CONSOLIDATION_DEEP_INTERVAL_MS` (24h)  | up to `…_DEEP_MAX_AGE_DAYS` (30d) | 3         | Long-window cleanup (requires `access_count >= 1`)     |
 
 Each cycle groups non-archived memories by `consolidation_hash` (max 15 groups), sends each group to the generative model, and applies the returned `merge | update | promote | delete` actions in **one transaction** — any error rolls back the whole batch. If the LLM omits `new_content` for a merge/update, a synthesis model (`EG_MODEL_GENERATIVE_FALLBACK`) generates it. Manual trigger: `POST /api/dashboard/consolidate`.
 
@@ -110,10 +110,10 @@ Temporal salience with access-based reinforcement and exponential decay:
 
 ## Memory Model: Genome & Phenotype
 
-| Layer | Behavior | Description |
-|-------|----------|-------------|
-| 🧬 **Genome** | Immutable, near-never-decaying | Core directives — foundational facts *always* injected into every request (e.g. *"User prefers TypeScript"*). Stored as `is_genome = true`, cached 30s, retrieved by direct SQL (not similarity). |
-| 🔬 **Phenotype** | Decaying context via vector search | Context retrieved by similarity across 5 sectors, with per-sector decay rates. |
+| Layer            | Behavior                           | Description                                                                                                                                                                                       |
+| ---------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🧬 **Genome**    | Immutable, near-never-decaying     | Core directives — foundational facts *always* injected into every request (e.g. *"User prefers TypeScript"*). Stored as `is_genome = true`, cached 30s, retrieved by direct SQL (not similarity). |
+| 🔬 **Phenotype** | Decaying context via vector search | Context retrieved by similarity across 5 sectors, with per-sector decay rates.                                                                                                                    |
 
 Genome classification is **deliberately opt-in**: `classifyAsGenome()` matches explicit `GENOME_PATTERNS` (capitals/definitions/scientific constants/mathematical identities/precisely-anchored historical dates) or an explicit `is_genome` flag at write time. The old heuristic that promoted *any* short declarative sentence to genome was removed — it flooded the genome tier with ephemeral facts.
 
@@ -121,12 +121,12 @@ Genome classification is **deliberately opt-in**: `classifyAsGenome()` matches e
 
 Sector is inferred from content keywords, then **coerced through `normalizeSector`** — a closed 5-value enum enforced at the DB boundary, so an LLM can never persist an invented sector like `"important decision"`.
 
-| Sector | Type | Example |
-|--------|------|---------|
-| 📖 `semantic` | Facts & domain knowledge | *"PostgreSQL uses pgvector for embeddings"* |
-| ⚙️ `procedural` | Code patterns & workflows | *"Auth middleware validates JWT tokens before route handlers"* |
-| 🎬 `episodic` | Events & specific interactions | *"User debugged the Docker compose setup on March 15"* |
-| 💭 `emotional` | Preferences, tone, sentiment | *"User prefers concise, no-nonsense explanations"* |
+| Sector          | Type                             | Example                                                                   |
+| --------------- | -------------------------------- | ------------------------------------------------------------------------- |
+| 📖 `semantic`   | Facts & domain knowledge         | *"PostgreSQL uses pgvector for embeddings"*                               |
+| ⚙️ `procedural`  | Code patterns & workflows        | *"Auth middleware validates JWT tokens before route handlers"*            |
+| 🎬 `episodic`   | Events & specific interactions   | *"User debugged the Docker compose setup on March 15"*                    |
+| 💭 `emotional`  | Preferences, tone, sentiment     | *"User prefers concise, no-nonsense explanations"*                        |
 | 🔍 `reflective` | Meta-cognition & lessons learned | *"When debugging Docker networking, always check subnet conflicts first"* |
 
 ---
@@ -251,14 +251,14 @@ docker compose logs -f engram
 
 ### Services
 
-| Service | Host port | Description |
-|---------|-----------|-------------|
-| **postgres** | 5432 | PostgreSQL 16 + pgvector (`pgvector/pgvector:0.8.2-pg16-trixie`) — memory storage |
-| **redis** | 6379 | Redis 7 cache |
-| **engram** | 8098 → 8080 | The Engram server — main API endpoint (healthcheck on `/health`) |
-| **searxng** | 8888 | SearXNG metasearch (for auto-search; `cap_drop: ALL`) |
-| **searxncrawl** | 9555 | Auto-search FastMCP server (crawl/search tools) |
-| **web** | 8099 | Engram Web GUI — nginx serving the React SPA, proxying `/api/` → `engram:8080` |
+| Service         | Host port   | Description                                                                       |
+| --------------- | ----------- | --------------------------------------------------------------------------------- |
+| **postgres**    | 5432        | PostgreSQL 16 + pgvector (`pgvector/pgvector:0.8.2-pg16-trixie`) — memory storage |
+| **redis**       | 6379        | Redis 7 cache                                                                     |
+| **engram**      | 8098 → 8080 | The Engram server — main API endpoint (healthcheck on `/health`)                  |
+| **searxng**     | 8888        | SearXNG metasearch (for auto-search; `cap_drop: ALL`)                             |
+| **searxncrawl** | 9555        | Auto-search FastMCP server (crawl/search tools)                                   |
+| **web**         | 8099        | Engram Web GUI — nginx serving the React SPA, proxying `/api/` → `engram:8080`    |
 
 All services share the `ftr10-engram` bridge network; named volumes `postgres_data`, `redis_data`, `server_data` persist data. There is **no bundled Ollama service** — Engram expects models to be reachable via env-configured URLs (in the live deployment a LAN llama-swap box serves embeddings, the generative model, and the upstream chat model; see [Configuration](#configuration)).
 
@@ -312,30 +312,30 @@ Copy `.env.example` to `.env` and adjust. Engram loads `.env` from the cwd and u
 
 Key variables (see `.env.example` for the full catalog):
 
-| Variable | Default | Role |
-|----------|---------|------|
-| `EG_PORT` | `8080` | Listen port (8098 host-side in Docker) |
-| `EG_STORAGE` | `postgres` | Backend (`postgres` / `sqlite`) |
-| `EG_PG_HOST` / `EG_PG_PORT` / `EG_PG_DB` / `EG_PG_USER` / `EG_PG_PASSWORD` | localhost / 5432 / engram / postgres / — | PostgreSQL connection |
-| `EG_VEC_DIM` | `1536` (768 in .env.example & deployment) | Embedding dimension — must match the model and the `halfvec` column |
-| `EG_EMBEDDINGS` | `openai` | Primary embedding provider (`openai` / `gemini` / `aws` / `siray` / `local` / `synthetic`) |
-| `EG_MODEL_EMBEDDING` | `qwen3-embedding:0.6b` | Universal default embedding model (`env.embed_model_primary`) |
-| `EG_EMBED_MODEL` | — | **Global embedding override** — read by `resolveEmbeddingModel()` before the config table |
-| `EG_MODEL_EMBED_<FACET>` | — | Per-facet default embedding models (semantic/episodic/procedural/emotional/reflective) |
-| `EG_<PROVIDER>_MODEL` / `EG_<PROVIDER>_<FACET>_MODEL` | — | Provider-wide / per-provider+per-facet overrides (e.g. `EG_OPENAI_MODEL`, `EG_OPENAI_PROCEDURAL_MODEL`) |
-| `EG_MODEL_EMBEDDING_FALLBACK` | `bge-m3` | Comma-separated fallback embedding *provider* chain |
-| `EG_GENERATIVE_URL` / `EG_MODEL_GENERATIVE` | — / `qwen3.5:2b` | Generative model endpoint + name (extraction, compaction, consolidation, auto-search queries) |
-| `EG_MODEL_GENERATIVE_FALLBACK` | `qwen2.5:3b` | Synthesis fallback for consolidation |
-| `EG_UPSTREAM_LLM_URL` | — | Where the proxy forwards chat completions |
-| `EG_COMPACT_TRIGGER` / `EG_MAX_RAW_TURNS` | `50` / `6` (code); `100` / `4` (.env.example) | Compaction thresholds |
-| `EG_COMPACT_PROMPT_MAX_CHARS` / `EG_COMPACTION_COOLDOWN_MS` | `4096` / `10s` (code); `800` / `120s` (.env.example) | Compaction prompt cap / hot-loop guard |
-| `EG_EXTRACTION_COOLDOWN_MS` / `EG_MAX_FACTS_PER_TURN` | `30000` / `5` (code); `8` (.env.example) | Extraction throttle / per-turn fact cap |
-| `EG_CONSOLIDATION_RECENT_*` / `EG_CONSOLIDATION_DEEP_*` | 4h·7d·2 / 24h·30d·3 | Two-tier consolidation scheduling |
-| `EG_HYBRID_SEARCH` | `true` | Toggle hybrid vector + keyword recall fusion |
-| `EG_AUTO_SEARCH_ENABLED` + `EG_AUTO_SEARCH_*` | `false` | searxNcrawl web augmentation (min confidence 40%) |
-| `EG_API_KEY` / `EG_REQUIRE_API_KEY` / `EG_INTERNAL_API_KEY` | — | Auth |
-| `EG_VECTOR_STORE` | `postgres` | Vector backend (postgres, or qdrant/pinecone/weaviate/chroma/milvus/valkey) |
-| `EG_TELEMETRY` | `true` | Boot telemetry |
+| Variable                                                                   | Default                                              | Role                                                                                                    |
+| -------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `EG_PORT`                                                                  | `8080`                                               | Listen port (8098 host-side in Docker)                                                                  |
+| `EG_STORAGE`                                                               | `postgres`                                           | Backend (`postgres` / `sqlite`)                                                                         |
+| `EG_PG_HOST` / `EG_PG_PORT` / `EG_PG_DB` / `EG_PG_USER` / `EG_PG_PASSWORD` | localhost / 5432 / engram / postgres / —             | PostgreSQL connection                                                                                   |
+| `EG_VEC_DIM`                                                               | `1536` (768 in .env.example & deployment)            | Embedding dimension — must match the model and the `halfvec` column                                     |
+| `EG_EMBEDDINGS`                                                            | `openai`                                             | Primary embedding provider (`openai` / `gemini` / `aws` / `siray` / `local` / `synthetic`)              |
+| `EG_MODEL_EMBEDDING`                                                       | `qwen3-embedding:0.6b`                               | Universal default embedding model (`env.embed_model_primary`)                                           |
+| `EG_EMBED_MODEL`                                                           | —                                                    | **Global embedding override** — read by `resolveEmbeddingModel()` before the config table               |
+| `EG_MODEL_EMBED_<FACET>`                                                   | —                                                    | Per-facet default embedding models (semantic/episodic/procedural/emotional/reflective)                  |
+| `EG_<PROVIDER>_MODEL` / `EG_<PROVIDER>_<FACET>_MODEL`                      | —                                                    | Provider-wide / per-provider+per-facet overrides (e.g. `EG_OPENAI_MODEL`, `EG_OPENAI_PROCEDURAL_MODEL`) |
+| `EG_MODEL_EMBEDDING_FALLBACK`                                              | `bge-m3`                                             | Comma-separated fallback embedding *provider* chain                                                     |
+| `EG_GENERATIVE_URL` / `EG_MODEL_GENERATIVE`                                | — / `qwen3.5:2b`                                     | Generative model endpoint + name (extraction, compaction, consolidation, auto-search queries)           |
+| `EG_MODEL_GENERATIVE_FALLBACK`                                             | `qwen2.5:3b`                                         | Synthesis fallback for consolidation                                                                    |
+| `EG_UPSTREAM_LLM_URL`                                                      | —                                                    | Where the proxy forwards chat completions                                                               |
+| `EG_COMPACT_TRIGGER` / `EG_MAX_RAW_TURNS`                                  | `50` / `6` (code); `100` / `4` (.env.example)        | Compaction thresholds                                                                                   |
+| `EG_COMPACT_PROMPT_MAX_CHARS` / `EG_COMPACTION_COOLDOWN_MS`                | `4096` / `10s` (code); `800` / `120s` (.env.example) | Compaction prompt cap / hot-loop guard                                                                  |
+| `EG_EXTRACTION_COOLDOWN_MS` / `EG_MAX_FACTS_PER_TURN`                      | `30000` / `5` (code); `8` (.env.example)             | Extraction throttle / per-turn fact cap                                                                 |
+| `EG_CONSOLIDATION_RECENT_*` / `EG_CONSOLIDATION_DEEP_*`                    | 4h·7d·2 / 24h·30d·3                                  | Two-tier consolidation scheduling                                                                       |
+| `EG_HYBRID_SEARCH`                                                         | `true`                                               | Toggle hybrid vector + keyword recall fusion                                                            |
+| `EG_AUTO_SEARCH_ENABLED` + `EG_AUTO_SEARCH_*`                              | `false`                                              | searxNcrawl web augmentation (min confidence 40%)                                                       |
+| `EG_API_KEY` / `EG_REQUIRE_API_KEY` / `EG_INTERNAL_API_KEY`                | —                                                    | Auth                                                                                                    |
+| `EG_VECTOR_STORE`                                                          | `postgres`                                           | Vector backend (postgres, or qdrant/pinecone/weaviate/chroma/milvus/valkey)                             |
+| `EG_TELEMETRY`                                                             | `true`                                               | Boot telemetry                                                                                          |
 
 ### Model resolution
 
@@ -387,7 +387,7 @@ Migrations are **idempotent** — the same `IF NOT EXISTS` statement list (`src/
 The web interface (React/Vite SPA on port 8099) is the primary dashboard:
 
 - **Dashboard** — memory counts, genome/phenotype breakdown, sector/tier statistics, manual consolidation trigger
-- **Memory Explorer** — search, filter (sector/tier), edit, and delete stored memories
+- **Memory Explorer** — search, filter by sector, edit, and delete stored memories; each row shows sector, genome/phenotype type, and an **importance tier pill + score** (critical/high/medium/low from the v4.0.0 schema)
 - **Server Logs** — live auto-refreshing Pino logs
 - **Performance Monitor** — CPU, memory, disk, and llama-swap metrics
 - **Memory Recall** — test the real recall engine (`POST /api/dashboard/recall`)
@@ -407,39 +407,39 @@ cd apps/web && npm run build
 
 The server exposes two families: **root-level API routes** (used by clients and the Hermes plugin) and **dashboard routes** (used by the Web GUI; nginx only forwards `/api/` to the container, which is why recall is duplicated under `/api/dashboard/recall`).
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v1/chat/completions` | POST | OpenAI-compatible chat endpoint with memory injection (the proxy) |
-| `/health` | GET | Health check |
-| `/recall` | POST | Memory recall/search (embed query → hybrid recall) |
-| `/memories` | GET/POST | List / create memories |
-| `/memories/:id` | GET / PATCH / DELETE | Read / update / delete a memory |
-| `/memories/:id/explain` | GET | Explain why a memory was recalled |
-| `/memories/:id/reinforce` | POST | Reinforce a memory (boosts salience) |
-| `/memories/:id/tier` | POST | Change memory tier (active/warm/cold/archived) |
-| `/contradictions` | POST | Create a contradiction between memories |
-| `/contradictions/:id/resolve` | POST | Resolve a contradiction |
-| `/consolidations` / `/consolidations/claim` / `/consolidations/:id/complete` | POST | Consolidation lifecycle endpoints |
-| `/edges/execute` | POST | Execute knowledge-graph edge operations |
-| `/graph/temporal/query` | POST | Temporal graph query for memory relationships |
-| `/ingest/conversation` | POST | Ingest a full conversation turn (Hermes sidecar) |
-| `/ingest/document` / `/ingest/event` / `/ingest` | POST | Document / event ingestion |
-| `/ingest/candidates/:id/accept` / `/reject` | POST | Promote / reject extraction candidates |
-| `/sources/:source/ingest` | POST | Ingest from external sources (github, notion, googleDrive, onedrive, …) |
-| `/admin/decay/run` | POST | Run the memory decay engine manually |
-| `/stats/summary` / `/stats/timeseries` | GET | Memory statistics |
-| `/api/dashboard/stats` | GET | Dashboard statistics (genome/phenotype breakdown) |
-| `/api/dashboard/memories` | GET | List memories (paginated, searchable, sector filter) |
-| `/api/dashboard/memories/:id` | PUT/DELETE | Update / delete a memory |
-| `/api/dashboard/logs` / `/api/dashboard/log` | GET | Interaction logs / full Pino log file |
-| `/api/dashboard/recall` | POST | Recall engine (browser-reachable duplicate of `/recall`) |
-| `/api/dashboard/consolidate` | POST | Trigger consolidation manually |
-| `/api/dashboard/perf` | GET | Server performance metrics |
-| `/api/dashboard/activity` | GET | Live memory activity feed (ring buffer) |
-| `/api/dashboard/activity/clear` | POST | Clear the activity feed |
-| `/api/performance/system` | GET | System metrics (CPU, memory, disk, load, uptime) |
-| `/api/performance/llama-swap` | GET | Upstream llama-swap box metrics |
-| `/api/ide/session/start` · `/api/ide/session/end` · `/api/ide/events` · `/api/ide/context` · `/api/ide/patterns/:session_id` | GET/POST | VS Code extension integration endpoints |
+| Endpoint                                                                                                                     | Method               | Description                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------- |
+| `/v1/chat/completions`                                                                                                       | POST                 | OpenAI-compatible chat endpoint with memory injection (the proxy)       |
+| `/health`                                                                                                                    | GET                  | Health check                                                            |
+| `/recall`                                                                                                                    | POST                 | Memory recall/search (embed query → hybrid recall)                      |
+| `/memories`                                                                                                                  | GET/POST             | List / create memories                                                  |
+| `/memories/:id`                                                                                                              | GET / PATCH / DELETE | Read / update / delete a memory                                         |
+| `/memories/:id/explain`                                                                                                      | GET                  | Explain why a memory was recalled                                       |
+| `/memories/:id/reinforce`                                                                                                    | POST                 | Reinforce a memory (boosts salience)                                    |
+| `/memories/:id/tier`                                                                                                         | POST                 | Change memory tier (active/warm/cold/archived)                          |
+| `/contradictions`                                                                                                            | POST                 | Create a contradiction between memories                                 |
+| `/contradictions/:id/resolve`                                                                                                | POST                 | Resolve a contradiction                                                 |
+| `/consolidations` / `/consolidations/claim` / `/consolidations/:id/complete`                                                 | POST                 | Consolidation lifecycle endpoints                                       |
+| `/edges/execute`                                                                                                             | POST                 | Execute knowledge-graph edge operations                                 |
+| `/graph/temporal/query`                                                                                                      | POST                 | Temporal graph query for memory relationships                           |
+| `/ingest/conversation`                                                                                                       | POST                 | Ingest a full conversation turn (Hermes sidecar)                        |
+| `/ingest/document` / `/ingest/event` / `/ingest`                                                                             | POST                 | Document / event ingestion                                              |
+| `/ingest/candidates/:id/accept` / `/reject`                                                                                  | POST                 | Promote / reject extraction candidates                                  |
+| `/sources/:source/ingest`                                                                                                    | POST                 | Ingest from external sources (github, notion, googleDrive, onedrive, …) |
+| `/admin/decay/run`                                                                                                           | POST                 | Run the memory decay engine manually                                    |
+| `/stats/summary` / `/stats/timeseries`                                                                                       | GET                  | Memory statistics                                                       |
+| `/api/dashboard/stats`                                                                                                       | GET                  | Dashboard statistics (genome/phenotype breakdown)                       |
+| `/api/dashboard/memories`                                                                                                    | GET                  | List memories (paginated, searchable, sector filter)                    |
+| `/api/dashboard/memories/:id`                                                                                                | PUT/DELETE           | Update / delete a memory                                                |
+| `/api/dashboard/logs` / `/api/dashboard/log`                                                                                 | GET                  | Interaction logs / full Pino log file                                   |
+| `/api/dashboard/recall`                                                                                                      | POST                 | Recall engine (browser-reachable duplicate of `/recall`)                |
+| `/api/dashboard/consolidate`                                                                                                 | POST                 | Trigger consolidation manually                                          |
+| `/api/dashboard/perf`                                                                                                        | GET                  | Server performance metrics                                              |
+| `/api/dashboard/activity`                                                                                                    | GET                  | Live memory activity feed (ring buffer)                                 |
+| `/api/dashboard/activity/clear`                                                                                              | POST                 | Clear the activity feed                                                 |
+| `/api/performance/system`                                                                                                    | GET                  | System metrics (CPU, memory, disk, load, uptime)                        |
+| `/api/performance/llama-swap`                                                                                                | GET                  | Upstream llama-swap box metrics                                         |
+| `/api/ide/session/start` · `/api/ide/session/end` · `/api/ide/events` · `/api/ide/context` · `/api/ide/patterns/:session_id` | GET/POST             | VS Code extension integration endpoints                                 |
 
 ---
 
@@ -449,21 +449,27 @@ The server exposes two families: **root-level API routes** (used by clients and 
 <summary><strong>Common issues</strong></summary>
 
 ### Server won't start
+
 Verify PostgreSQL is running and port 8098 is free (`lsof -i :8098`). Check logs: `docker compose logs engram`. Migrations run automatically at boot — they require the `engram` database to exist (`docker/postgres/init/01-create-databases.sql` creates it on first compose up).
 
 ### Recall returns flat / low scores
+
 Rows with NULL embeddings are invisible to the HNSW vector index (it's partial `where embedding is not null`). If extraction wrote rows without embeddings, recall degrades to flat ~0.34 scores. Fix the embedding pipeline, then backfill with `scripts/backfill_embeddings.py`.
 
 ### Cannot reach upstream LLM
+
 Confirm `EG_UPSTREAM_LLM_URL` points to your GPU machine or provider endpoint, and that the embedding + generative URLs (`EG_OPENAI_BASE_URL`, `EG_GENERATIVE_URL`) also resolve. Test with a direct curl request. Note llama-swap must have the embedding model loaded with an embedding-capable router — chat-only model lists 404 on `/embeddings`.
 
 ### Compaction not triggering
+
 Compaction runs when a conversation exceeds `EG_COMPACT_TRIGGER` (code default 50, `.env.example` 100). Check server logs for the `compactionEngine` module.
 
 ### Consolidation not running
+
 The cron has two tiers (RECENT 4h / DEEP 24h). Trigger manually via `POST /api/dashboard/consolidate`. Groups come from `consolidation_hash` with tier-specific minimum sizes (2 recent / 3 deep).
 
 ### `.env` changes not picked up after `docker compose restart`
+
 Compose's `environment:` block overrides `env_file:`, and `restart` doesn't re-read `.env`. Use `docker compose up -d` (or `docker compose up --build -d` after changing the server code) — the container runs a compiled `dist/` bundle, so source changes require a rebuild.
 
 </details>
