@@ -66,6 +66,25 @@ export function validateEnv(): void {
   }
 }
 
+// ── Live settings reader (GUI is the source of truth) ──
+// Auto-search + generative model were previously frozen from process.env at
+// module load, so toggling them in the web GUI had no effect. They now resolve
+// LIVE from the settings store (getSetting) with process.env as a fallback, so
+// a GUI save takes effect immediately without a container restart.
+// Imported lazily to avoid a circular dependency with the settings service
+// (settingsService imports nothing from here, but config loads very early).
+function liveSetting(key: string, fallback: string): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { getSetting } = require("../services/settingsService");
+    const v = getSetting(key);
+    if (v) return v;
+  } catch {
+    /* settings store not yet available — fall through to env */
+  }
+  return fallback;
+}
+
 export const env = {
   port: num(process.env.EG_PORT, 8080),
   api_key: process.env.EG_API_KEY,
@@ -90,7 +109,10 @@ export const env = {
   siray_key: process.env.EG_SIRAY_API_KEY || process.env.EG_SIRAY_API_TOKEN || "",
   siray_base_url: str(process.env.EG_SIRAY_BASE_URL, "https://api.siray.ai/v1"),
   generative_url: str(process.env.EG_GENERATIVE_URL, ""),
-  generative_model: DEFAULT_GENERATIVE_MODEL,
+  // Generative model: live from GUI settings (generative.model), env fallback.
+  get generative_model(): string {
+    return liveSetting("generative.model", DEFAULT_GENERATIVE_MODEL);
+  },
 
    // ── Langfuse observability (off by default; the web GUI replaces it as the primary UI) ──
    langfuse_enabled: bool(process.env.EG_LANGFUSE_ENABLED),
@@ -113,14 +135,29 @@ export const env = {
   max_payload_size: num(process.env.EG_MAX_PAYLOAD_SIZE, 1_000_000),
   ingest_chunk_target_chars: num(process.env.EG_INGEST_CHUNK_TARGET_CHARS, 3000),
 
-  // ── Auto-search via searxNcrawl ──
-  auto_search_enabled: bool(process.env.EG_AUTO_SEARCH_ENABLED),
-  auto_search_max_results: num(process.env.EG_AUTO_SEARCH_MAX_RESULTS, 3),
-  auto_search_min_confidence: (() => {
-    const v = num(process.env.EG_AUTO_SEARCH_MIN_CONFIDENCE, 40);
+  // ── Auto-search via searxNcrawl (live from GUI; Docker-aware default) ──
+  // Default URL is the compose service name `searxncrawl:9555` — inside the
+  // container `localhost:9555` is the container itself and cannot reach the
+  // searxNcrawl service on the ftr10-engram network.
+  get auto_search_enabled(): boolean {
+    return bool(liveSetting("general.auto_search_enabled", process.env.EG_AUTO_SEARCH_ENABLED || ""));
+  },
+  get auto_search_max_results(): number {
+    return num(liveSetting("general.auto_search_max_results", process.env.EG_AUTO_SEARCH_MAX_RESULTS || ""), 3);
+  },
+  get auto_search_min_confidence(): number {
+    const v = num(liveSetting("general.auto_search_min_confidence", process.env.EG_AUTO_SEARCH_MIN_CONFIDENCE || ""), 40);
     return Math.max(0, Math.min(1, v / 100));
-  })(),
-  auto_search_url: str(process.env.EG_AUTO_SEARCH_URL, "http://localhost:9555"),
-  auto_search_domains: str(process.env.EG_AUTO_SEARCH_DOMAINS, "").split(",").map((s) => s.trim()).filter(Boolean),
-  auto_search_max_chars: num(process.env.EG_AUTO_SEARCH_MAX_CHARS, 2000),
+  },
+  get auto_search_url(): string {
+    const v = liveSetting("general.auto_search_url", process.env.EG_AUTO_SEARCH_URL || "");
+    return v ? v : "http://searxncrawl:9555";
+  },
+  get auto_search_domains(): string[] {
+    const v = liveSetting("general.auto_search_domains", process.env.EG_AUTO_SEARCH_DOMAINS || "");
+    return v.split(",").map((s) => s.trim()).filter(Boolean);
+  },
+  get auto_search_max_chars(): number {
+    return num(liveSetting("general.auto_search_max_chars", process.env.EG_AUTO_SEARCH_MAX_CHARS || ""), 2000);
+  },
 };

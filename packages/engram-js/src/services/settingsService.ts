@@ -82,6 +82,7 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.compaction_cooldown_ms", env: "EG_COMPACTION_COOLDOWN_MS", type: "number", label: "Compaction Cooldown (ms)", section: "compaction" },
   // Auto-search
   { key: "general.auto_search_enabled", env: "EG_AUTO_SEARCH_ENABLED", type: "bool", label: "Auto-Search Enabled", section: "auto_search" },
+  { key: "general.auto_search_url", env: "EG_AUTO_SEARCH_URL", type: "string", label: "Auto-Search MCP URL", section: "auto_search" },
   { key: "general.auto_search_max_results", env: "EG_AUTO_SEARCH_MAX_RESULTS", type: "number", label: "Auto-Search Max Results", section: "auto_search" },
   { key: "general.auto_search_min_confidence", env: "EG_AUTO_SEARCH_MIN_CONFIDENCE", type: "number", label: "Auto-Search Min Confidence", section: "auto_search" },
   { key: "general.auto_search_max_chars", env: "EG_AUTO_SEARCH_MAX_CHARS", type: "number", label: "Auto-Search Max Chars", section: "auto_search" },

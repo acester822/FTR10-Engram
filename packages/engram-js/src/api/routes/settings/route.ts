@@ -207,12 +207,17 @@ export const settings_route = (app: any) => {
     try {
       const body = bodyJson(req);
       const flat = flattenSettings(body);
-      const host = flat[SETTING_KEYS.providerHost] || "";
-      const port = flat[SETTING_KEYS.providerPort] || "";
-      const hostErr = validateHost(host);
-      if (hostErr) return bad(res, "provider.host", hostErr);
-      const portErr = validatePort(port);
-      if (portErr) return bad(res, "provider.port", portErr);
+      // Only validate provider host/port when the caller is actually setting them
+      // (partial saves — e.g. toggling a single auto-search flag — must not be
+      // rejected because provider.host is absent from the patch).
+      if (SETTING_KEYS.providerHost in flat) {
+        const hostErr = validateHost(flat[SETTING_KEYS.providerHost] || "");
+        if (hostErr) return bad(res, "provider.host", hostErr);
+      }
+      if (SETTING_KEYS.providerPort in flat) {
+        const portErr = validatePort(flat[SETTING_KEYS.providerPort] || "");
+        if (portErr) return bad(res, "provider.port", portErr);
+      }
       // Validate general + advanced (non-model) settings by declared type
       for (const def of [...GENERAL_SETTINGS, ...ADVANCED_SETTINGS]) {
         const v = flat[def.key];
