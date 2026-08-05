@@ -4,20 +4,12 @@
 */
 
 import { env } from "../configuration/index";
+import { resolveEmbeddingModel as registryResolveEmbeddingModel } from "./modelRegistry";
 
 interface model_cfg {
   [facet: string]: Record<string, string>;
 }
 let cfg: model_cfg | null = null;
-
-// Provider-level default models (used when no env override exists for a facet/provider pair).
-// These are the "universal defaults" — each can be overridden via EG_<PROVIDER>_MODEL.
-const PROVIDER_DEFAULTS: Record<string, string> = {
-  openai: "text-embedding-3-small",
-  gemini: "models/gemini-embedding-001",
-  aws:    "amazon.titan-embed-text-v2:0",
-  siray:  "text-embedding-3-small",
-};
 
 export const load_models = (): model_cfg => {
   if (cfg) return cfg;
@@ -49,7 +41,7 @@ export const load_models = (): model_cfg => {
         continue;
       }
       // Provider-level default (config-driven)
-      cfg[facet][provider] = PROVIDER_DEFAULTS[provider] || env.embed_model_primary;
+      cfg[facet][provider] = registryResolveEmbeddingModel(facet as any);
     }
   }
 
@@ -78,16 +70,13 @@ export function resolveEmbeddingModel(
     env_[`EG_${normalizedProvider.toUpperCase()}_MODEL`];
   if (providerOverride) return providerOverride;
 
-  // EG_EMBED_MODEL overrides everything
-  if (env_.EG_EMBED_MODEL) return env_.EG_EMBED_MODEL;
-
   const cfg_ = options.models || load_models();
   // Fallback chain: facet → semantic → openai → universal default
   return (
     cfg_[normalizedFacet]?.[normalizedProvider] ||
     cfg_.semantic?.[normalizedProvider] ||
     cfg_.semantic?.openai ||
-    env.embed_model_primary               // universal default
+    registryResolveEmbeddingModel(normalizedFacet as any)   // registry: Settings → env → fail
   );
 }
 

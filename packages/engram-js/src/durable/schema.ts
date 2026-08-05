@@ -3,7 +3,7 @@
  - what is the file used for
 */
 
-export const DURABLE_SCHEMA_VERSION = "4.0.1-embedding-provenance";
+export const DURABLE_SCHEMA_VERSION = "4.1.0-settings";
 
 export const DURABLE_EDGE_TYPES = [
   "mentions",
@@ -34,6 +34,7 @@ export const DURABLE_TABLES = [
   "consolidations",
   "consolidation_results",
   "audit_log",
+  "app_settings",
 ] as const;
 
 export interface DurableSchemaOptions {
@@ -64,6 +65,7 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
   const consolidations = table(schema, "consolidations");
   const consolidationResults = table(schema, "consolidation_results");
   const auditLog = table(schema, "audit_log");
+  const appSettings = table(schema, "app_settings");
   const edgeTypeCheck = DURABLE_EDGE_TYPES.map((type) => `'${type}'`).join(",");
 
   return [
@@ -272,6 +274,14 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
     )`,
     `alter table ${auditLog} add column if not exists actor_id text not null default 'system'`,
     `alter table ${auditLog} add column if not exists actor_type text not null default 'system'`,
+    // App settings (v4.1.0-settings) — the web GUI Settings tab is the single
+    // source of truth for providers/models; Postgres so the container (which
+    // cannot write files) can persist user configuration.
+    `create table if not exists ${appSettings} (
+      key text primary key,
+      value text not null,
+      updated_at timestamptz not null default now()
+    )`,
     // Genome/Phenotype and Temporal Decay columns (v3.0.0-genome-decay)
     `alter table ${memories} add column if not exists is_genome boolean not null default false`,
     `alter table ${memories} add column if not exists decay_rate real not null default 0.1 check(decay_rate >= 0 and decay_rate <= 1)`,

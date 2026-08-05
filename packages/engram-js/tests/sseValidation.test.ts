@@ -18,7 +18,7 @@ describe('SSE chunk Zod validation', () => {
       id: 'chatcmpl-123',
       object: 'chat.completion.chunk',
       created: Date.now(),
-      model: 'qwen3.5:2b',
+      model: 'test-model',
       choices: [{ index: 0, delta: { content: 'hello' }, finish_reason: null }],
     };
     expect(() => SseChunkSchema.parse(chunk)).not.toThrow();
@@ -44,7 +44,7 @@ describe('SSE chunk Zod validation', () => {
       id: 'chatcmpl-123',
       object: 'chat.completion.chunk',
       created: Date.now(),
-      model: 'qwen3.5:2b',
+      model: 'test-model',
       choices: [
         {
           index: 0,

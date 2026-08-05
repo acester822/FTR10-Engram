@@ -4,6 +4,7 @@
 */
 
 import { env } from "../configuration/index";
+import { tryResolveEmbeddingModel } from "../database/modelRegistry";
 import { get_model } from "../database/models";
 import { facetConfigs } from "./facets";
 import { embedCache } from "../utils/embedCache";
@@ -85,7 +86,7 @@ async function embed_with_provider(
 }
 
 async function get_sem_emb(t: string, s: string): Promise<number[]> {
-  const providers = [...new Set([env.emb_kind, ...env.embedding_fallback])];
+  const providers = [...new Set([env.emb_kind])];
 
   for (let i = 0; i < providers.length; i++) {
     const provider = providers[i];
@@ -130,7 +131,7 @@ async function emb_openai(t: string, s: string): Promise<number[]> {
       },
       body: JSON.stringify({
         input: t,
-        model: env.openai_model || m,
+        model: m,
         dimensions: env.vec_dim,
       }),
     },
@@ -165,7 +166,7 @@ const embeddingFacets = [
 ];
 
 function providerChain(): string[] {
-  const providers = [env.emb_kind, ...env.embedding_fallback]
+  const providers = [env.emb_kind]
     .map((provider) => provider.trim().toLowerCase())
     .filter((provider) => knownProviders.includes(provider));
   return [...new Set(providers.length ? providers : ["synthetic"])];
@@ -288,7 +289,7 @@ async function emb_siray(t: string, s: string): Promise<number[]> {
 }
 
 async function emb_local(t: string, s: string): Promise<number[]> {
-  if (!env.local_model_path) {
+  if (!process.env.EG_LOCAL_MODEL_PATH) {
     console.error("[EMBED] Local model missing, using synthetic");
     return gen_syn_emb(t, s);
   }
@@ -462,7 +463,7 @@ export function isSyntheticEmbedding(
 export const getEmbeddingInfo = () => {
   const i: Record<string, any> = {
     provider: env.emb_kind,
-    fallback_chain: env.embedding_fallback,
+    fallback_chain: [],
     provider_chain: providerChain(),
     dimensions: env.vec_dim,
     timeout_ms: getEmbeddingTimeoutMs(),
@@ -470,7 +471,7 @@ export const getEmbeddingInfo = () => {
   if (env.emb_kind === "openai") {
     i.configured = !!env.openai_key;
     i.base_url = env.openai_base_url;
-    i.model_override = env.openai_model || null;
+    i.model_override = tryResolveEmbeddingModel("semantic") || null;
     i.models = modelsForProvider("openai");
   } else if (env.emb_kind === "gemini") {
     i.configured = !!env.gemini_key;
@@ -488,8 +489,8 @@ export const getEmbeddingInfo = () => {
     i.base_url = env.siray_base_url;
     i.models = modelsForProvider("siray");
   } else if (env.emb_kind === "local") {
-    i.configured = !!env.local_model_path;
-    i.path = env.local_model_path;
+    i.configured = false;
+    
     i.models = modelsForProvider("local");
   } else {
     i.configured = true;

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 
 // Local type alias — @types/react doesn't resolve in this monorepo setup with bundler moduleResolution
 type ReactNode = any;
-import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown } from "lucide-react";
+import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 const API_BASE = "/api/dashboard";
@@ -41,7 +41,7 @@ interface Stats {
   by_tier: Record<string, number>;
 }
 
-type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity";
+type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity" | "settings";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard" as Tab);
@@ -128,6 +128,13 @@ export default function App() {
           >
             Activity
           </NavButton>
+          <NavButton
+            active={activeTab === "settings"}
+            onClick={() => setActiveTab("settings")}
+            icon={<SettingsIcon size={20} />}
+          >
+            Settings
+          </NavButton>
         </nav>
 
         <div className="pt-6 border-t border-slate-700 text-xs text-slate-400">
@@ -153,6 +160,7 @@ export default function App() {
         {activeTab === "performance" && <PerformanceMonitor />}
         {activeTab === "recall" && <RecallView />}
         {activeTab === "activity" && <ActivityView />}
+        {activeTab === "settings" && <SettingsView />}
       </main>
     </div>
   );
@@ -867,6 +875,317 @@ function ActivityView() {
             })
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+const settingsInputCls = "w-full px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500";
+const settingsLabelCls = "block text-xs font-medium text-slate-500 mb-1";
+
+function SettingsField({ label, value, onChange, placeholder }: any) {
+  return (
+    <div>
+      <label className={settingsLabelCls}>{label}</label>
+      <input
+        className={settingsInputCls}
+        value={value}
+        placeholder={placeholder || ""}
+        onChange={(e: any) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
+function SettingsResultBadge({ result }: any) {
+  if (!result) return null;
+  return (
+    <div
+      className={`mt-3 px-3 py-2 rounded-lg text-sm ${
+        result.ok ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+      }`}
+    >
+      {result.ok ? (
+        <>✓ Test passed — {result.model} @ {result.providerUrl} ({result.latencyMs}ms{result.dims ? `, ${result.dims} dims` : ""})</>
+      ) : (
+        <>✗ Test failed — {result.error || "unknown error"}{result.latencyMs ? ` (${result.latencyMs}ms)` : ""}</>
+      )}
+    </div>
+  );
+}
+
+function SettingsView() {
+  const emptyForm = () => ({
+    provider: { type: "openai-compatible", host: "", port: "" },
+    generative: {
+      provider: { host: "", port: "" },
+      model: "",
+      extraction: "",
+      compaction: "",
+      consolidation: "",
+    },
+    embedding: {
+      provider: { host: "", port: "" },
+      model: "",
+      episodic: "",
+      semantic: "",
+      procedural: "",
+      emotional: "",
+      reflective: "",
+    },
+  });
+
+  const [form, setForm] = useState(emptyForm() as any);
+  const [resolved, setResolved] = useState(null as any);
+  const [loading, setLoading] = useState(true);
+  const [testing, setTesting] = useState("" as string);
+  const [testResult, setTestResult] = useState(null as any);
+  const [genOverride, setGenOverride] = useState(false);
+  const [embOverride, setEmbOverride] = useState(false);
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings");
+      if (res.ok) {
+        const data = await res.json();
+        setForm(data.settings);
+        setResolved(data.resolved);
+        setGenOverride(!!data.settings.generative.provider.host);
+        setEmbOverride(!!data.settings.embedding.provider.host);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
+
+  const set = (path: string[], value: string) => {
+    setForm((prev: any) => {
+      const next = JSON.parse(JSON.stringify(prev));
+      let cur = next;
+      for (let i = 0; i < path.length - 1; i++) cur = cur[path[i]];
+      cur[path[path.length - 1]] = value;
+      return next;
+    });
+  };
+
+  const baseUrlPreview = (host: string, port: string) =>
+    host ? `http://${host}${port ? `:${port}` : ""}/v1` : "http://<host>:<port>/v1";
+
+  const runTest = async (section: string) => {
+    setTesting(section);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/settings/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section, settings: form }),
+      });
+      const data = await res.json();
+      setTestResult({ section, ...data });
+      loadSettings();
+    } catch (e: any) {
+      setTestResult({ section, ok: false, error: String(e) });
+    } finally {
+      setTesting("");
+    }
+  };
+
+  if (loading) return <div className="text-slate-500">Loading settings...</div>;
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold text-slate-800">Settings</h2>
+      <p className="text-sm text-slate-500 -mt-3">
+        Single source of truth for providers and models — no defaults, no fallbacks, nothing hardcoded.
+        Test &amp; Save validates a section with a live request and applies changes immediately.
+      </p>
+
+      {/* Provider Settings */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        <h3 className="text-lg font-semibold text-slate-800 mb-4">Provider Settings</h3>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className={settingsLabelCls}>Provider Type</label>
+            <select
+              className={settingsInputCls}
+              value={form.provider.type}
+              onChange={(e: any) => set(["provider", "type"], e.target.value)}
+            >
+              <option value="openai-compatible">OpenAI Compatible</option>
+            </select>
+          </div>
+          <SettingsField
+            label="URL (IP or hostname)"
+            value={form.provider.host}
+            onChange={(v: string) => set(["provider", "host"], v)}
+            placeholder="10.10.10.41"
+          />
+          <SettingsField
+            label="Port"
+            value={form.provider.port}
+            onChange={(v: string) => set(["provider", "port"], v)}
+            placeholder="8080"
+          />
+        </div>
+        <p className="mt-3 text-xs text-slate-400">
+          Base URL: <code className="text-blue-600">{baseUrlPreview(form.provider.host, form.provider.port)}</code>
+        </p>
+      </div>
+
+      {/* Generative Models */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-slate-800">Generative Models</h3>
+          <button
+            onClick={() => runTest("generative")}
+            disabled={!!testing}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            <FlaskConical size={16} /> {testing === "generative" ? "Testing..." : "Test & Save"}
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mb-4">
+          Setting the master <b>Generative Model</b> populates the function models below; per-function values override it.
+          {resolved?.generative
+            ? ` Currently resolving: ${resolved.generative.model || "— unset —"} @ ${resolved.providerUrl || "— unset —"}`
+            : ""}
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <SettingsField
+            label="Generative Model"
+            value={form.generative.model}
+            onChange={(v: string) => set(["generative", "model"], v)}
+            placeholder="e.g. Gemma-4-12B-no-thinking"
+          />
+          <SettingsField
+            label="Extraction Model"
+            value={form.generative.extraction}
+            onChange={(v: string) => set(["generative", "extraction"], v)}
+            placeholder="(uses master if empty)"
+          />
+          <SettingsField
+            label="Compaction Model"
+            value={form.generative.compaction}
+            onChange={(v: string) => set(["generative", "compaction"], v)}
+            placeholder="(uses master if empty)"
+          />
+          <SettingsField
+            label="Consolidation Model"
+            value={form.generative.consolidation}
+            onChange={(v: string) => set(["generative", "consolidation"], v)}
+            placeholder="(uses master if empty)"
+          />
+        </div>
+        <div className="mt-4">
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={genOverride} onChange={(e: any) => setGenOverride(e.target.checked)} />
+            Use a different provider for Generative models
+          </label>
+          {genOverride && (
+            <div className="grid grid-cols-2 gap-4 mt-3">
+              <SettingsField
+                label="Gen Provider URL"
+                value={form.generative.provider.host}
+                onChange={(v: string) => set(["generative", "provider", "host"], v)}
+                placeholder="10.10.10.41"
+              />
+              <SettingsField
+                label="Gen Provider Port"
+                value={form.generative.provider.port}
+                onChange={(v: string) => set(["generative", "provider", "port"], v)}
+                placeholder="8080"
+              />
+            </div>
+          )}
+        </div>
+        <SettingsResultBadge result={testResult && testResult.section === "generative" ? testResult : null} />
+      </div>
+
+      {/* Embedding Models */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-slate-800">Embedding Models</h3>
+          <button
+            onClick={() => runTest("embedding")}
+            disabled={!!testing}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            <FlaskConical size={16} /> {testing === "embedding" ? "Testing..." : "Test & Save"}
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mb-4">
+          Setting the master <b>Embedding Model</b> populates all facets; per-facet values override it.
+          {resolved?.embedding
+            ? ` Currently resolving: ${resolved.embedding.model || "— unset —"} @ ${resolved.providerUrl || "— unset —"}`
+            : ""}
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <SettingsField
+            label="Embedding Model"
+            value={form.embedding.model}
+            onChange={(v: string) => set(["embedding", "model"], v)}
+            placeholder="e.g. Nomic-Embed-Text-v1.5"
+          />
+          <SettingsField
+            label="Episodic Model"
+            value={form.embedding.episodic}
+            onChange={(v: string) => set(["embedding", "episodic"], v)}
+            placeholder="(uses master if empty)"
+          />
+          <SettingsField
+            label="Semantic Model"
+            value={form.embedding.semantic}
+            onChange={(v: string) => set(["embedding", "semantic"], v)}
+            placeholder="(uses master if empty)"
+          />
+          <SettingsField
+            label="Procedural Model"
+            value={form.embedding.procedural}
+            onChange={(v: string) => set(["embedding", "procedural"], v)}
+            placeholder="(uses master if empty)"
+          />
+          <SettingsField
+            label="Emotional Model"
+            value={form.embedding.emotional}
+            onChange={(v: string) => set(["embedding", "emotional"], v)}
+            placeholder="(uses master if empty)"
+          />
+          <SettingsField
+            label="Reflective Model"
+            value={form.embedding.reflective}
+            onChange={(v: string) => set(["embedding", "reflective"], v)}
+            placeholder="(uses master if empty)"
+          />
+        </div>
+        <div className="mt-4">
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={embOverride} onChange={(e: any) => setEmbOverride(e.target.checked)} />
+            Use a different provider for Embedding models
+          </label>
+          {embOverride && (
+            <div className="grid grid-cols-2 gap-4 mt-3">
+              <SettingsField
+                label="Emb Provider URL"
+                value={form.embedding.provider.host}
+                onChange={(v: string) => set(["embedding", "provider", "host"], v)}
+                placeholder="10.10.10.41"
+              />
+              <SettingsField
+                label="Emb Provider Port"
+                value={form.embedding.provider.port}
+                onChange={(v: string) => set(["embedding", "provider", "port"], v)}
+                placeholder="8080"
+              />
+            </div>
+          )}
+        </div>
+        <SettingsResultBadge result={testResult && testResult.section === "embedding" ? testResult : null} />
       </div>
     </div>
   );

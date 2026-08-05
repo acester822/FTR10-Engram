@@ -4,7 +4,6 @@
 */
 
 export interface FacetConfig {
-  model: string;
   decay_lambda: number;
   weight: number;
   patterns: RegExp[];
@@ -12,7 +11,6 @@ export interface FacetConfig {
 
 export const facetConfigs: Record<string, FacetConfig> = {
   episodic: {
-    model: "episodic-optimized",
     decay_lambda: 0.015,
     weight: 1.2,
     patterns: [
@@ -25,7 +23,6 @@ export const facetConfigs: Record<string, FacetConfig> = {
     ],
   },
   semantic: {
-    model: "semantic-optimized",
     decay_lambda: 0.005,
     weight: 1.0,
     patterns: [
@@ -38,7 +35,6 @@ export const facetConfigs: Record<string, FacetConfig> = {
     ],
   },
   procedural: {
-    model: "procedural-optimized",
     decay_lambda: 0.008,
     weight: 1.1,
     patterns: [
@@ -51,7 +47,6 @@ export const facetConfigs: Record<string, FacetConfig> = {
     ],
   },
   emotional: {
-    model: "emotional-optimized",
     decay_lambda: 0.02,
     weight: 1.3,
     patterns: [
@@ -65,7 +60,6 @@ export const facetConfigs: Record<string, FacetConfig> = {
     ],
   },
   reflective: {
-    model: "reflective-optimized",
     decay_lambda: 0.001,
     weight: 0.8,
     patterns: [

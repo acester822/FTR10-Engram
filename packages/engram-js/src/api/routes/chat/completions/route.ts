@@ -10,6 +10,7 @@ import { classifyMemory, DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE
 import { buildInjectionStatus, buildExtractionStatus, stripEngramStatus, isEngramStatus } from "../../../../services/engramStatus";
 import { genomeCache } from "../../../../services/genomeCache";
 import { logger } from "../../../../utils/logger";
+import { tryResolveGenerativeModel } from "../../../../database/modelRegistry";
 import { retryFetch } from "../../../../utils/retry";
 import { recallDurableMemories, rememberDurableMemory } from "../../../../durable/repository";
 import { make_db as kit_make_db, run_async, all_async } from "../../_kit";
@@ -373,7 +374,7 @@ export const chat_completions_route = (app: any) => {
       
       const llmPayload = {
         ...body, // Pass through ALL fields from original request (tools, temperature, etc.)
-        model: body.model || process.env.EG_CHAT_MODEL || env.openai_model,
+        model: body.model || tryResolveGenerativeModel("default"),
         messages: enrichedMessages, // Override with our enriched, sanitized messages
       };
 
@@ -388,7 +389,7 @@ export const chat_completions_route = (app: any) => {
 
       const llmGeneration = trace?.generation({
         name: "llm-call",
-        model: body.model || process.env.EG_CHAT_MODEL || env.openai_model,
+        model: body.model || tryResolveGenerativeModel("default"),
         modelParameters: { temperature: body.temperature ?? undefined } as any,
         input: llmPayload,
         metadata: { module: "chatRoute" },

@@ -12,6 +12,7 @@ import {
 import { send_telemetry } from "../configuration/telemetry";
 import { createHttpApp } from "./httpApp";
 import { consolidationEngine } from "../services/consolidationEngine";
+import { loadSettings, seedSettingsFromEnv } from "../services/settingsService";
 import { run_migrations } from "../database/migrate";
 import { logger } from "../utils/logger";
 import { classifyActivity, recordActivity, deriveBreakdown } from "./activity";
@@ -148,6 +149,14 @@ export async function startServer() {
     await run_migrations();
   } catch (err) {
     logger.error({ module: 'server' }, `Migration failed, but continuing: ${err}`);
+  }
+
+  // Load runtime settings (Settings tab = single source of truth for providers/models)
+  try {
+    await loadSettings();
+    await seedSettingsFromEnv();
+  } catch (err) {
+    logger.error({ module: 'server' }, `Settings load failed, but continuing: ${err}`);
   }
 
   const app = createApp();

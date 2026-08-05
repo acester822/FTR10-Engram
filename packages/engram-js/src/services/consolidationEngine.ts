@@ -8,11 +8,15 @@ import { env } from "../configuration";
 import { make_db as kit_make_db, run_async, all_async, transaction } from "../api/routes/_kit";
 import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, normalizeSector } from "./memoryInjector";
 import { logger } from "../utils/logger";
+import { resolveGenerativeModel } from "../database/modelRegistry";
 
 // ── Configuration ─────────────────────────────────────────────────────
 
-const CONSOLIDATION_MODEL = String(process.env.EG_CONSOLIDATION_MODEL || "").trim() || env.generative_model;
-const SYNTHESIS_MODEL   = env.fallback_model; // Fallback when the consolidation LLM omits new_content in merge/update actions
+// Canonical consolidation model — Settings tab → env override → fail. Evaluated at
+// call time so GUI changes apply without a restart.
+const consolidationModel = (): string => {
+  try { return resolveGenerativeModel("consolidation"); } catch { return ""; }
+};
 
 // Two-tier scheduling (all overridable via env):
 //  - RECENT tier: scans the last N days frequently so standing rules / near-dupes
@@ -170,7 +174,7 @@ export class ConsolidationEngine {
 
       return grouped;
     } catch (err) {
-      logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Failed to fetch consolidation groups');
+      logger.error({ module: 'consolidationEngine', model: consolidationModel(), err }, 'Failed to fetch consolidation groups');
       return new Map();
     }
   }
@@ -204,7 +208,7 @@ Synthesized Memory:`;
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: CONSOLIDATION_MODEL,
+          model: consolidationModel(),
           messages: [
             { role: "system", content: prompt.substring(0, 400) + "\n\nReturn only the sentence." },
             { role: "user", content: prompt }
@@ -272,7 +276,7 @@ If no actions are needed, return: {"actions": []}
 
     let cleanJson = "";
     try {
-      logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, candidateCount: candidates.length }, `Sending ${candidates.length} related memories to ${CONSOLIDATION_MODEL} for consolidation...`);
+      logger.info({ module: 'consolidationEngine', model: consolidationModel(), candidateCount: candidates.length }, `Sending ${candidates.length} related memories to ${consolidationModel()} for consolidation...`);
 
       const chatUrl = `${env.generative_url}/chat/completions`;
 
@@ -285,7 +289,7 @@ If no actions are needed, return: {"actions": []}
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: CONSOLIDATION_MODEL,
+            model: consolidationModel(),
             messages: [
               { role: "system", content: prompt.substring(0, 400) + "\n\nReturn ONLY valid JSON." },
               { role: "user", content: attempt > 1 ? prompt + "\n\nIMPORTANT: Reply with ONLY a JSON object. No prose, no markdown." : prompt }
@@ -306,12 +310,12 @@ If no actions are needed, return: {"actions": []}
         parsed = parseConsolidationJson(cleanJson);
         if (parsed === null) {
           logger.warn(
-            { module: 'consolidationEngine', model: CONSOLIDATION_MODEL, attempt, rawSnippet: cleanJson.substring(0, 500) },
+            { module: 'consolidationEngine', model: consolidationModel(), attempt, rawSnippet: cleanJson.substring(0, 500) },
             'Consolidation LLM returned unparseable output — retrying',
           );
         } else {
           logger.info(
-            { module: 'consolidationEngine', model: CONSOLIDATION_MODEL, candidateCount: candidates.length, actionCount: parsed.length, promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens },
+            { module: 'consolidationEngine', model: consolidationModel(), candidateCount: candidates.length, actionCount: parsed.length, promptTokens: data.usage?.prompt_tokens, completionTokens: data.usage?.completion_tokens },
             'Consolidation LLM returned actions',
           );
         }
@@ -323,7 +327,7 @@ If no actions are needed, return: {"actions": []}
 
       return parsed;
     } catch (error) {
-      logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, rawSnippet: cleanJson?.substring(0, 500), err: error }, 'Consolidation LLM failed');
+      logger.error({ module: 'consolidationEngine', model: consolidationModel(), rawSnippet: cleanJson?.substring(0, 500), err: error }, 'Consolidation LLM failed');
       return [];
     }
   }
@@ -340,7 +344,7 @@ If no actions are needed, return: {"actions": []}
     try {
       for (const action of actions) {
         try {
-          logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action, reason: action.reason }, `Executing ${action.action.toUpperCase()}`);
+          logger.info({ module: 'consolidationEngine', model: consolidationModel(), action: action.action, reason: action.reason }, `Executing ${action.action.toUpperCase()}`);
 
           if (action.action === "delete") {
             const placeholders = action.target_ids.map((_, i) => `$${i + 1}`).join(",");
@@ -352,11 +356,11 @@ If no actions are needed, return: {"actions": []}
 
             if (!content) {
               const targetCandidates = action.target_ids.map(id => candidateMap.get(id)).filter(Boolean);
-              logger.warn({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action }, `${action.action} missing new_content — synthesizing from source memories`);
+              logger.warn({ module: 'consolidationEngine', model: consolidationModel(), action: action.action }, `${action.action} missing new_content — synthesizing from source memories`);
               content = await this.synthesizeContent(targetCandidates as MemoryCandidate[]);
 
               if (!content) {
-                logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action: action.action }, `Synthesis failed for ${action.action}, skipping action`);
+                logger.error({ module: 'consolidationEngine', model: consolidationModel(), action: action.action }, `Synthesis failed for ${action.action}, skipping action`);
                 continue;
               }
             }
@@ -398,12 +402,12 @@ If no actions are needed, return: {"actions": []}
                 [newSector, decayRate, targetId]
               );
 
-              logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, memoryId: targetId }, `Promoted memory to genome`);
+              logger.info({ module: 'consolidationEngine', model: consolidationModel(), memoryId: targetId }, `Promoted memory to genome`);
             }
           }
         } catch (err) {
           hasError = true;
-          logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, action, err }, 'Failed to execute consolidation action — will roll back entire batch');
+          logger.error({ module: 'consolidationEngine', model: consolidationModel(), action, err }, 'Failed to execute consolidation action — will roll back entire batch');
           break; // Exit the loop — outer try/catch handles rollback
         }
       }
@@ -415,7 +419,7 @@ If no actions are needed, return: {"actions": []}
       }
     } catch (err) {
       await db.query("ROLLBACK");
-      logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Transaction failed in executeActions');
+      logger.error({ module: 'consolidationEngine', model: consolidationModel(), err }, 'Transaction failed in executeActions');
     }
   }
 
@@ -438,13 +442,13 @@ If no actions are needed, return: {"actions": []}
     minAccess: number,
   ): Promise<void> {
     logger.info(
-      { module: 'consolidationEngine', model: CONSOLIDATION_MODEL, tier, minAgeDays, maxAgeDays, minGroup },
+      { module: 'consolidationEngine', model: consolidationModel(), tier, minAgeDays, maxAgeDays, minGroup },
       `Starting ${tier} consolidation cycle`,
     );
 
     const groups = await this.fetchConsolidationGroups(minAgeDays, maxAgeDays, minGroup, minAccess);
     if (groups.size === 0) {
-      logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, tier }, `No ${tier} memories require consolidation at this time`);
+      logger.info({ module: 'consolidationEngine', model: consolidationModel(), tier }, `No ${tier} memories require consolidation at this time`);
       return;
     }
 
@@ -469,7 +473,7 @@ If no actions are needed, return: {"actions": []}
       processedGroups++;
     }
 
-    logger.info({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, tier, processedGroups, totalActions }, `${tier} consolidation cycle complete`);
+    logger.info({ module: 'consolidationEngine', model: consolidationModel(), tier, processedGroups, totalActions }, `${tier} consolidation cycle complete`);
   }
 
   /**
@@ -483,12 +487,12 @@ If no actions are needed, return: {"actions": []}
   public start(): void {
     // Recent tier: frequent, cheap, prompt.
     this.runConsolidation().catch((err) => {
-      logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Initial consolidation cycle failed');
+      logger.error({ module: 'consolidationEngine', model: consolidationModel(), err }, 'Initial consolidation cycle failed');
     });
 
     const recentTimer = setInterval(() => {
       this.runTier("recent", 0, RECENT_MAX_AGE_DAYS, RECENT_MIN_GROUP, 0).catch((err) => {
-        logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Scheduled recent consolidation cycle failed');
+        logger.error({ module: 'consolidationEngine', model: consolidationModel(), err }, 'Scheduled recent consolidation cycle failed');
       });
     }, RECENT_INTERVAL_MS);
     recentTimer.unref?.();
@@ -496,13 +500,13 @@ If no actions are needed, return: {"actions": []}
     // Deep tier: slower, catches mature clusters the recent tier misses.
     const deepTimer = setInterval(() => {
       this.runTier("deep", RECENT_MAX_AGE_DAYS, DEEP_MAX_AGE_DAYS, DEEP_MIN_GROUP, 1).catch((err) => {
-        logger.error({ module: 'consolidationEngine', model: CONSOLIDATION_MODEL, err }, 'Scheduled deep consolidation cycle failed');
+        logger.error({ module: 'consolidationEngine', model: consolidationModel(), err }, 'Scheduled deep consolidation cycle failed');
       });
     }, DEEP_INTERVAL_MS);
     deepTimer.unref?.();
 
     logger.info(
-      { module: 'consolidationEngine', model: CONSOLIDATION_MODEL, recentIntervalMs: RECENT_INTERVAL_MS, deepIntervalMs: DEEP_INTERVAL_MS },
+      { module: 'consolidationEngine', model: consolidationModel(), recentIntervalMs: RECENT_INTERVAL_MS, deepIntervalMs: DEEP_INTERVAL_MS },
       'Consolidation engine scheduled (two-tier: recent + deep)',
     );
   }

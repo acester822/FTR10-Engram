@@ -9,6 +9,12 @@ import { rememberDurableMemory } from "../durable/repository";
 import { embed } from "../embeddings/embed";
 import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, normalizeSector } from "./memoryInjector";
 import { logger } from "../utils/logger";
+import { resolveGenerativeModel, tryResolveGenerativeModel, tryResolveProviderUrl } from "../database/modelRegistry";
+
+// Extraction model comes from the canonical registry (Settings tab → env → fail).
+const genModel = (): string => {
+  try { return resolveGenerativeModel("extraction"); } catch { return ""; }
+};
 import { getLangfuse } from "./langfuseClient";
 
 /**
@@ -133,7 +139,7 @@ export async function logInteractionAsync(
     // Throttle: skip if extraction ran recently
     const now = Date.now();
     if (now - _lastExtractionTime < EXTRACTION_COOLDOWN_MS) {
-      logger.debug({ module: 'memoryLogger', model: env.generative_model }, 'Skipping extraction - cooldown active');
+      logger.debug({ module: 'memoryLogger', model: genModel() }, 'Skipping extraction - cooldown active');
       return empty();
     }
     _lastExtractionTime = now;
@@ -144,7 +150,7 @@ export async function logInteractionAsync(
 
     // Skip extraction for very short responses (nothing meaningful to extract)
     if (llmResponseText.trim().length < 50) {
-      logger.debug({ module: 'memoryLogger', model: env.generative_model }, 'Skipping extraction - response too short');
+      logger.debug({ module: 'memoryLogger', model: genModel() }, 'Skipping extraction - response too short');
       return empty();
     }
 
@@ -198,7 +204,7 @@ AI Response: ${truncatedResponse}
     const userData = (_splitAt >= 0 ? extractionPrompt.substring(_splitAt) : "").trim();
 
     logger.info(
-      { module: 'memoryLogger', model: env.generative_model, userPromptLength: truncatedPrompt.length, responseLength: truncatedResponse.length },
+      { module: 'memoryLogger', model: genModel(), userPromptLength: truncatedPrompt.length, responseLength: truncatedResponse.length },
       'Analyzing conversation for new memories'
     );
 
@@ -209,9 +215,9 @@ AI Response: ${truncatedResponse}
       let rawResponse: string | null = null;
       let generationEnded = false;
 
-      const chatUrl = `${env.generative_url}/chat/completions`;
+      const chatUrl = `${tryResolveProviderUrl("generative")}/chat/completions`;
       logger.info(
-        { module: 'memoryLogger', model: env.generative_model, url: chatUrl },
+        { module: 'memoryLogger', model: genModel(), url: chatUrl },
         'Sending extraction request to remote generative endpoint'
       );
 
@@ -228,7 +234,7 @@ AI Response: ${truncatedResponse}
         });
         generation = memTrace.generation({
           name: "extract",
-          model: env.generative_model,
+          model: genModel(),
           modelParameters: { temperature: 0.3 },
           input: extractionPrompt,
           metadata: { module: "memoryLogger" },
@@ -236,7 +242,7 @@ AI Response: ${truncatedResponse}
       } else if (lf) {
         generation = lf.generation({
           name: "memory-extraction",
-          model: env.generative_model,
+          model: genModel(),
           modelParameters: { temperature: 0.3 },
           input: extractionPrompt,
           metadata: { module: "memoryLogger" },
@@ -248,7 +254,7 @@ AI Response: ${truncatedResponse}
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: env.generative_model,
+            model: genModel(),
             messages: [
               { role: "system", content: systemDirective },
               { role: "user", content: userData }
@@ -263,7 +269,7 @@ AI Response: ${truncatedResponse}
         if (!response.ok) {
           const errorText = await response.text();
           logger.error(
-            { module: 'memoryLogger', status: response.status, model: env.generative_model, url: chatUrl, error: errorText.substring(0, 500) },
+            { module: 'memoryLogger', status: response.status, model: genModel(), url: chatUrl, error: errorText.substring(0, 500) },
             'Extraction LLM returned error status'
           );
           generation?.end({ output: "", level: "ERROR" });
@@ -312,7 +318,7 @@ AI Response: ${truncatedResponse}
         }
       } catch (e) {
         logger.error(
-          { module: 'memoryLogger', model: env.generative_model, rawOutput: rawResponse.substring(0, 500) },
+          { module: 'memoryLogger', model: genModel(), rawOutput: rawResponse.substring(0, 500) },
           'Failed to parse extraction JSON'
         );
         return empty();
@@ -321,7 +327,7 @@ AI Response: ${truncatedResponse}
       // Normalize: if LLM returned a single object instead of an array, wrap it
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         logger.info(
-          { module: 'memoryLogger', model: env.generative_model },
+          { module: 'memoryLogger', model: genModel() },
           `LLM returned single object, wrapping as array`
         );
         extractedMemories = [parsed];
@@ -330,13 +336,13 @@ AI Response: ${truncatedResponse}
       }
 
       if (!extractedMemories.length) {
-        logger.info({ module: 'memoryLogger', model: env.generative_model }, 'No new significant memories extracted');
+        logger.info({ module: 'memoryLogger', model: genModel() }, 'No new significant memories extracted');
         return empty();
       }
 
       // Cap extracted facts to prevent memory explosion
       if (extractedMemories.length > MAX_FACTS_PER_TURN) {
-        logger.info({ module: 'memoryLogger', model: env.generative_model, total: extractedMemories.length, capped: MAX_FACTS_PER_TURN }, 'Capping extracted facts');
+        logger.info({ module: 'memoryLogger', model: genModel(), total: extractedMemories.length, capped: MAX_FACTS_PER_TURN }, 'Capping extracted facts');
         extractedMemories = extractedMemories.slice(0, MAX_FACTS_PER_TURN);
       }
 
@@ -346,11 +352,11 @@ AI Response: ${truncatedResponse}
         mem?.content && typeof mem.content === 'string' && isWorthRemembering(mem.content),
       );
       if (extractedMemories.length < beforeGate) {
-        logger.info({ module: 'memoryLogger', model: env.generative_model, dropped: beforeGate - extractedMemories.length }, 'Quality gate dropped low-value candidates');
+        logger.info({ module: 'memoryLogger', model: genModel(), dropped: beforeGate - extractedMemories.length }, 'Quality gate dropped low-value candidates');
       }
 
       if (!extractedMemories.length) {
-        logger.info({ module: 'memoryLogger', model: env.generative_model }, 'No new significant memories extracted');
+        logger.info({ module: 'memoryLogger', model: genModel() }, 'No new significant memories extracted');
         return empty();
       }
 
@@ -394,16 +400,16 @@ AI Response: ${truncatedResponse}
 
         storedCount++;
         sectors[sector] = (sectors[sector] || 0) + 1;
-        logger.info({ module: 'memoryLogger', model: env.generative_model, sector, content: content.substring(0, 60) }, `Saved ${sector} memory`);
+        logger.info({ module: 'memoryLogger', model: genModel(), sector, content: content.substring(0, 60) }, `Saved ${sector} memory`);
       }
 
-      logger.info({ module: 'memoryLogger', model: env.generative_model, count: storedCount }, `Saved ${storedCount} new memories`);
+      logger.info({ module: 'memoryLogger', model: genModel(), count: storedCount }, `Saved ${storedCount} new memories`);
       return { storedCount, sectors };
     } finally {
       clearTimeout(timeoutId);
     }
   } catch (error) {
-    logger.error({ module: 'memoryLogger', model: env.generative_model, err: error }, 'Async memory logging failed');
+    logger.error({ module: 'memoryLogger', model: genModel(), err: error }, 'Async memory logging failed');
     return empty(); // Return 0 on error
   }
 }

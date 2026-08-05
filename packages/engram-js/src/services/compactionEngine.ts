@@ -3,6 +3,7 @@ import { make_db as kit_make_db, run_async, all_async } from "../api/routes/_kit
 import { rememberDurableMemory } from "../durable/repository";
 import { DEFAULT_PHENOTYPE_DECAY_RATE, normalizeSector } from "./memoryInjector";
 import { logger } from "../utils/logger";
+import { resolveGenerativeModel, tryResolveGenerativeModel, tryResolveProviderUrl } from "../database/modelRegistry";
 import { getLangfuse } from "./langfuseClient";
 
 const COMPACTION_TRIGGER     = parseInt(String(process.env.EG_COMPACT_TRIGGER), 10) || 50;
@@ -42,7 +43,7 @@ export class CompactionEngine {
     let recentMessages = messages.slice(-MAX_RAW_TURNS);
 
     logger.info(
-      { module: 'compactionEngine', oldMessageCount: oldMessages.length, model: env.generative_model },
+      { module: 'compactionEngine', oldMessageCount: oldMessages.length, model: tryResolveGenerativeModel("compaction") },
       'Triggering context compaction'
     );
 
@@ -251,7 +252,7 @@ ${compactLines}`;
   let genTrace: any = null;
 
   try {
-    const chatUrl = `${env.generative_url}/chat/completions`;
+    const chatUrl = `${tryResolveProviderUrl("generative")}/chat/completions`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), COMPACTION_TIMEOUT_MS);
 
@@ -261,7 +262,7 @@ ${compactLines}`;
       if (genTrace) {
         generation = genTrace.generation({
           name: "summarize",
-          model: env.generative_model,
+          model: tryResolveGenerativeModel("compaction"),
           modelParameters: { temperature: 0.1 },
           input: cappedPrompt,
           metadata: { module: "compactionEngine" },
@@ -269,7 +270,7 @@ ${compactLines}`;
       } else {
         generation = lf.generation({
           name: "Compaction",
-          model: env.generative_model,
+          model: tryResolveGenerativeModel("compaction"),
           modelParameters: { temperature: 0.1 },
           input: cappedPrompt,
           metadata: { module: "compactionEngine" },
@@ -278,12 +279,12 @@ ${compactLines}`;
     }
 
     // Validate model name
-    if (!env.generative_model || env.generative_model.trim() === '') {
-      throw new Error('env.generative_model is not set');
+    if (!tryResolveGenerativeModel("compaction")) {
+      throw new Error('No generative model configured for compaction — set it in the Engram Settings tab');
     }
 
     const requestBody = {
-      model: env.generative_model,
+      model: resolveGenerativeModel("compaction"),
       messages: [
         { role: "system", content: "You are a data extraction engine. Return only valid JSON." },
         { role: "user", content: cappedPrompt }  // ✅ REMOVED /no_think suffix
@@ -293,7 +294,7 @@ ${compactLines}`;
       max_tokens: 2048,
     };
 
-    logger.debug({ module: 'compactionEngine', model: env.generative_model, promptLength: cappedPrompt.length }, 'Sending compaction request');
+    logger.debug({ module: 'compactionEngine', model: tryResolveGenerativeModel("compaction"), promptLength: cappedPrompt.length }, 'Sending compaction request');
 
     const response = await fetch(chatUrl, {
       method: "POST",
@@ -311,7 +312,7 @@ ${compactLines}`;
         { 
           module: 'compactionEngine', 
           status: response.status, 
-          model: env.generative_model,
+          model: tryResolveGenerativeModel("compaction"),
           errorBody: errorText.substring(0, 500),
           promptLength: cappedPrompt.length
         }, 

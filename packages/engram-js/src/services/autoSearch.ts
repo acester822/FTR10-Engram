@@ -1,5 +1,6 @@
 import { env } from "../configuration";
 import { logger } from "../utils/logger";
+import { resolveGenerativeModel, tryResolveProviderUrl } from "../database/modelRegistry";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -194,7 +195,7 @@ export class AutoSearchEngine {
     let rawResponse: string;
 
     try {
-      const chatUrl = `${env.generative_url}/chat/completions`;
+      const chatUrl = `${tryResolveProviderUrl("generative")}/chat/completions`;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -202,7 +203,7 @@ export class AutoSearchEngine {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: env.generative_model,
+          model: resolveGenerativeModel("default"),
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: `${userPrompt}\n\n/no_think` },

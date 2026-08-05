@@ -32,6 +32,7 @@ import { memory_update_route } from "./memories/update/route";
 import { recall_route } from "./recall/route";
 import { source_ingest_route } from "./sources/ingest/route";
 import { dashboard_route } from "./dashboard/route";
+import { settings_route } from "./settings/route";
 import { ide_routes } from "./ide/route";
 import { performance_llamaswap_route } from "./performance/llamaswap/route";
 
@@ -65,6 +66,7 @@ export function routes(app: any) {
   stats_timeseries_route(app, ctx);
   chat_completions_route(app);
   dashboard_route(app);
+  settings_route(app);
   ide_routes(app, ctx);
   performance_llamaswap_route(app);
 }

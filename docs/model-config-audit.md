@@ -128,3 +128,61 @@ creating shell** (not in `.env`) — a bare `docker compose up` silently renders
 ### Additional Consideration
 - Come up with a good way to also have a per model section provider override, ie a user wants to use a different provider for Generative models and Embedding models. 
 - Bonus points for wiring in the rest of the settings that are user editable, when we are done, there will not be a .env or variables that need set in the .env or via docker
+
+
+---
+
+# Implementation Summary — directive #1 (canonical registry + Settings tab) — 2026-08-05
+
+## What shipped
+- **Postgres-backed settings store** — `app_settings` table (schema bumped `4.1.0-settings`),
+  `src/services/settingsService.ts`. Loaded at boot after migrations; seeded ONCE from current
+  env values (bootstrap); mutated via the API. Postgres chosen over files because the container
+  cannot write to disk (EACCES on /app).
+- **Canonical model registry** — `src/database/modelRegistry.ts`:
+  `resolveGenerativeModel(task)` / `resolveEmbeddingModel(facet)` / `resolveProviderUrl(section)`.
+  Resolution chain everywhere: **Settings (GUI) → env override → FAIL with a clear message.**
+  Zero hardcoded model names remain.
+- **Settings API** — `src/api/routes/settings/route.ts`:
+  - `GET /api/settings` → current settings + resolved (effective) config
+  - `PUT /api/settings` → save (validated: host format, port range)
+  - `POST /api/settings/test` → **saves all settings, then live-tests a section**
+    (generative = chat-completion ping; embedding = embed ping; returns ok/latency/dims/error)
+- **GUI Settings tab** (`apps/web/src/App.tsx`, new "Settings" nav item):
+  Provider Settings (type dropdown "OpenAI Compatible", IP/host field, port, live base-URL
+  preview), Generative Models (master + extraction/compaction/consolidation + per-section
+  provider override), Embedding Models (master + 5 facets + override), **Test & Save** button
+  per section with pass/fail badges.
+- **Consumers rewired to the registry at call time** (GUI changes apply WITHOUT restart):
+  memoryLogger (extraction), compactionEngine, consolidationEngine (+ synthesis), autoSearch,
+  embeddings/embed.ts, chat-proxy fallback.
+- **Removal pass per the Action matrix**: hardcoded defaults (qwen3.5:2b, qwen2.5:3b,
+  qwen3-embedding:0.6b, bge-m3), `PROVIDER_DEFAULTS`, `facets.ts` dead model fields,
+  `EG_OPENAI_MODEL`, `EG_CHAT_MODEL`, `EG_EMBED_MODEL`, `EG_LOCAL_MODEL_PATH`,
+  `EG_GENERATIVE_MODEL`, `EG_MODEL_GENERATIVE_FALLBACK`, `EG_MODEL_EMBEDDING_FALLBACK` —
+  removed from code, docker-compose.yml, and .env.example. Tests + backfill script de-defaulted.
+
+## Deviations (plan → reality)
+1. Settings persist in **Postgres**, not files (container cannot write — only viable option).
+2. `EG_MODEL_GENERATIVE` / `EG_MODEL_EMBEDDING` / `EG_MODEL_EMBED_*` kept as **low-priority env
+   overrides** (per "Remove Default", not "Remove Completely"); the "no .env at all" end-state is
+   the bonus milestone.
+3. `scripts/backfill_embeddings.py` reads `EG_MODEL_EMBEDDING` with its previous value as a script
+   fallback (a bare script needs a default to run).
+4. Chat-proxy fallback model = generative master (was `EG_CHAT_MODEL` → `EG_OPENAI_MODEL`).
+5. Deep-tier `minAccess=1` still hardcoded (outside this directive).
+6. Dormant provider paths (gemini/aws/siray/local) keep dynamic resolution but lost their
+   hardcoded defaults.
+
+## Verification (live, deployed)
+- `tsc --noEmit` clean; `apps/web` vite build clean.
+- Boot: `app_settings` table created (schema 4.1.0-settings), seeded once from env
+  (provider 10.10.10.41:8080, generative LFM2.5-1.2B-Instruct, embedding
+  nomic-embed-text-v1.5 + per-facet `EG_MODEL_EMBED_PROCEDURAL=CodeRankEmbed` preserved).
+- `GET /api/settings` → settings + resolved; master model correctly populates
+  extraction/compaction/consolidation when per-task values are empty.
+- `POST /api/settings/test`:
+  - generative → `{ok:true, model:"LFM2.5-1.2B-Instruct", providerUrl:"http://10.10.10.41:8080/v1", latencyMs:208}`
+  - embedding → `{ok:true, model:"nomic-embed-text-v1.5", latencyMs:15, dims:768}` (matches halfvec(768))
+- Consolidation via registry: chunks 150/150/150/126, all `Consolidation LLM returned actions`, 0 failures.
+- Web GUI :8099 serves the new Settings tab (bundle grep confirms).

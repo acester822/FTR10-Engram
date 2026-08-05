@@ -23,6 +23,8 @@ const PUBLIC_ENDPOINTS = new Set([
   "/health",
   "/api/performance/system",
   "/api/performance/ollama",
+  "/api/settings",
+  "/api/settings/test",
 ]);
 
 function is_public_endpoint(path: string): boolean {

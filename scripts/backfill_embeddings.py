@@ -32,13 +32,14 @@ import urllib.request
 import urllib.error
 import json
 import re
+import os
 
 CONTAINER = "engram-postgres-1"
 DB = "engram"
 PGUSER = "postgres"
 
 EMBED_URL = "http://10.10.10.41:8080/v1/embeddings"
-EMBED_MODEL = "Nomic-Embed-Text-v1.5"
+EMBED_MODEL = os.environ.get("EG_MODEL_EMBEDDING", "Nomic-Embed-Text-v1.5")
 BATCH = 50
 PACE = 0.8          # seconds between embed calls (gentle on llama-swap)
 MAX_CONSEC_FAILURES = 3  # stop hard if llama-swap looks locked; don't hang
