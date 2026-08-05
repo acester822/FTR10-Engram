@@ -43,7 +43,7 @@ It can run in **two deployment modes**:
 - **Standalone smart proxy** — clients point at `http://<host>:8098/v1/chat/completions`; Engram embeds/recalls/weaves/forwards/streams and does all orchestration itself.
 - **Hermes sidecar (Option B)** — Engram is *not* the chat proxy. Hermes talks to its own LLM; Engram is a memory + cognition engine reached over HTTP: `prefetch()` injects genome + recalled phenotype into each turn, `sync_turn()` ingests each completed turn. See [Client Configuration](#client-configuration).
 
-Engram is fully **model- and provider-agnostic**: embeddings, generative extraction, and the upstream chat model are all resolved through env-driven cascading chains (see [Configuration](#configuration)). In the live deployment a single LAN llama-swap box serves all three roles.
+Engram is fully **model- and provider-agnostic**: embeddings, generative extraction, and the upstream chat model are all resolved through the **Settings-tab registry** (Settings → env override → fail; see [Configuration](#configuration)). In the live deployment a single LAN llama-swap box serves all three roles.
 
 ---
 
@@ -94,7 +94,7 @@ A background cron (started 2s after boot) with **two env-overridable tiers**:
 | **RECENT** | `EG_CONSOLIDATION_RECENT_INTERVAL_MS` (4h) | last `…_RECENT_MAX_AGE_DAYS` (7d) | 2         | Promote standing rules / catch near-dupes within hours |
 | **DEEP**   | `EG_CONSOLIDATION_DEEP_INTERVAL_MS` (24h)  | up to `…_DEEP_MAX_AGE_DAYS` (30d) | 3         | Long-window cleanup (requires `access_count >= 1`)     |
 
-Each cycle groups non-archived memories by `consolidation_hash` (max 15 groups), sends each group to the generative model, and applies the returned `merge | update | promote | delete` actions in **one transaction** — any error rolls back the whole batch. If the LLM omits `new_content` for a merge/update, a synthesis model (`EG_MODEL_GENERATIVE_FALLBACK`) generates it. Manual trigger: `POST /api/dashboard/consolidate`.
+Each cycle groups non-archived memories by `consolidation_hash` (max 15 groups), sends each group (chunked to ≤150 memories per call) to the generative model, and applies the returned `merge | update | promote | delete` actions in **one transaction** — any error rolls back the whole batch. If the LLM omits `new_content` for a merge/update, the consolidation model synthesizes it. Manual trigger: `POST /api/dashboard/consolidate`.
 
 ### Memory decay engine
 
@@ -225,7 +225,7 @@ Engram/
 │   ├── searxNcrawl/            # Auto-search service (git submodule) — Python FastMCP server on :9555
 │   │                           #   exposing crawl / crawl_site / search; SearXNG sidecar config
 │   └── hermes-plugin/          # Hermes memory-provider plugin ("Option B" sidecar; stdlib urllib only)
-├── docs/                       # plan.md, Vision.md, compaction.engine.md, model-breakdowns.md, rebrand.md, ...
+├── docs/                       # model-config-audit.md (config reference), model-breakdowns.md, todo.md, archive/ (superseded plans)
 ├── scripts/                    # recall-eval (recall@k harness), backfill_embeddings.py,
 │   │                           #   backfillEmbeddingProvenance.ts, store-hygiene purge scripts (DRY-RUN by default)
 ├── docker/                     # postgres init scripts (databases, vector/halfvec extensions)
@@ -309,52 +309,60 @@ When wired into [Hermes Agent](https://github.com/NousResearch/Hermes) as a nati
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust. Engram loads `.env` from the cwd and up to four ancestor directories **without overriding already-set process env** (in Docker, the compose `environment:` block beats `env_file:` — a `docker compose restart` won't re-read a changed `.env`; use `docker compose up -d`).
+### Where configuration lives
 
-Key variables (see `.env.example` for the full catalog):
+**The web GUI Settings tab is the single source of truth** for providers, models, and tuning
+(see [Web GUI](#web-gui)). It is persisted in Postgres (`app_settings` table, schema
+`4.1.0-settings`) and applied at boot — settings win over `.env`. The API is
+`GET/PUT /api/settings` plus `POST /api/settings/test` (saves all settings, then live-tests a
+section against the provider). There are **no hardcoded model-name defaults anywhere** in the
+codebase.
 
-| Variable                                                                   | Default                                              | Role                                                                                                    |
-| -------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `EG_PORT`                                                                  | `8080`                                               | Listen port (8098 host-side in Docker)                                                                  |
-| `EG_STORAGE`                                                               | `postgres`                                           | Backend (`postgres` / `sqlite`)                                                                         |
-| `EG_PG_HOST` / `EG_PG_PORT` / `EG_PG_DB` / `EG_PG_USER` / `EG_PG_PASSWORD` | localhost / 5432 / engram / postgres / —             | PostgreSQL connection                                                                                   |
-| `EG_VEC_DIM`                                                               | `1536` (768 in .env.example & deployment)            | Embedding dimension — must match the model and the `halfvec` column                                     |
-| `EG_EMBEDDINGS`                                                            | `openai`                                             | Primary embedding provider (`openai` / `gemini` / `aws` / `siray` / `local` / `synthetic`)              |
-| `EG_MODEL_EMBEDDING`                                                       | `qwen3-embedding:0.6b`                               | Universal default embedding model (`env.embed_model_primary`)                                           |
-| `EG_EMBED_MODEL`                                                           | —                                                    | **Global embedding override** — read by `resolveEmbeddingModel()` before the config table               |
-| `EG_MODEL_EMBED_<FACET>`                                                   | —                                                    | Per-facet default embedding models (semantic/episodic/procedural/emotional/reflective)                  |
-| `EG_<PROVIDER>_MODEL` / `EG_<PROVIDER>_<FACET>_MODEL`                      | —                                                    | Provider-wide / per-provider+per-facet overrides (e.g. `EG_OPENAI_MODEL`, `EG_OPENAI_PROCEDURAL_MODEL`) |
-| `EG_MODEL_EMBEDDING_FALLBACK`                                              | `bge-m3`                                             | Comma-separated fallback embedding *provider* chain                                                     |
-| `EG_GENERATIVE_URL` / `EG_MODEL_GENERATIVE`                                | — / `qwen3.5:2b`                                     | Generative model endpoint + name (extraction, compaction, consolidation, auto-search queries)           |
-| `EG_MODEL_GENERATIVE_FALLBACK`                                             | `qwen2.5:3b`                                         | Synthesis fallback for consolidation                                                                    |
-| `EG_UPSTREAM_LLM_URL`                                                      | —                                                    | Where the proxy forwards chat completions                                                               |
-| `EG_COMPACT_TRIGGER` / `EG_MAX_RAW_TURNS`                                  | `50` / `6` (code); `100` / `4` (.env.example)        | Compaction thresholds                                                                                   |
-| `EG_COMPACT_PROMPT_MAX_CHARS` / `EG_COMPACTION_COOLDOWN_MS`                | `4096` / `10s` (code); `800` / `120s` (.env.example) | Compaction prompt cap / hot-loop guard                                                                  |
-| `EG_EXTRACTION_COOLDOWN_MS` / `EG_MAX_FACTS_PER_TURN`                      | `30000` / `5` (code); `8` (.env.example)             | Extraction throttle / per-turn fact cap                                                                 |
-| `EG_CONSOLIDATION_RECENT_*` / `EG_CONSOLIDATION_DEEP_*`                    | 4h·7d·2 / 24h·30d·3                                  | Two-tier consolidation scheduling                                                                       |
-| `EG_HYBRID_SEARCH`                                                         | `true`                                               | Toggle hybrid vector + keyword recall fusion                                                            |
-| `EG_AUTO_SEARCH_ENABLED` + `EG_AUTO_SEARCH_*`                              | `false`                                              | searxNcrawl web augmentation (min confidence 40%)                                                       |
-| `EG_API_KEY` / `EG_REQUIRE_API_KEY` / `EG_INTERNAL_API_KEY`                | —                                                    | Auth                                                                                                    |
-| `EG_VECTOR_STORE`                                                          | `postgres`                                           | Vector backend (postgres, or qdrant/pinecone/weaviate/chroma/milvus/valkey)                             |
-| `EG_TELEMETRY`                                                             | `true`                                               | Boot telemetry                                                                                          |
+`.env` (copy `.env.example`) now holds ONLY the values that cannot be GUI-managed — read at
+startup before the settings store is available, or consumed by compose:
+
+| Variable                                                                               | Purpose                                                                 |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `EG_GENERATIVE_URL` / `EG_UPSTREAM_LLM_URL` / `EG_OPENAI_BASE_URL`                     | LLM-box base URLs (`http://10.10.10.41:8080/v1` in the live deployment) |
+| `EG_OPENAI_API_KEY`                                                                     | Provider auth key                                                       |
+| `EG_PG_HOST` / `EG_PG_PORT` / `EG_PG_DB` / `EG_PG_USER` / `EG_PG_PASSWORD` / `EG_PG_SCHEMA` / `EG_PG_SSL` | Postgres connection (startup)                       |
+| `EG_REDIS_URL`                                                                          | Redis connection (startup)                                              |
+| `EG_LOG_DIR` / `EG_LOG_MAX_LINES` / `LOG_LEVEL`                                        | Logging (logger reads at static import)                                 |
+| `EG_INTERNAL_API_KEY` / `NODE_ENV`                                                     | Internal auth / runtime mode                                            |
+
+Engram loads `.env` from the cwd and up to four ancestor directories **without overriding
+already-set process env**. A `docker compose restart` won't re-read a changed `.env` — use
+`docker compose up -d`. (Compose no longer substitutes the LLM-box URLs from shell vars; the
+`.env` values are authoritative.)
+
+Legacy env overrides are still honored as a low-priority fallback for models
+(`EG_MODEL_GENERATIVE`, `EG_MODEL_EMBEDDING`, `EG_MODEL_EMBED_<FACET>`, `EG_CONSOLIDATION_MODEL`)
+and for general tuning knobs (`EG_COMPACT_*`, `EG_CONSOLIDATION_*`, `EG_AUTO_SEARCH_*`,
+`EG_RATE_LIMIT_*`, …) — but they are no longer required.
 
 ### Model resolution
 
-All models are env-configurable — nothing is hardcoded at runtime.
+All models resolve through `src/database/modelRegistry.ts`, in one order:
 
-**Embedding models** — `resolveEmbeddingModel(facet, provider)` (`src/database/models.ts`) tries, in order:
+1. **Settings tab** (Postgres `app_settings`) — per-task / per-facet / master values
+2. **Env override** (legacy vars above)
+3. **Fail** with a clear message (never a silent hardcoded model name)
 
-1. Per-facet + per-provider override: `EG_<PROVIDER>_<FACET>_MODEL`
-2. Provider-wide override: `EG_<PROVIDER>_MODEL`
-3. Global override: `EG_EMBED_MODEL`
-4. Config table built from `EG_MODEL_EMBED_<FACET>` → `PROVIDER_DEFAULTS` (openai → `text-embedding-3-small`, gemini → `models/gemini-embedding-001`, aws → `amazon.titan-embed-text-v2:0`) → `env.embed_model_primary`
-5. Final fallback: facet → semantic → openai → `env.embed_model_primary`
+- **Generative** — `resolveGenerativeModel(task)` for `extraction`, `compaction`,
+  `consolidation`, or `default` (master). A per-task setting beats the master model.
+- **Embedding** — `resolveEmbeddingModel(facet)` for `episodic`/`semantic`/`procedural`/
+  `emotional`/`reflective`; per-facet beats the master embedding model.
+- **Provider URL** — `resolveProviderUrl(section)`; a per-section provider override beats the
+  global provider (Settings → Provider: type **OpenAI Compatible**, host IP, port →
+  `http://host:port/v1`). `EG_EMBEDDINGS` (provider kind) is derived from the provider type.
+- **Embedding failure** — if every provider fails, a deterministic **synthetic hashing
+  embedding** (feature-hashed tokens + n-grams, L2-normalized to `EG_VEC_DIM`) is used, so
+  writes never hard-fail on embedding (flagged `embedding_synthetic`).
 
-**Provider fallback** — at runtime, `get_sem_emb()` tries `[EG_EMBEDDINGS, ...EG_MODEL_EMBEDDING_FALLBACK]` in order; if *all* providers fail it uses a deterministic **synthetic hashing embedding** (feature-hashed tokens + n-grams, L2-normalized to `EG_VEC_DIM`), so writes never hard-fail on embedding.
-
-**Generative models** — one model (`env.generative_model`) serves extraction, compaction, consolidation, and auto-search query generation (with `/no_think` forced to keep thinking off); `env.fallback_model` is used only for consolidation synthesis.
-
-**Live deployment** (compose + `.env`): `EG_EMBEDDINGS=openai` → `EG_OPENAI_BASE_URL=${REMOTE_LLM_URL}/v1`, `EG_OPENAI_MODEL=Nomic-Embed-Text-v1.5` (768-dim), `EG_GENERATIVE_MODEL=Gemma-4-12B-no-thinking`, `EG_UPSTREAM_LLM_URL=${REMOTE_LLM_URL}/v1` — one llama-swap box on the LAN serves embeddings, generative extraction, and the upstream chat model.
+**Live deployment:** one llama-swap box on the LAN (`10.10.10.41:8080`) serves embeddings,
+generative extraction, and the upstream chat model. Configured models: `LFM2.5-1.2B-Instruct`
+(generative) and `nomic-embed-text-v1.5` (embedding, 768-dim; procedural facet
+`CodeRankEmbed`).
 
 ---
 
@@ -368,18 +376,19 @@ psql -U postgres -c "CREATE DATABASE engram;"
 # 2. Install dependencies (npm workspaces)
 npm install
 
-# 3. Copy env and set the essentials (embeddings + generative + upstream model endpoints)
+# 3. Copy the minimal .env (only startup values: URLs, PG, Redis, log path)
 cp .env.example .env
-#    edit .env: EG_PG_PASSWORD, EG_GENERATIVE_URL, EG_MODEL_GENERATIVE, EG_UPSTREAM_LLM_URL
+#    edit .env: EG_PG_PASSWORD, EG_GENERATIVE_URL, EG_UPSTREAM_LLM_URL
+#    then configure models/providers in the web GUI Settings tab
 
 # 4. Start the server (migrations run automatically at boot)
-cd packages/engram-js && EG_PORT=8080 npx nodemon src/server.ts
+cd packages/engram-js && EG_PORT=8080 HOST=0.0.0.0 npx tsx src/server.ts
 
 # 5. Or run the compiled build
 npm run build && npm start
 ```
 
-Migrations are **idempotent** — the same `IF NOT EXISTS` statement list (`src/durable/schema.ts`, version `4.0.1-embedding-provenance`) executes in one transaction at every boot, so the schema is always current before the API accepts traffic.
+Migrations are **idempotent** — the same `IF NOT EXISTS` statement list (`src/durable/schema.ts`, version `4.1.0-settings`) executes in one transaction at every boot, so the schema is always current before the API accepts traffic.
 
 ---
 
@@ -393,6 +402,7 @@ The web interface (React/Vite SPA on port 8099) is the primary dashboard:
 - **Performance Monitor** — CPU, memory, disk, and llama-swap metrics
 - **Memory Recall** — test the real recall engine (`POST /api/dashboard/recall`)
 - **Activity** — live memory read/write traffic (`/api/dashboard/activity`)
+- **Settings** — the single source of truth: Provider Settings, Generative Models (master + per-task), Embedding Models (master + per-facet), General Settings (26 tuning knobs), and a read-only Advanced table (`.env` values); **Test & Save** buttons live-validate each model section
 
 ```bash
 # Dev mode (Vite + React, proxies /api → http://localhost:8080)
@@ -463,7 +473,7 @@ Every memory also carries an `embedding_synthetic` flag (v4.0.1): it is set at w
 
 ### Cannot reach upstream LLM
 
-Confirm `EG_UPSTREAM_LLM_URL` points to your GPU machine or provider endpoint, and that the embedding + generative URLs (`EG_OPENAI_BASE_URL`, `EG_GENERATIVE_URL`) also resolve. Test with a direct curl request. Note llama-swap must have the embedding model loaded with an embedding-capable router — chat-only model lists 404 on `/embeddings`.
+Confirm the Provider settings (Settings tab → Provider, or `EG_GENERATIVE_URL` / `EG_UPSTREAM_LLM_URL` / `EG_OPENAI_BASE_URL` in `.env`) point to your GPU machine, and use the Settings tab's **Test & Save** buttons to verify each section live. Note llama-swap must have the embedding model loaded with an embedding-capable router — chat-only model lists 404 on `/embeddings`.
 
 ### Compaction not triggering
 

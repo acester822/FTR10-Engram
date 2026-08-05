@@ -4,7 +4,7 @@
 
 - **Node.js 20+** (`node --version`)
 - **npm 9+** (`npm --version`)
-- **Docker + Docker Compose** (for containerized deployment with Ollama)
+- **Docker + Docker Compose** (for the containerized deployment)
 - **PostgreSQL 15+** (only for local dev — Docker handles it automatically)
 
 ---
@@ -12,8 +12,8 @@
 ## Quick Start (All-in-One — Docker)
 
 ```bash
-# Build and start everything. Models are auto-pulled on first run.
-docker compose up --build -d
+# Build and start everything (models are NOT auto-pulled — they live on the LLM box)
+docker compose up -d --build
 
 # Check health of all services
 docker compose ps
@@ -26,11 +26,12 @@ Services will be available at:
 
 | Service | Port (host) | Description |
 |---------|-------------|-------------|
-| postgres | 5432 | PostgreSQL with pgvector — memory storage |
+| postgres | 5432 | PostgreSQL with pgvector — memory + settings storage |
 | redis | 6379 | Redis — optional cache / valkey storage |
-| ollama | 11434 | Ollama LLM server (qwen2.5:3b + bge-m3, auto-pinned) |
-| engram | 8098 | Engram Node.js proxy |
-| ui | 8099 | Web GUI (Vite preview) |
+| engram | 8098 | Engram API + OpenAI-compatible proxy |
+| web | 8099 | Web GUI (Settings tab = configuration source of truth) |
+
+**No shell exports needed** — the LLM-box URLs come straight from `.env` (see Configuration).
 
 ### Stop Everything
 
@@ -41,12 +42,13 @@ docker compose down
 ### Clean Data Volumes
 
 ```bash
-docker compose down -v   # removes postgres_data, redis_data, server_data, ollama_data volumes
+docker compose down -v   # removes server_data volume etc.
 ```
 
-### Rebuild when changes to source are made:
+### Rebuild when source changes
+
 ```bash
-cd /home/ftr/Documents/openWeb.searxng/Engram && docker compose up -d --build engram 2>&1
+docker compose build engram web && docker compose up -d engram web
 ```
 
 ---
@@ -54,59 +56,39 @@ cd /home/ftr/Documents/openWeb.searxng/Engram && docker compose up -d --build en
 ## Quick Start (Local Dev — No Docker)
 
 ```bash
-# 1. Install dependencies
+# 1. Install dependencies (workspace root)
 npm install
 
-# 2. Run database migrations
-npx tsx packages/engram-js/src/database/migrate.ts
+# 2. Set the required env vars (the must-have set from .env / .env.example):
+#    LLM box URLs, EG_PG_*, EG_REDIS_URL, EG_LOG_DIR, EG_INTERNAL_API_KEY…
+#    Models/providers are then configured in the GUI Settings tab.
 
-# 3. Set environment variables
-export OLLAMA_URL=http://localhost:11434
-export LLAMA_URL=http://10.10.10.41:8080/v1
-export EG_STORAGE=postgres
-export EG_PG_HOST=localhost
-export EG_PG_DB=engram
-
-# 4. Start the server in dev mode
-EG_PORT=8080 npx nodemon packages/engram-js/src/server.ts
+# 3. Start the server in dev mode
+cd packages/engram-js && EG_PORT=8080 HOST=0.0.0.0 npx tsx src/server.ts
 ```
 
-Server will be available at `http://localhost:8080`.
+Server will be available at `http://localhost:8080` (health check: `/health`).
 
 ---
 
 ## Server (`packages/engram-js`)
 
-### Dev Mode (hot-reload)
+### Dev Mode
 
 ```bash
 cd packages/engram-js
-EG_PORT=8080 npx nodemon src/server.ts
-```
-
-Or from the workspace root:
-
-```bash
-npm run dev
+EG_PORT=8080 HOST=0.0.0.0 npx tsx src/server.ts
 ```
 
 ### Production Build & Start
 
 ```bash
-# Build
-npm run build
-
-# Run built server
-npm run start
+cd packages/engram-js
+npm run build   # tsc -> dist/
+npm run start   # node dist/server.js
 ```
 
-Or from the workspace root:
-
-```bash
-npm run build && npm run start
-```
-
-Server listens on port `8080` (controlled by `EG_PORT`). Health check at `http://localhost:8080/health`.
+Server listens on `EG_PORT` (default `8080`). Health check at `http://localhost:8080/health`.
 
 ### Stop the Server
 
@@ -120,58 +102,29 @@ lsof -ti :8080 | xargs kill -9
 
 ## Web GUI (`apps/web`)
 
-### Dev Mode (Vite HSR)
+### Dev Mode (Vite)
 
 ```bash
 cd apps/web
 npm run dev
 ```
 
-Runs at `http://localhost:5173` by default. Connects to the server via `VITE_OM_API_URL`.
+Runs at `http://localhost:5173` by default; its `vite.config.ts` proxies `/api` → `http://localhost:8080`.
 
 ### Production Build
 
 ```bash
 cd apps/web
-npm run build
-```
-
-Output goes to `apps/web/dist/`. Preview locally with:
-
-```bash
-npm run preview
+npm run build    # tsc -b && vite build -> dist/
 ```
 
 ---
 
 ## Database (PostgreSQL)
 
-The project uses PostgreSQL as its primary storage backend. Default credentials from `.env.example`:
+Primary storage backend; the app also keeps user configuration in the `app_settings` table. Credentials come from `.env` (`EG_PG_*`; compose sets `EG_PG_HOST=postgres` on the Docker network).
 
-| Setting | Default |
-|---------|---------|
-| Host | `localhost` |
-| Port | `5432` |
-| DB | `engram` |
-| User | `postgres` |
-| Password | `postgres` |
-
-### Start PostgreSQL (Linux)
-
-```bash
-sudo systemctl start postgresql
-# or
-pg_ctlcluster 16 main start   # Debian/Ubuntu with pgdg
-```
-
-### Create the Database
-
-```sql
-CREATE DATABASE engram;
-GRANT ALL PRIVILEGES ON DATABASE engram TO postgres;
-```
-
-### Run Migrations
+### Run Migrations (idempotent; also runs automatically at boot)
 
 ```bash
 cd packages/engram-js
@@ -180,64 +133,37 @@ npx tsx src/database/migrate.ts
 
 ---
 
-## Ollama (Local LLM — qwen2.5:3b + bge-m3)
+## LLM Box (llama-swap)
 
-Engram uses two Ollama models: **qwen2.5:3b** (fact extraction / consolidation) and **bge-m3** (embeddings).
+Generative + embedding models run on a separate GPU box via **llama-swap** at
+`http://10.10.10.41:8080/v1` (configured in the GUI Settings tab → Provider, or via
+`EG_GENERATIVE_URL` / `EG_UPSTREAM_LLM_URL` / `EG_OPENAI_BASE_URL` in `.env`).
 
-### Docker Mode (auto-pulled & pinned)
-
-Both models are automatically pulled from the server entrypoint on startup, then pinned indefinitely via `OLLAMA_KEEP_ALIVE=-1` so they never unload from RAM/VRAM. No manual intervention needed.
-
-### Local Mode
-
-```bash
-# Start Ollama
-ollama serve &
-
-# Pull required models
-ollama pull bge-m3          # embeddings
-ollama pull qwen2.5:3b      # fact extraction (tiny model)
-
-# Stop Ollama
-pkill -f ollama
-```
+Deployed models: `LFM2.5-1.2B-Instruct` (generative), `nomic-embed-text-v1.5`
+(embedding, 768-dim; procedural facet: `CodeRankEmbed`). The Nomic embed model must stay
+loaded (llama-swap `persistent` group) or recall degrades to ~0.34 flat scoring.
 
 ---
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust as needed:
+**The web GUI Settings tab is the single source of truth** for providers, models,
+general tuning (rate limits, compaction, auto-search, consolidation tiers), and shows
+read-only advanced values. It is persisted in Postgres (`app_settings`) and applied at boot.
 
-```bash
-cp .env.example .env
-```
+`.env` holds ONLY the values that cannot be GUI-edited (read at startup before the
+settings store is available, or consumed by compose):
 
-Key environment variables:
+| Variable | Purpose |
+|----------|---------|
+| `EG_GENERATIVE_URL` / `EG_UPSTREAM_LLM_URL` / `EG_OPENAI_BASE_URL` | LLM-box base URLs (`http://10.10.10.41:8080/v1`) |
+| `EG_OPENAI_API_KEY` | Provider auth key |
+| `EG_PG_HOST` / `EG_PG_PORT` / `EG_PG_DB` / `EG_PG_USER` / `EG_PG_PASSWORD` / `EG_PG_SCHEMA` / `EG_PG_SSL` | Postgres connection (startup) |
+| `EG_REDIS_URL` | Redis connection (startup) |
+| `EG_LOG_DIR` / `EG_LOG_MAX_LINES` / `LOG_LEVEL` | Logging (logger reads at static import) |
+| `EG_INTERNAL_API_KEY` / `NODE_ENV` | Internal auth / runtime mode |
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `EG_PORT` | `8080` | Server HTTP port (container) |
-| `EG_STORAGE` | `postgres` | Storage backend (`postgres`, `memory`, `sqlite`) |
-| `EG_EMBEDDINGS` | `ollama` | Embedding provider |
-| `EG_OLLAMA_MODEL` | `bge-m3` | Ollama embedding model |
-| `CONSOLIDATION_MODEL` | `qwen2.5:3b` | LLM for memory consolidation |
-| `EXTRACTION_MODEL` | `qwen2.5:3b` | LLM for async fact extraction |
-| `LLAMA_URL` | `http://10.10.10.41:8080/v1` | Upstream llama-swap endpoint (main models) |
-| `EG_VECTOR_STORE` | `postgres` | Vector store backend |
-| `EG_API_KEY` | _(empty)_ | API key for auth (leave empty to disable) |
-
----
-
-## Makefile Commands
-
-```bash
-make help    # List available commands
-make install # npm install workspace dependencies
-make dev     # Start JS server in development mode
-make build   # Build JS package
-make start   # Start built JS server
-make clean   # Remove JS build output (dist/)
-```
+Do NOT add model/tuning variables to `.env` — they belong in the Settings tab.
 
 ---
 
@@ -245,6 +171,8 @@ make clean   # Remove JS build output (dist/)
 
 - **Migration fails** — Ensure PostgreSQL is running and the `engram` database exists.
 - **Server won't start on port 8098** — Check with `lsof -i :8098` for conflicts.
-- **Models not loading** — Verify Ollama health: `curl http://localhost:11434`. Models are auto-pulled and pinned via the server entrypoint (`OLLAMA_KEEP_ALIVE=-1`).
-- **Cannot reach llama-swap** — Confirm `LLAMA_URL` points to your GPU machine (default: `http://10.10.10.41:8080/v1`).
-- **Web GUI can't reach server** — Confirm the server is running and CORS headers are set (default allows `*`).
+- **Cannot reach llama-swap** — Confirm the Provider settings (or `EG_GENERATIVE_URL`) point at your GPU machine (`http://10.10.10.41:8080/v1`); use the Settings tab's **Test & Save** button to verify a section live.
+- **Recall scores flat (~0.34)** — The Nomic embed model was evicted from llama-swap; keep it in the `persistent` group and restart llama-swap.
+- **Consolidation failing** — Check the server log for "Consolidation LLM failed"; the engine chunks at ≤150 memories/call and requires a valid generative model in Settings.
+- **No logs in the GUI** — Confirm `EG_LOG_DIR` in `.env` points at a writable/mounted dir (default compose mount: `./logs:/home/ftr/Apps/Engram/logs`).
+- **Web GUI can't reach server** — Confirm the server is running and CORS headers allow it (dev default allows `*`).

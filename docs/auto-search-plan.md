@@ -1,5 +1,7 @@
 # Auto-Search Plan (v2 — searxNcrawl Integration)
 
+> **Status:** implemented — auto-search ships in the current stack (`packages/engram-js/src/services/autoSearch.ts`, `searxncrawl`/`searxng` compose services) and its settings are managed via the GUI Settings tab (Postgres `app_settings`), with `EG_AUTO_SEARCH_*` env defaults retained. Plan kept for reference; current model facts: `docs/model-config-audit.md`.
+
 ## Overview
 
 When a user sends a prompt through Engram, the system detects knowledge gaps in its stored memories and proactively searches the web for relevant information via **searxNcrawl** — Engram's existing sister app. This happens invisibly before the LLM generates its response.
@@ -26,7 +28,7 @@ The existing `apps/searxNcrawl` provides everything we'd otherwise need to build
    ├─ 2. Phenotype recall (vector search)
    ├─ 3. Gap detection: check recall confidence vs EG_AUTO_SEARCH_MIN_CONFIDENCE
    │     └─ if score < threshold:
-   │           ├─ Generate search queries via LLM (qwen3.5:2b)
+   │           ├─ Generate search queries via LLM (LFM2.5-1.2B-Instruct)
    │           ├─ Send search request to searxNcrawl MCP
    │           │     POST http://searxncrawl:9555/mcp
    │           │     { tools/call, name: "search", args: { query, max_results: 5 } }
@@ -56,11 +58,13 @@ Engram communicates with searxNcrawl over **MCP HTTP** using the JSON-RPC protoc
 |---|---|
 | `packages/engram-js/src/configuration/index.ts` | Add `EG_AUTO_SEARCH_*` env vars |
 | `packages/engram-js/src/api/routes/chat/completions/route.ts` | Wire auto-search into the flow |
-| `docker-compose.yml` | Add searxNcrawl service (depends_on: ollama) |
+| `docker-compose.yml` | Add searxNcrawl service — DONE: `searxncrawl` + `searxng` are now root-compose services (no `ollama` service exists) |
 
 ## Implementation Steps
 
 ### Step 1: Docker Compose — add searxNcrawl service
+
+> Status: done — `searxncrawl` and `searxng` are services in the root `docker-compose.yml` (no `ollama` dependency).
 
 Add to the root `docker-compose.yml` alongside the existing services:
 
@@ -136,7 +140,7 @@ shouldSearch(topScore: number, userPrompt: string): boolean {
 
 #### 3b. Query generation (`generateQueries`)
 
-Uses the existing generative model (qwen3.5:2b via `EG_GENERATIVE_URL` or local Ollama) to convert the user's prompt into 2-3 focused search queries. Response JSON format: `["query1", "query2"]`. System prompt enforces strict JSON output with `think: false` (same pattern as compaction engine).
+Uses the existing generative model (LFM2.5-1.2B-Instruct via `EG_GENERATIVE_URL` / llama-swap) to convert the user's prompt into 2-3 focused search queries. Response JSON format: `["query1", "query2"]`. System prompt enforces strict JSON output with `think: false` (same pattern as compaction engine).
 
 Fallback: if the LLM call fails, extract keywords directly from the user prompt (noun phrases, tech keywords).
 

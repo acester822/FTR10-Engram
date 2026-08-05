@@ -4,15 +4,9 @@
 
 | Path | Method | Remote | Version |
 |---|---|---|---|
-| `apps/langfuse` | `git subtree` | `https://github.com/langfuse/langfuse.git` | v3.194.1 |
 | `apps/searxNcrawl` | `git submodule` | `https://github.com/acester822/searxNcrawl.git` | HEAD |
 
-### Why subtree for Langfuse?
-Langfuse is forked with Engram-specific modifications (pages, tRPC routers, sidebar entries). Subtree keeps the code in-repo without submodule complexity. Engram modifications live in:
-- `web/src/pages/project/[projectId]/engram/` — Engram management pages
-- `web/src/features/engram/server/` — Engram tRPC routers
-- `web/src/components/layouts/routes.tsx` — Sidebar entries
-- `web/src/env.mjs` — Engram env vars
+> **Langfuse was removed** from docker-compose (Aug 2026). Its code still exists under `apps/langfuse` (git subtree) but is NOT part of the running stack — no containers, no port 3000, `EG_LANGFUSE_ENABLED` off, `getLangfuse()` returns null. Treat it as dead/archived. Related design docs live in `docs/archive/`.
 
 ### Why submodule for searxNcrawl?
 Standalone Python MCP service with no Engram-specific modifications. Submodule is sufficient.
@@ -21,30 +15,22 @@ Standalone Python MCP service with no Engram-specific modifications. Submodule i
 
 | Service | Purpose | Container |
 |---|---|---|
-| `postgres` | Dual: Engram DB + Langfuse DB | pgvector/pgvector |
-| `redis` | BullMQ queues (Langfuse) | redis:7-alpine |
-| `clickhouse` | Trace/score analytics (Langfuse) | clickhouse/clickhouse-server |
-| `minio` | Ingestion event persistence (Langfuse) | minio/minio |
-| `engram` | Memory proxy server | local build |
+| `postgres` | Memory store (pgvector) + settings store (`app_settings`) | pgvector/pgvector |
+| `redis` | Optional cache / valkey storage | redis:7-alpine |
+| `engram` | Memory proxy server + API (all `/api/*` + OpenAI-compatible chat proxy) | local build |
+| `web` | Web GUI (nginx :8099, proxies `/api/` → `engram:8080`) | local build (nginx) |
 | `searxncrawl` | Auto-search (web search + crawl) | local build |
 | `searxng` | Meta-search engine | searxng/searxng |
-| `langfuse-web` | Combined UI | local build |
-| `langfuse-worker` | Background job processing | local build |
-| `langfuse-init` | One-shot DB creation | postgres:16-alpine |
 
-## Subtree Commands
+External ports: **8098** (Engram API), **8099** (Web GUI), 5432 (Postgres), 6379 (Redis).
 
-### Update Langfuse
-```bash
-git subtree pull --prefix=apps/langfuse https://github.com/langfuse/langfuse.git v3.200.0 --squash
-```
+## Configuration (single source of truth)
 
-### Clone everything
+Providers and models are configured in the **web GUI Settings tab** (persisted in Postgres `app_settings`; resolved via `packages/engram-js/src/database/modelRegistry.ts` with **no hardcoded model-name defaults**). The `.env` file holds only the ~17 startup values that cannot be GUI-managed (LLM-box URLs/auth, Postgres/Redis, log path, internal keys) — see `docs/model-config-audit.md` for the full variable/hardcoded-model audit.
+
+## Clone / update
+
 ```bash
 git clone --recurse-submodules https://github.com/acester822/FTR10-Engram.git
-```
-
-### Update submodules
-```bash
 git submodule update --init --recursive
 ```

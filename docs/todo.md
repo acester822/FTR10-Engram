@@ -1,5 +1,7 @@
 # Implementation Plan: Advanced Memory Features
 
+> **Status:** all four features implemented 2026-08-04 — see the ✅ Implementation Summary at the bottom of this file. Phases 1–6 below are the original plan, kept for reference.
+
 ## Overview
 
 Implementing four advanced features from Compartment and Engraphis to enhance Engram's memory system:

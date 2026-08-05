@@ -1,158 +1,48 @@
-Here is the step-by-step guide to implementing production-ready, Grafana-optimized logging in Engram.
+# Logging in Engram
 
----
-
-### Step 1: Install a High-Performance JSON Logger
-We will use **`pino`**. It is the industry standard for Node.js because it has near-zero overhead and outputs perfect NDJSON by default.
-
-Run this in your `packages/engram-js` directory:
-```bash
-npm install pino
-npm install -D pino-pretty # Only for local development readability
-```
-
----
-
-### Step 2: Create a Centralized Logger Utility
-Create a new file: `packages/engram-js/src/utils/logger.ts`
-
-This logger will automatically detect if it's running in Docker (production) and output pure JSON, or if it's running locally and output beautiful, colorized text.
+Engram uses **pino** (NDJSON, structured fields) for server logging — the logger lives at
+`packages/engram-js/src/utils/logger.ts`. Every log call takes an object (structured metadata)
+as the first argument and a message string as the second:
 
 ```typescript
-import pino from 'pino';
-
-const isProduction = process.env.NODE_ENV === 'production';
-
-export const logger = pino({
-  // Default to 'info', but allow override via .env (e.g., LOG_LEVEL=debug)
-  level: process.env.LOG_LEVEL || 'info',
-  
-  // Format the level as a string (e.g., "info", "error") instead of a number for easier Loki querying
-  formatters: {
-    level: (label) => {
-      return { level: label };
-      },
-  },
-  
-  // In production (Docker), output raw JSON to stdout.
-  // In development, use pino-pretty for readable terminal output.
-  transport: isProduction
-    ? undefined 
-    : {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'SYS:standard',
-          ignore: 'pid,hostname',
-        },
-      },
-});
+logger.info({ module: 'compactionEngine', oldMessageCount: 15, model: resolvedModel }, 'Triggering context compaction');
+logger.error({ module: 'chatRoute', err: error, model: body.model }, 'Proxy request failed'); // 'err' formats stack traces
 ```
 
----
+## Output & rolling file
 
-### Step 3: Define a Consistent Log Schema
-Whenever you log something, pass an **object** as the first argument (for structured metadata) and a **string** as the second argument (the human-readable message). 
+- Logs go to **stdout** (JSON in production / `pino-pretty` colorized in dev) **and** to a
+  rolling file at `LOG_DIR/engram.log` (default `path.resolve(cwd, "../..", "logs")`).
+- The file keeps `EG_LOG_MAX_LINES` (default 3000) lines, truncating the oldest when exceeded.
+- **`EG_LOG_DIR` / `EG_LOG_MAX_LINES` / `LOG_LEVEL` must be set in `.env`** — the logger reads
+  them at static-import time, before the settings store is available. The compose deployment
+  mounts `./logs:/home/ftr/Apps/Engram/logs` and sets `EG_LOG_DIR=/home/ftr/Apps/Engram/logs`.
+- Log level: `LOG_LEVEL` env var (`fatal | error | warn | info | debug | trace`, default `info`).
 
-**Good Log Schema:**
-```json
-{
-  "level": "info",
-  "time": 1718472000000,
-  "msg": "Triggering context compaction",
-  "module": "compactionEngine",
-  "model": "qwen2.5:7b",
-  "oldMessageCount": 15,
-  "newMessageCount": 6
-}
-```
+## Reading logs from the API / GUI
 
----
+- `GET /api/dashboard/log?limit=N` — tail the log file (the **Server Logs** GUI tab polls this).
+- `POST /api/dashboard/log/clear` — truncate the file.
+- `docker compose logs -f engram` — container stdout.
 
-### Step 4: Update Your Existing Code
-Replace all `console.log`, `console.warn`, and `console.error` statements with the new logger. 
+## Grafana / Loki (optional)
 
-**Example 1: In `compactionEngine.ts`**
-```typescript
-import { logger } from '../utils/logger';
+Because logs are NDJSON, Loki parses them without regex:
 
-// OLD:
-// console.log(`[Engram] ⚙️ Triggering context compaction. Thinning ${oldMessages.length} old messages...`);
-
-// NEW:
-logger.info(
-  { module: 'compactionEngine', oldMessageCount: oldMessages.length, model: COMPACTION_MODEL },
-  'Triggering context compaction'
-);
-
-// OLD:
-// console.error("[Engram] ❌ Compaction summarization/extraction failed:", error);
-
-// NEW:
-logger.error(
-  { module: 'compactionEngine', err: error }, // 'err' is a special pino key that formats stack traces perfectly
-  'Compaction summarization/extraction failed'
-);
-```
-
-**Example 2: In `route.ts`**
-```typescript
-import { logger } from '../../utils/logger';
-
-// OLD:
-// console.log(`[Engram] 🧠 Recall: genome=${genomeMemories.length} phenotype=${phenotypeMemories.length}`);
-
-// NEW:
-logger.debug(
-  { module: 'chatRoute', action: 'memory_recall', genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length },
-  'Memory recall completed'
-);
-
-// OLD:
-// console.error("[Engram] Proxy Error:", error);
-
-// NEW:
-logger.error(
-  { module: 'chatRoute', err: error, model: body.model },
-  'Proxy request failed'
-);
-```
-
----
-
-### Step 5: Grafana Loki Configuration (The Magic)
-Because your logs are now structured JSON, Grafana Loki can parse them automatically without you writing complex regex. 
-
-In your Grafana LogQL queries, you can now do incredibly powerful, instant filtering:
-
-**1. Find all compaction errors:**
 ```logql
-{container="engram-proxy"} | json | level="error" and module="compactionEngine"
+{container="engram-engram-1"} | json | level="error" and module="compactionEngine"
+{container="engram-engram-1"} | json | module="memoryLogger" | line_format "{{.msg}} took {{.durationMs}}ms"
+sum by (model) (count_over_time({container="engram-engram-1"} | json | msg="Saved new memories" [24h]))
 ```
 
-**2. See how long extraction takes (if you add a `durationMs` field to your logs):**
-```logql
-{container="engram-proxy"} | json | module="memoryLogger" | line_format "{{.msg}} took {{.durationMs}}ms"
-```
+## Useful log modules
 
-**3. Count memories saved per model:**
-```logql
-sum by (model) (count_over_time({container="engram-proxy"} | json | msg="Compaction extracted and saved new phenotype memories" [24h]))
-```
-
----
-
-### Step 6: Add `.env` Control
-Add this to your `.env` file so you can dynamically change log verbosity without rebuilding the container:
-
-```env
-# Log levels: fatal, error, warn, info, debug, trace
-LOG_LEVEL=info
-NODE_ENV=production
-```
-
-### Summary of Benefits
-1. **Zero Regex in Grafana**: Loki natively understands the JSON, making queries instant.
-2. **Perfect Stack Traces**: Pino's `err` object formatting ensures multi-line Node.js stack traces don't break the JSON structure (a common pain point with `console.error`).
-3. **Local Dev Friendliness**: You still get beautiful, colorized, readable logs in your local terminal thanks to `pino-pretty`.
-4. **Easy Dashboarding**: You can instantly build Grafana panels that count errors by `module` or track `model` usage over time.
+| Module | What it logs |
+|--------|--------------|
+| `chatRoute` | Proxy lifecycle: recall counts, forward, SSE, errors |
+| `memoryLogger` | Extraction: gates, quality drops, saved memories |
+| `compactionEngine` | Compaction runs, thinning, summarize/extract |
+| `consolidationEngine` | Tier cycles, chunk sizes, LLM actions, execution |
+| `settings` | Settings load/seed events |
+| `pgpool` | Postgres pool errors |
+| `http` | Request/response (debug level) |

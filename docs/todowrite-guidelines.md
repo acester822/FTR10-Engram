@@ -1,5 +1,7 @@
 # todowrite Usage Guidelines
 
+> Note: the `todowrite` tool was renamed to `todo` in Hermes; the guidance below applies to the current `todo` tool.
+
 ## When to Use `todowrite`:
 - Tasks with **3+ steps** — track progress explicitly so you don't lose your place or hallucinate completion.
 - Complex, multi-step tasks — helps organize and manage the workflow.

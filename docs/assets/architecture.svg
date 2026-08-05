@@ -40,7 +40,7 @@
 <text x="950" y="507" font-size="16" fill="#212529" text-anchor="middle">Compaction Engine</text>
 <text x="950" y="577" font-size="16" fill="#212529" text-anchor="middle">Consolidation Cron</text>
 <text x="230" y="743" font-size="16" fill="#212529" text-anchor="middle">Ollama</text>
-<text x="230" y="761" font-size="16" fill="#212529" text-anchor="middle">qwen3.5:2b · qwen3-embedding:0.6b</text>
+<text x="230" y="761" font-size="16" fill="#212529" text-anchor="middle">LFM2.5-1.2B-Instruct · nomic-embed-text-v1.5</text>
 <text x="600" y="743" font-size="16" fill="#212529" text-anchor="middle">PostgreSQL + pgvector</text>
 <text x="600" y="761" font-size="16" fill="#212529" text-anchor="middle">Genome / Phenotype DB</text>
 <text x="910" y="752" font-size="16" fill="#212529" text-anchor="middle">Redis Cache</text>
