@@ -914,6 +914,92 @@ function SettingsResultBadge({ result }: any) {
   );
 }
 
+function GeneralField({ label, type, value, onChange }: any) {
+  if (type === "bool") {
+    return (
+      <div>
+        <label className={settingsLabelCls}>{label}</label>
+        <select
+          className={settingsInputCls}
+          value={value}
+          onChange={(e: any) => onChange(e.target.value)}
+        >
+          <option value="">(default)</option>
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+      </div>
+    );
+  }
+  return (
+    <SettingsField
+      label={label}
+      value={value}
+      onChange={onChange}
+      placeholder={type === "number" ? "(default)" : ""}
+    />
+  );
+}
+
+const GENERAL_GROUPS = [
+  {
+    title: "Server",
+    fields: [
+      ["port", "Server Port", "number"],
+      ["vec_dim", "Embedding Dimensions", "number"],
+      ["max_payload_size", "Max Payload Size (bytes)", "number"],
+      ["require_api_key", "Require API Key", "bool"],
+      ["api_key", "API Key", "string"],
+    ],
+  },
+  {
+    title: "Embedding",
+    fields: [
+      ["embeddings", "Provider Kind", "string"],
+      ["embed_timeout_ms", "Timeout (ms)", "number"],
+    ],
+  },
+  {
+    title: "Rate Limits",
+    fields: [
+      ["rate_limit_enabled", "Enabled", "bool"],
+      ["rate_limit_window_ms", "Window (ms)", "number"],
+      ["rate_limit_max_requests", "Max Requests / Window", "number"],
+    ],
+  },
+  {
+    title: "Compaction",
+    fields: [
+      ["compact_trigger", "Trigger (messages)", "number"],
+      ["max_raw_turns", "Max Raw Turns", "number"],
+      ["compact_max_messages", "Max Messages", "number"],
+      ["compact_timeout_sec", "Timeout (s)", "number"],
+      ["compact_prompt_max_chars", "Prompt Max Chars", "number"],
+      ["compaction_cooldown_ms", "Cooldown (ms)", "number"],
+    ],
+  },
+  {
+    title: "Auto-Search",
+    fields: [
+      ["auto_search_enabled", "Enabled", "bool"],
+      ["auto_search_max_results", "Max Results", "number"],
+      ["auto_search_min_confidence", "Min Confidence", "number"],
+      ["auto_search_max_chars", "Max Chars", "number"],
+    ],
+  },
+  {
+    title: "Consolidation",
+    fields: [
+      ["consol_recent_interval_ms", "Recent Interval (ms)", "number"],
+      ["consol_deep_interval_ms", "Deep Interval (ms)", "number"],
+      ["consol_recent_max_age_days", "Recent Window (days)", "number"],
+      ["consol_deep_max_age_days", "Deep Window (days)", "number"],
+      ["consol_recent_min_group", "Recent Min Group", "number"],
+      ["consol_deep_min_group", "Deep Min Group", "number"],
+    ],
+  },
+];
+
 function SettingsView() {
   const emptyForm = () => ({
     provider: { type: "openai-compatible", host: "", port: "" },
@@ -933,6 +1019,7 @@ function SettingsView() {
       emotional: "",
       reflective: "",
     },
+    general: {},
   });
 
   const [form, setForm] = useState(emptyForm() as any);
@@ -942,6 +1029,8 @@ function SettingsView() {
   const [testResult, setTestResult] = useState(null as any);
   const [genOverride, setGenOverride] = useState(false);
   const [embOverride, setEmbOverride] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState(null as any);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -993,6 +1082,29 @@ function SettingsView() {
       setTestResult({ section, ok: false, error: String(e) });
     } finally {
       setTesting("");
+    }
+  };
+
+  const saveAll = async () => {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSaveMsg({ ok: true, text: "Settings saved — applied now where runtime-read, fully at next restart." });
+        loadSettings();
+      } else {
+        setSaveMsg({ ok: false, text: (data && (data.error || data.message)) || "Save failed" });
+      }
+    } catch (e: any) {
+      setSaveMsg({ ok: false, text: String(e) });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1186,6 +1298,54 @@ function SettingsView() {
           )}
         </div>
         <SettingsResultBadge result={testResult && testResult.section === "embedding" ? testResult : null} />
+      </div>
+
+      {/* General Settings */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="text-lg font-semibold text-slate-800">General Settings</h3>
+          <button
+            onClick={saveAll}
+            disabled={saving}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            <Save size={16} /> {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mb-4">
+          Operational knobs once set via .env. Empty = engine default. Saved to the settings store and
+          applied at boot (and immediately for runtime-read values).
+        </p>
+        <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+          {GENERAL_GROUPS.map((g: any) => (
+            <div key={g.title}>
+              <h4 className="text-sm font-semibold text-slate-700 mb-2 border-b border-gray-100 pb-1">
+                {g.title}
+              </h4>
+              <div className="space-y-3">
+                {g.fields.map((f: any) => (
+                  <GeneralField
+                    key={f[0]}
+                    label={f[1]}
+                    type={f[2]}
+                    value={form.general[f[0]] || ""}
+                    onChange={(v: string) => set(["general", f[0]], v)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        {saveMsg && (
+          <div
+            className={`mt-4 px-3 py-2 rounded-lg text-sm ${
+              saveMsg.ok ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+            }`}
+          >
+            {saveMsg.ok ? "✓ " : "✗ "}
+            {saveMsg.text}
+          </div>
+        )}
       </div>
     </div>
   );

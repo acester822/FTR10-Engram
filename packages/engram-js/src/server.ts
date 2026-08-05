@@ -3,11 +3,27 @@
  - what is the file used for
 */
 
-import { startServer } from "./api/index";
 import { close_database } from "./database/connection";
+import { runSettingsBootstrap } from "./services/settingsService";
 import { logger } from "./utils/logger";
 
-const server = startServer();
+async function main() {
+  // Load settings (Settings tab = single source of truth) and mirror them into
+  // process.env BEFORE the config module reads env vars at import time.
+  try {
+    await runSettingsBootstrap();
+  } catch (err) {
+    logger.error({ module: 'server', err }, 'Settings bootstrap failed, but continuing');
+  }
+
+  const { startServer } = await import("./api/index");
+  return startServer();
+}
+
+main().catch((err) => {
+  logger.fatal({ module: 'server', err }, 'Server failed to start');
+  process.exit(1);
+});
 
 // Graceful shutdown: close DB pool on SIGTERM/SIGINT
 const shutdown = async (signal: string) => {

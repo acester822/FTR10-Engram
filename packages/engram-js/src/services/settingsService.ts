@@ -49,6 +49,81 @@ export const EMBEDDING_FACET_KEYS = {
   reflective: SETTING_KEYS.facetReflective,
 } as const;
 
+// ── General (non-model) settings — the GUI Settings tab manages these too, so
+//    .env stops being required. Each maps to the env var legacy readers use;
+//    values are mirrored into process.env at boot (BEFORE the config module
+//    reads it) and live on save. Empty value = engine default. ──
+export interface GeneralSettingDef {
+  key: string;      // settings key (prefix "general.")
+  env: string;      // legacy env var name
+  type: "string" | "number" | "bool";
+  label: string;
+  section: string;  // GUI group
+}
+
+export const GENERAL_SETTINGS: GeneralSettingDef[] = [
+  // Server
+  { key: "general.port", env: "EG_PORT", type: "number", label: "Server Port", section: "server" },
+  { key: "general.vec_dim", env: "EG_VEC_DIM", type: "number", label: "Embedding Dimensions", section: "server" },
+  { key: "general.max_payload_size", env: "EG_MAX_PAYLOAD_SIZE", type: "number", label: "Max Payload Size (bytes)", section: "server" },
+  { key: "general.require_api_key", env: "EG_REQUIRE_API_KEY", type: "bool", label: "Require API Key", section: "server" },
+  { key: "general.api_key", env: "EG_API_KEY", type: "string", label: "API Key", section: "server" },
+  // Embedding
+  { key: "general.embeddings", env: "EG_EMBEDDINGS", type: "string", label: "Embedding Provider Kind", section: "embedding" },
+  { key: "general.embed_timeout_ms", env: "EG_EMBED_TIMEOUT_MS", type: "number", label: "Embedding Timeout (ms)", section: "embedding" },
+  // Rate limits
+  { key: "general.rate_limit_enabled", env: "EG_RATE_LIMIT_ENABLED", type: "bool", label: "Rate Limit Enabled", section: "rate_limit" },
+  { key: "general.rate_limit_window_ms", env: "EG_RATE_LIMIT_WINDOW_MS", type: "number", label: "Rate Limit Window (ms)", section: "rate_limit" },
+  { key: "general.rate_limit_max_requests", env: "EG_RATE_LIMIT_MAX_REQUESTS", type: "number", label: "Max Requests / Window", section: "rate_limit" },
+  // Compaction
+  { key: "general.compact_trigger", env: "EG_COMPACT_TRIGGER", type: "number", label: "Compaction Trigger (messages)", section: "compaction" },
+  { key: "general.max_raw_turns", env: "EG_MAX_RAW_TURNS", type: "number", label: "Max Raw Turns", section: "compaction" },
+  { key: "general.compact_max_messages", env: "EG_COMPACT_MAX_MESSAGES", type: "number", label: "Compaction Max Messages", section: "compaction" },
+  { key: "general.compact_timeout_sec", env: "EG_COMPACT_TIMEOUT_SEC", type: "number", label: "Compaction Timeout (s)", section: "compaction" },
+  { key: "general.compact_prompt_max_chars", env: "EG_COMPACT_PROMPT_MAX_CHARS", type: "number", label: "Compaction Prompt Max Chars", section: "compaction" },
+  { key: "general.compaction_cooldown_ms", env: "EG_COMPACTION_COOLDOWN_MS", type: "number", label: "Compaction Cooldown (ms)", section: "compaction" },
+  // Auto-search
+  { key: "general.auto_search_enabled", env: "EG_AUTO_SEARCH_ENABLED", type: "bool", label: "Auto-Search Enabled", section: "auto_search" },
+  { key: "general.auto_search_max_results", env: "EG_AUTO_SEARCH_MAX_RESULTS", type: "number", label: "Auto-Search Max Results", section: "auto_search" },
+  { key: "general.auto_search_min_confidence", env: "EG_AUTO_SEARCH_MIN_CONFIDENCE", type: "number", label: "Auto-Search Min Confidence", section: "auto_search" },
+  { key: "general.auto_search_max_chars", env: "EG_AUTO_SEARCH_MAX_CHARS", type: "number", label: "Auto-Search Max Chars", section: "auto_search" },
+  // Consolidation tiers
+  { key: "general.consol_recent_interval_ms", env: "EG_CONSOLIDATION_RECENT_INTERVAL_MS", type: "number", label: "Recent Tier Interval (ms)", section: "consolidation" },
+  { key: "general.consol_deep_interval_ms", env: "EG_CONSOLIDATION_DEEP_INTERVAL_MS", type: "number", label: "Deep Tier Interval (ms)", section: "consolidation" },
+  { key: "general.consol_recent_max_age_days", env: "EG_CONSOLIDATION_RECENT_MAX_AGE_DAYS", type: "number", label: "Recent Tier Window (days)", section: "consolidation" },
+  { key: "general.consol_deep_max_age_days", env: "EG_CONSOLIDATION_DEEP_MAX_AGE_DAYS", type: "number", label: "Deep Tier Window (days)", section: "consolidation" },
+  { key: "general.consol_recent_min_group", env: "EG_CONSOLIDATION_RECENT_MIN_GROUP", type: "number", label: "Recent Tier Min Group", section: "consolidation" },
+  { key: "general.consol_deep_min_group", env: "EG_CONSOLIDATION_DEEP_MIN_GROUP", type: "number", label: "Deep Tier Min Group", section: "consolidation" },
+];
+
+const GENERAL_BY_KEY = new Map(GENERAL_SETTINGS.map((d) => [d.key, d]));
+
+/** Mirror cached general settings into process.env (settings win over .env). */
+export function applySettingsToEnv(): void {
+  for (const def of GENERAL_SETTINGS) {
+    const v = cache.get(def.key);
+    if (v !== undefined && v !== "") process.env[def.env] = v;
+  }
+}
+
+/** Effective values for the GUI: process.env after apply (reflects .env defaults too). */
+export function generalSettingsView(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const def of GENERAL_SETTINGS) {
+    const short = def.key.replace(/^general\./, "");
+    out[short] = process.env[def.env] || "";
+  }
+  return out;
+}
+
+/** Load settings, mirror to env, and seed once from env if the table is empty. */
+export async function runSettingsBootstrap(): Promise<void> {
+  await loadSettings();
+  applySettingsToEnv();
+  await seedSettingsFromEnv();
+  applySettingsToEnv();
+}
+
 /** Load all settings into the in-memory cache. Call once at boot (after migrations). */
 export async function loadSettings(): Promise<void> {
   try {
@@ -74,7 +149,7 @@ export function settingsLoaded(): boolean {
   return cache.size > 0;
 }
 
-/** Upsert a patch of settings into the DB + in-memory cache. */
+/** Upsert a patch of settings into the DB + in-memory cache (+ live process.env mirror for general keys). */
 export async function saveSettings(patch: Record<string, string | undefined>): Promise<void> {
   const entries = Object.entries(patch).filter(([, v]) => v !== undefined);
   for (const [key, value] of entries) {
@@ -86,6 +161,8 @@ export async function saveSettings(patch: Record<string, string | undefined>): P
       [key, v],
     );
     cache.set(key, v);
+    const def = GENERAL_BY_KEY.get(key);
+    if (def) process.env[def.env] = v; // live-apply (runtime readers see it immediately)
   }
 }
 

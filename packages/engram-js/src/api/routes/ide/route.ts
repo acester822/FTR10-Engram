@@ -45,29 +45,12 @@ export const ide_routes = (app: any, ctx: route_ctx) => {
     // Only persist save events with real content — ignore cursor moves, etc.
     if (event_type !== "save") return res.json({ ok: true, skipped: "non-save event" });
 
-    const session = session_id ? sessions.get(String(session_id)) : null;
-    const uid = user_id || session?.user_id || "system";
-    const project = session?.project_id;
-
-    try {
-      await rememberDurableMemory(ctx.db, {
-        content: `[IDE save: ${file_path}]\n${String(content).slice(0, 4000)}`,
-        user_id: uid,
-        project_id: project,
-        metadata: {
-          source: "vscode",
-          event_type,
-          file_path,
-          language: language || "unknown",
-          sector: "episodic",
-          ...(metadata || {}),
-        },
-      });
-      res.json({ ok: true });
-    } catch (err) {
-      console.error("[IDE] Failed to store event:", err);
-      res.json({ ok: true, warn: "storage failed" });
-    }
+    // IDE save diffs are transient edit events, NOT durable facts. Storing them as
+    // memories polluted the shared store with truncated diff fragments (the editor
+    // sends snippets, not full diffs). The audit trail lives in the editor's own
+    // file history / VCS — not in Engram. Save events are acknowledged but not stored.
+    console.log(`[IDE] Save event skipped (not a durable memory): ${file_path}`);
+    return res.json({ ok: true, skipped: "save events not stored as memories" });
   });
 
   // POST /api/ide/context — query memories relevant to the current context

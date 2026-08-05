@@ -186,3 +186,40 @@ creating shell** (not in `.env`) — a bare `docker compose up` silently renders
   - embedding → `{ok:true, model:"nomic-embed-text-v1.5", latencyMs:15, dims:768}` (matches halfvec(768))
 - Consolidation via registry: chunks 150/150/150/126, all `Consolidation LLM returned actions`, 0 failures.
 - Web GUI :8099 serves the new Settings tab (bundle grep confirms).
+
+
+---
+
+# Implementation Summary — bonus milestone (general settings in GUI) + IDE-save noise fix — 2026-08-05
+
+## General settings (".env dies" milestone, part 1)
+- `settingsService` gains `GENERAL_SETTINGS` (26 keys → legacy env vars: server port, vec dim,
+  payload size, API key, embed timeout/kind, rate limits, compaction, auto-search, consolidation
+  tiers) with `applySettingsToEnv()` (mirror into process.env; settings win over .env) and
+  `generalSettingsView()`.
+- **Boot ordering fix (critical):** `server.ts` now runs `runSettingsBootstrap()` in `main()`
+  BEFORE the dynamic `import("./api/index")`, so settings land in process.env before the config
+  module bakes `env.*` and before module-load constants (e.g. consolidation tier intervals) are
+  read. `saveSettings` also mirrors to process.env live — runtime-read values change immediately.
+- Settings API: `GET/PUT /api/settings` accept a `general` section with per-type validation
+  (number/bool/string). GUI: new "General Settings" card (6 groups, 26 fields, Save button).
+- Verified live: PUT 3600000 → GET shows it immediately; `docker compose restart` → scheduler log
+  shows `recentIntervalMs: 3600000` (settings win at boot); cleared → engine default restored.
+
+## IDE-save diff noise (user-reported: "they look blank and not good for anything")
+- **Root cause:** `/api/ide/events` stored every VSCode save event DIRECTLY as a memory via
+  `rememberDurableMemory` — bypassing `isWorthRemembering` (whose `[ide save:` / `diff for`
+  rejections only guard the extraction path). The extension sends diff SNIPPETS, so each save
+  produced a truncated 1-2 line fragment: 223 such rows, polluting the shared store.
+- **Fix:** the route now acknowledges save events but does NOT store them (`skipped: "save events
+  not stored as memories"`); the audit trail lives in the editor's file history / VCS. Existing
+  223 rows hard-deleted (2,093 active remain). Verified: POST fake save → skipped, memory count
+  unchanged.
+- If real diff capture is wanted later, it should be a proper summary feature (extension-side),
+  not raw save dumps as memories.
+
+## Verification (live)
+- `tsc --noEmit` clean; web build clean; both containers healthy.
+- Settings: live mirror ✓, boot-apply-before-config ✓ (scheduler const 3600000 after restart),
+  persistence ✓, per-type validation ✓.
+- IDE events: skipped ✓, store unchanged ✓, purge 223 → 0 ✓.

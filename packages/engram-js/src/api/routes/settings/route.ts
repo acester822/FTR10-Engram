@@ -11,6 +11,8 @@ import {
   getSettings,
   saveSettings,
   SETTING_KEYS,
+  GENERAL_SETTINGS,
+  generalSettingsView,
 } from "../../../services/settingsService";
 import {
   resolveGenerativeModel,
@@ -53,6 +55,13 @@ function flattenSettings(body: any): Record<string, string | undefined> {
   for (const f of FACETS) {
     if (embedding[f] !== undefined) out[`embedding.${f}`] = String(embedding[f]).trim();
   }
+
+  // General (non-model) settings: { general: { <short>: value } } → "general.<short>"
+  const general = body.general || {};
+  for (const def of GENERAL_SETTINGS) {
+    const short = def.key.replace(/^general\./, "");
+    if (general[short] !== undefined) out[def.key] = String(general[short]).trim();
+  }
   return out;
 }
 
@@ -86,6 +95,7 @@ function settingsView() {
       emotional: s[SETTING_KEYS.facetEmotional] || "",
       reflective: s[SETTING_KEYS.facetReflective] || "",
     },
+    general: generalSettingsView(),
   };
 }
 
@@ -193,6 +203,17 @@ export const settings_route = (app: any) => {
       if (hostErr) return bad(res, "provider.host", hostErr);
       const portErr = validatePort(port);
       if (portErr) return bad(res, "provider.port", portErr);
+      // Validate general (non-model) settings by declared type
+      for (const def of GENERAL_SETTINGS) {
+        const v = flat[def.key];
+        if (v === undefined || v === "") continue;
+        if (def.type === "number" && !Number.isFinite(Number(v))) {
+          return bad(res, `general.${def.key.replace(/^general\./, "")}`, `${def.label} must be a number`);
+        }
+        if (def.type === "bool" && !["true", "false", "1", "0"].includes(v.toLowerCase())) {
+          return bad(res, `general.${def.key.replace(/^general\./, "")}`, `${def.label} must be true/false`);
+        }
+      }
       await saveSettings(flat);
       res.json({ ok: true, settings: settingsView(), resolved: resolvedView() });
     } catch (e) {
