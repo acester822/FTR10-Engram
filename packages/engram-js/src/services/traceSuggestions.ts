@@ -8,6 +8,7 @@
 */
 
 import { all_async as pg_all } from "../database/connection";
+import { tryResolveGenerativeModel } from "../database/modelRegistry";
 import type { TraceReport } from "./traceStore";
 
 export interface Suggestion {
@@ -106,13 +107,27 @@ export async function generateSuggestions(r: TraceReport): Promise<Suggestion[]>
   // ── extraction_fidelity ──
   const ef = dimAvg("extraction_fidelity");
   if (dims.includes("extraction_fidelity") && ef !== undefined && ef < 0.5) {
-    out.push({
-      severity: "high",
-      dimension: "extraction_fidelity",
-      title: `Extraction quality is low (avg ${ef})`,
-      detail:
-        "The extraction model matters more than anything else here: the default LFM2.5-1.2B-Instruct is KNOWN to be too weak for extraction (mis-sectors, drops durable facts). Switch to Gemma-4-12B-no-thinking in Settings → Generative → Extraction Model, then re-test.",
-    });
+    // Resolve the ACTUAL extraction model from the settings registry — advice
+    // must reflect reality, not historical defaults.
+    const extractionModel = tryResolveGenerativeModel("extraction") || "unset";
+    const isWeakExtractor = /lfm|1\.2b|0\.6b/i.test(extractionModel);
+    if (isWeakExtractor) {
+      out.push({
+        severity: "high",
+        dimension: "extraction_fidelity",
+        title: `Extraction quality is low (avg ${ef}) and extraction runs ${extractionModel}`,
+        detail:
+          "That model is KNOWN to be too weak for extraction (mis-sectors, drops durable facts). Switch to Gemma-4-12B-no-thinking in Settings → Generative → Extraction Model, then re-test.",
+      });
+    } else {
+      out.push({
+        severity: "medium",
+        dimension: "extraction_fidelity",
+        title: `Extraction quality is low (avg ${ef}) — model strength is NOT the bottleneck`,
+        detail:
+          `Extraction already resolves to ${extractionModel}, which is capable of this task. Low extraction_fidelity therefore points at the extraction prompt/gates (isWorthRemembering / DO NOT EXTRACT list in memoryLogger.ts — over-strict gates drop durable facts) or noisy input. Audit the worst-scored traces above, then re-test.`,
+      });
+    }
     out.push({
       severity: "medium",
       dimension: "extraction_fidelity",
