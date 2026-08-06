@@ -419,14 +419,75 @@ export async function listFindings(f: { status?: string; severity?: string; limi
   );
 }
 
-export async function resolveFinding(id: string, action: "dismiss" | "apply", note?: string): Promise<boolean> {
-  const rows = await pg_all(
+/** Human disposition of a finding.
+ *  dismiss → close without touching the memory.
+ *  apply → PERFORM the deferred repair (human click IS the approval — no gate
+ *  needed): for flagged false_memory_sampling candidates, delete or supersede
+ *  the memory per the verdict, through the audited mutation primitives, then
+ *  mark the finding resolved with the outcome recorded in its detail. */
+export async function resolveFinding(
+  id: string,
+  action: "dismiss" | "apply",
+  note?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const rows = await pg_all(`SELECT * FROM public.integrity_findings WHERE id = $1`, [id]);
+  if (!rows.length) return { ok: false, error: "not_found" };
+  const f = rows[0];
+
+  if (action === "dismiss") {
+    await pg_run(
+      `UPDATE public.integrity_findings
+       SET status = 'dismissed', resolved_at = now(),
+           detail = jsonb_set(coalesce(detail, '{}'::jsonb), '{resolution}', to_jsonb($2::text))
+       WHERE id = $1`,
+      [id, note ?? "dismissed by user"],
+    );
+    return { ok: true };
+  }
+
+  // apply — perform the deferred repair
+  if (f.status !== "open") return { ok: true }; // already handled
+  let actionTaken = f.action_taken;
+  let appliedNote = note ?? "applied by user";
+
+  if (f.action_taken === "flag" && f.memory_id && f.check_name === "false_memory_sampling") {
+    const verdict = f.detail?.verdict;
+    const stillThere = await pg_all(`SELECT id, superseded_at FROM public.memories WHERE id = $1`, [f.memory_id]);
+    if (!stillThere.length) {
+      appliedNote = "memory already deleted — finding resolved";
+    } else if (stillThere[0].superseded_at) {
+      appliedNote = "memory already superseded — finding resolved";
+    } else if (verdict === "delete candidate") {
+      await hardDeleteMemories([f.memory_id], "auto-heal", {
+        check: "false_memory_sampling",
+        via: "user-apply",
+        finding_id: id,
+        judge_score: f.detail?.score,
+        judge_reason: f.detail?.reason,
+      });
+      actionTaken = "delete";
+      appliedNote = `applied by user (delete) — judge ${f.detail?.score}: ${f.detail?.reason}`;
+    } else {
+      await supersedeMemories([f.memory_id], "auto-heal", {
+        check: "false_memory_sampling",
+        via: "user-apply",
+        finding_id: id,
+        judge_score: f.detail?.score,
+        judge_reason: f.detail?.reason,
+      });
+      actionTaken = "supersede";
+      appliedNote = `applied by user (supersede) — judge ${f.detail?.score}: ${f.detail?.reason}`;
+    }
+  }
+
+  await pg_run(
     `UPDATE public.integrity_findings
-     SET status = $2, resolved_at = now(), detail = jsonb_set(coalesce(detail, '{}'::jsonb), '{resolution}', to_jsonb($3::text))
-     WHERE id = $1 RETURNING id`,
-    [id, action === "dismiss" ? "dismissed" : "resolved", note ?? action],
+     SET status = 'resolved', resolved_at = now(), action_taken = $2,
+         detail = jsonb_set(coalesce(detail, '{}'::jsonb), '{resolution}', to_jsonb($3::text))
+     WHERE id = $1`,
+    [id, actionTaken, appliedNote],
   );
-  return rows.length > 0;
+  return { ok: true };
 }
 
 // ── Scheduler (started beside consolidation in api/index.ts) ────────────

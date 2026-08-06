@@ -2888,6 +2888,12 @@ function MemoryAuditView() {
             <option value="dismissed">Dismissed</option>
           </select>
         </div>
+        <p className="text-xs text-slate-500">
+          <span className="font-semibold text-slate-600">Apply</span> performs the suggested repair on the memory
+          (delete, or supersede — which is reversible) and records it in the audit trail.{" "}
+          <span className="font-semibold text-slate-600">Dismiss</span> closes the finding without touching the memory.
+          Open findings with the flag action have had <b>nothing done to the memory yet</b>.
+        </p>
         {findings.length === 0 ? (
           <div className="text-sm text-slate-500">No findings yet — run an integrity check.</div>
         ) : (
@@ -2918,10 +2924,10 @@ function MemoryAuditView() {
                     <td className="py-2 text-right whitespace-nowrap">
                       {f.status === "open" && (
                         <span className="flex gap-1">
-                          <button onClick={(e: any) => { e.stopPropagation(); resolveFinding(f.id, "apply"); }} className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-300 rounded text-xs hover:bg-blue-100">
+                          <button title="Perform the deferred repair (delete/supersede the memory) with audit trail" onClick={(e: any) => { e.stopPropagation(); resolveFinding(f.id, "apply"); }} className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-300 rounded text-xs hover:bg-blue-100">
                             Apply
                           </button>
-                          <button onClick={(e: any) => { e.stopPropagation(); resolveFinding(f.id, "dismiss"); }} className="px-2 py-1 bg-gray-100 text-gray-600 border border-gray-300 rounded text-xs hover:bg-gray-200">
+                          <button title="Close the finding without touching the memory" onClick={(e: any) => { e.stopPropagation(); resolveFinding(f.id, "dismiss"); }} className="px-2 py-1 bg-gray-100 text-gray-600 border border-gray-300 rounded text-xs hover:bg-gray-200">
                             Dismiss
                           </button>
                         </span>

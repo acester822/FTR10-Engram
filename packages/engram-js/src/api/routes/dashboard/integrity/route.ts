@@ -52,7 +52,7 @@ export const dashboard_integrity_route = (app: any) => {
         return bad(res, "action", "must be 'dismiss' or 'apply'");
       }
       const ok = await resolveFinding(req.params.id, action, typeof req.body?.note === "string" ? req.body.note : undefined);
-      if (!ok) return res.status(404).json({ err: "not_found" });
+      if (!ok.ok) return res.status(404).json({ err: ok.error || "not_found" });
       res.json({ ok: true });
     } catch (e) {
       fail(res, "integrity_resolve_failed", e);
