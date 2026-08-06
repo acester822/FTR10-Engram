@@ -1133,6 +1133,12 @@ function TracesView() {
   const [reportOpts, setReportOpts] = useState({ preset: "7", from: "", to: "", route: "", direction: "", status: "" });
   const [facets, setFacets] = useState({ routes: [] as string[], statuses: [] as string[], policy: { good: 0.7, bad: 0.4 } });
   const reportRef = useRef(null);
+  const detailRef = useRef(null);
+  const [calOpen, setCalOpen] = useState(false);
+  const [calDim, setCalDim] = useState("recall_relevance");
+  const [calExp, setCalExp] = useState("0.7");
+  const [calNote, setCalNote] = useState("");
+  const [calMsg2, setCalMsg2] = useState(null as any);
 
   useEffect(() => {
     (async () => {
@@ -1199,9 +1205,77 @@ function TracesView() {
           fetch(`${API_BASE}/traces/${id}/review`, { method: "POST" }).catch(() => {});
           fetchTraces(false);
         }
+        // Scroll the detail panel into view — it renders below a long table.
+        setTimeout(() => {
+          if (detailRef.current) detailRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 60);
       }
     } catch {
       // ignore
+    }
+  };
+
+  const defaultDimFor = (t: any) =>
+    t?.label === "chat" ? "answer_quality" : t?.label === "ingest" || t?.label === "remember" ? "extraction_fidelity" : "recall_relevance";
+
+  const openCalForm = () => {
+    if (!selected) return;
+    setCalDim(defaultDimFor(selected));
+    setCalMsg2(null);
+    setCalOpen(!calOpen);
+  };
+
+  const addCalForSelected = async () => {
+    if (!selected) return;
+    setCalMsg2(null);
+    try {
+      const res = await fetch("/api/dashboard/judge/calibration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trace_id: selected.id,
+          dimension: calDim,
+          expected_score: Number(calExp),
+          note: calNote || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCalOpen(false);
+        setCalNote("");
+        setCalMsg2({ ok: true, text: "Added to the calibration set." });
+      } else {
+        setCalMsg2({ ok: false, text: (data && (data.msg || data.error)) || "Add failed" });
+      }
+    } catch (e: any) {
+      setCalMsg2({ ok: false, text: String(e) });
+    }
+  };
+
+  const copyId = async () => {
+    if (!selected) return;
+    try {
+      await navigator.clipboard.writeText(selected.id);
+      setScoreMsg({ ok: true, text: "Trace id copied to clipboard" });
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleDeleteTrace = async () => {
+    if (!selected) return;
+    if (!confirm("Delete this trace permanently? Its calibration entries (if any) are removed too.")) return;
+    try {
+      const res = await fetch(`${API_BASE}/traces/${selected.id}`, { method: "DELETE" });
+      if (res.ok) {
+        setSelected(null);
+        setScoreMsg(null);
+        fetchTraces(false);
+      } else {
+        alert("Delete failed");
+      }
+    } catch {
+      alert("Delete failed");
     }
   };
 
@@ -1841,7 +1915,8 @@ function TracesView() {
                 <th className="pb-2 pr-3">Status</th>
                 <th className="pb-2 pr-3">ms</th>
                 <th className="pb-2 pr-3">Breakdown</th>
-                <th className="pb-2">Scores</th>
+                <th className="pb-2 pr-3">Scores</th>
+                <th className="pb-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -1849,6 +1924,7 @@ function TracesView() {
                 <tr
                   key={t.id}
                   onClick={() => openDetail(t.id)}
+                  title="Click to view the full trace — score, delete, or add it to the calibration set"
                   className="border-t border-gray-100 cursor-pointer hover:bg-slate-50"
                 >
                   <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{fmtTs(t.ts)}</td>
@@ -1882,6 +1958,7 @@ function TracesView() {
                       </span>
                     )}
                   </td>
+                  <td className="py-2 pr-2 text-slate-300 text-right">›</td>
                 </tr>
               ))}
             </tbody>
@@ -1891,7 +1968,7 @@ function TracesView() {
 
       {/* Detail */}
       {selected && (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
+        <div ref={detailRef} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold text-slate-800">
               Trace {selected.route}{" "}
@@ -1922,6 +1999,59 @@ function TracesView() {
               </button>
             </div>
           </div>
+
+          {/* Trace actions: id, copy, delete, add-to-calibration */}
+          <div className="flex items-center gap-2 flex-wrap bg-slate-50 border border-gray-200 rounded-lg px-3 py-2">
+            <code className="text-xs text-slate-500 font-mono">{selected.id}</code>
+            <button onClick={copyId} className="px-2 py-1 bg-white border border-gray-300 rounded text-xs text-slate-600 hover:bg-gray-100">
+              Copy id
+            </button>
+            <button
+              onClick={openCalForm}
+              className={`px-2 py-1 rounded text-xs border ${
+                calOpen ? "bg-blue-100 text-blue-700 border-blue-300" : "bg-white text-blue-600 border-blue-300 hover:bg-blue-50"
+              }`}
+            >
+              Add to calibration
+            </button>
+            <button
+              onClick={handleDeleteTrace}
+              className="px-2 py-1 bg-red-50 text-red-600 border border-red-300 rounded text-xs hover:bg-red-100 ml-auto"
+            >
+              Delete trace
+            </button>
+          </div>
+
+          {calOpen && (
+            <div className="grid grid-cols-4 gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <select className="px-2 py-2 border border-gray-300 rounded-lg text-sm" value={calDim} onChange={(e: any) => setCalDim(e.target.value)}>
+                <option value="recall_relevance">recall_relevance</option>
+                <option value="extraction_fidelity">extraction_fidelity</option>
+                <option value="answer_quality">answer_quality</option>
+              </select>
+              <input
+                className="px-2 py-2 border border-gray-300 rounded-lg text-sm"
+                placeholder="Expected (0-1)"
+                value={calExp}
+                onChange={(e: any) => setCalExp(e.target.value)}
+              />
+              <input
+                className="px-2 py-2 border border-gray-300 rounded-lg text-sm"
+                placeholder="Note (why this label)"
+                value={calNote}
+                onChange={(e: any) => setCalNote(e.target.value)}
+              />
+              <button onClick={addCalForSelected} className="px-2 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                Add
+              </button>
+            </div>
+          )}
+          {calMsg2 && (
+            <div className={`px-3 py-2 rounded-lg text-sm ${calMsg2.ok ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+              {calMsg2.ok ? "✓ " : "✗ "}
+              {calMsg2.text}
+            </div>
+          )}
           {scoreMsg && (
             <div
               className={`px-3 py-2 rounded-lg text-sm ${
@@ -2001,6 +2131,56 @@ function GovernanceView() {
   // ── Review queue ──
   const [reviewQueue, setReviewQueue] = useState([] as any[]);
   const [reviewLoading, setReviewLoading] = useState(true);
+  // ── Inline trace viewer (click a row to open the trace) ──
+  const [expanded, setExpanded] = useState(null as any); // {kind, id}
+  const [expandedTrace, setExpandedTrace] = useState(null as any);
+  const [expanding, setExpanding] = useState(false);
+
+  const jsonBlock = (v: any) => {
+    if (v === null || v === undefined) return <span className="text-xs text-slate-400">—</span>;
+    let text: string;
+    try {
+      text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+    } catch {
+      text = String(v);
+    }
+    if (text.length > 60000) text = text.slice(0, 60000) + "\n… (truncated)";
+    return (
+      <pre className="text-xs text-slate-700 bg-slate-50 border border-gray-200 rounded-lg p-3 max-h-96 overflow-auto whitespace-pre-wrap break-all">
+        {text}
+      </pre>
+    );
+  };
+
+  const toggleExpand = async (kind: string, id: string) => {
+    if (expanded && expanded.kind === kind && expanded.id === id) {
+      setExpanded(null);
+      setExpandedTrace(null);
+      return;
+    }
+    setExpanded({ kind, id });
+    setExpanding(true);
+    setExpandedTrace(null);
+    try {
+      const res = await fetch(`${API_BASE}/traces/${id}`);
+      if (res.ok) {
+        const d = await res.json();
+        setExpandedTrace(d.trace);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setExpanding(false);
+    }
+  };
+
+  const copyId = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(id);
+    } catch {
+      // ignore
+    }
+  };
 
   const loadCalibration = useCallback(async () => {
     setCalLoading(true);
@@ -2236,7 +2416,20 @@ function GovernanceView() {
                 return (
                   <tr key={e.id} className="border-t border-gray-100">
                     <td className="py-2 pr-3">
-                      <span className="font-mono text-xs text-blue-600">{e.route || "deleted trace"}</span>
+                      <button
+                        onClick={() => toggleExpand("cal", e.trace_id)}
+                        className="font-mono text-xs text-blue-600 hover:underline text-left"
+                        title="Click to view the trace"
+                      >
+                        {e.route || "deleted trace"}
+                      </button>
+                      <button
+                        onClick={() => copyId(e.trace_id)}
+                        title="Copy trace id"
+                        className="ml-2 text-[10px] text-slate-400 hover:text-slate-600 font-mono"
+                      >
+                        {e.trace_id.slice(0, 8)}…⧉
+                      </button>
                       <span className="ml-2 text-xs text-slate-400">{fmtTs(e.ts)}</span>
                     </td>
                     <td className="py-2 pr-3 text-xs">{e.dimension}</td>
@@ -2365,7 +2558,15 @@ function GovernanceView() {
                 return (
                   <tr key={t.id} className="border-t border-gray-100">
                     <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{fmtTs(t.ts)}</td>
-                    <td className="py-2 pr-3 font-mono text-xs text-blue-600">{t.route}</td>
+                    <td className="py-2 pr-3">
+                      <button
+                        onClick={() => toggleExpand("review", t.id)}
+                        className="font-mono text-xs text-blue-600 hover:underline text-left"
+                        title="Click to view the trace"
+                      >
+                        {t.route}
+                      </button>
+                    </td>
                     <td className="py-2 pr-3">
                       <ScorePill score={low.score} />
                     </td>
@@ -2388,6 +2589,64 @@ function GovernanceView() {
           Opening a flagged trace in the Traces tab also clears its flag automatically.
         </p>
       </div>
+
+      {/* Inline trace viewer — click any route link above to open the trace here */}
+      {expanding && <div className="text-sm text-slate-500">Loading trace...</div>}
+      {expanded && expandedTrace && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-3">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-semibold text-slate-800">Trace {expandedTrace.route}</h3>
+            <button
+              onClick={() => {
+                setExpanded(null);
+                setExpandedTrace(null);
+              }}
+              className="px-3 py-2 bg-gray-100 text-gray-600 border border-gray-300 rounded-lg text-sm hover:bg-gray-200"
+            >
+              Close
+            </button>
+          </div>
+          <div className="text-xs text-slate-500">
+            <code className="font-mono">{expandedTrace.id}</code> · {fmtTs(expandedTrace.ts)} · {expandedTrace.label} ·
+            status {expandedTrace.status} · {expandedTrace.ms}ms
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Request</h4>
+              {jsonBlock(expandedTrace.request_body)}
+            </div>
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Response</h4>
+              {jsonBlock(expandedTrace.response_body)}
+            </div>
+          </div>
+          {expandedTrace.breakdown && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Breakdown</h4>
+              {jsonBlock(expandedTrace.breakdown)}
+            </div>
+          )}
+          {expandedTrace.scores && expandedTrace.scores.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Scores</h4>
+              <div className="space-y-2">
+                {expandedTrace.scores.map((x: any, i: number) => (
+                  <div key={i} className="flex items-start gap-3 bg-slate-50 border border-gray-200 rounded-lg p-3 text-xs">
+                    <ScorePill score={x.score} />
+                    <div>
+                      <span className="font-semibold text-slate-700">{x.dimension}</span>
+                      <span className="text-slate-400 ml-2">
+                        {x.judge_model} · {fmtTs(x.ts)}
+                      </span>
+                      <p className="text-slate-600 mt-0.5">{x.reason}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

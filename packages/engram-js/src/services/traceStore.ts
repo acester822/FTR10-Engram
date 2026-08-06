@@ -257,6 +257,12 @@ export async function deleteAllTraces(): Promise<number> {
   return rows.length;
 }
 
+/** Hard-delete a single trace (and its calibration entries via FK cascade). */
+export async function deleteTrace(id: string): Promise<boolean> {
+  const rows = await pg_all(`DELETE FROM public.traces WHERE id = $1 RETURNING id`, [id]);
+  return rows.length > 0;
+}
+
 export async function pruneTraces(days?: number): Promise<number> {
   const d = Number(days) || traceRetentionDays();
   const rows = await pg_all(

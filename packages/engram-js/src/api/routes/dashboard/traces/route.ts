@@ -9,13 +9,14 @@ import {
   listTraces,
   getTrace,
   deleteAllTraces,
+  deleteTrace,
   pruneTraces,
   traceReport,
   traceFacets,
+  markTraceReviewed,
 } from "../../../../services/traceStore";
 import { scoreTrace, scoreAllUnscored, TRACE_DIMENSIONS } from "../../../../services/traceScorer";
 import { generateSuggestions } from "../../../../services/traceSuggestions";
-import { markTraceReviewed } from "../../../../services/traceStore";
 
 export const dashboard_traces_route = (app: any) => {
   app.get("/api/dashboard/traces", async (req: any, res: any) => {
@@ -138,6 +139,17 @@ export const dashboard_traces_route = (app: any) => {
       res.json({ ok: true, removed });
     } catch (e) {
       fail(res, "traces_prune_failed", e);
+    }
+  });
+
+  // Per-trace hard delete (registered after /prune so "prune" never matches :id).
+  app.delete("/api/dashboard/traces/:id", async (req: any, res: any) => {
+    try {
+      const removed = await deleteTrace(req.params.id);
+      if (!removed) return res.status(404).json({ err: "not_found" });
+      res.json({ ok: true });
+    } catch (e) {
+      fail(res, "traces_delete_failed", e);
     }
   });
 
