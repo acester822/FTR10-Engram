@@ -229,3 +229,120 @@ export async function pruneTraces(days?: number): Promise<number> {
   );
   return rows.length;
 }
+
+// ── Report aggregation (real data, no LLM) ─────────────────────────────
+
+export interface TraceReport {
+  window_days: number;
+  total: number;
+  by_route: Record<string, number>;
+  by_direction: Record<string, number>;
+  by_label: Record<string, number>;
+  errors: number;
+  avg_ms: number | null;
+  score_stats: Record<string, { count: number; avg: number; min: number; max: number }>;
+  score_distribution: { good: number; medium: number; bad: number };
+  worst: Array<{ ts: string; route: string; dimension: string; score: number; reason: string; judge_model: string }>;
+  breakdown_totals: { genome: number; phenotype: number; sectors: Record<string, number> };
+  judge_models: string[];
+}
+
+/** Aggregate the trace store over a window — volume, errors, latency, score
+ *  stats per dimension, good/medium/bad distribution, and the lowest-scored
+ *  traces (the actionable signal). Pure SQL+JS, no LLM call. */
+export async function traceReport(days = 7, limit = 10): Promise<TraceReport> {
+  const d = Math.min(Math.max(Number(days) || 7, 1), 90);
+  const rows = await pg_all(
+    `SELECT ts, route, direction, label, status, ms, breakdown, scores
+     FROM public.traces
+     WHERE ts >= now() - make_interval(days => $1)
+     ORDER BY ts DESC`,
+    [d],
+  );
+
+  const byRoute: Record<string, number> = {};
+  const byDirection: Record<string, number> = {};
+  const byLabel: Record<string, number> = {};
+  const scoreByDim: Record<string, { count: number; sum: number; min: number; max: number }> = {};
+  const dist = { good: 0, medium: 0, bad: 0 };
+  const bdTotals: { genome: number; phenotype: number; sectors: Record<string, number> } = {
+    genome: 0,
+    phenotype: 0,
+    sectors: {},
+  };
+  const judgeSet = new Set<string>();
+  const worst: Array<{ ts: string; route: string; dimension: string; score: number; reason: string; judge_model: string }> = [];
+  let errors = 0;
+  let msSum = 0;
+  let msN = 0;
+
+  for (const t of rows) {
+    byRoute[t.route] = (byRoute[t.route] || 0) + 1;
+    byDirection[t.direction] = (byDirection[t.direction] || 0) + 1;
+    byLabel[t.label] = (byLabel[t.label] || 0) + 1;
+    if (typeof t.status === "number" && t.status >= 400) errors++;
+    if (typeof t.ms === "number") {
+      msSum += t.ms;
+      msN++;
+    }
+    const bd = t.breakdown;
+    if (bd) {
+      bdTotals.genome += Number(bd.genome) || 0;
+      bdTotals.phenotype += Number(bd.phenotype) || 0;
+      for (const [k, v] of Object.entries(bd.sectors || {})) {
+        bdTotals.sectors[k] = (bdTotals.sectors[k] || 0) + (Number(v) || 0);
+      }
+    }
+    for (const s of t.scores || []) {
+      const dim = s.dimension || "unknown";
+      const st = scoreByDim[dim] || { count: 0, sum: 0, min: Infinity, max: -Infinity };
+      st.count++;
+      st.sum += Number(s.score) || 0;
+      st.min = Math.min(st.min, Number(s.score) || 0);
+      st.max = Math.max(st.max, Number(s.score) || 0);
+      scoreByDim[dim] = st;
+      const sc = Number(s.score) || 0;
+      if (sc >= 0.7) dist.good++;
+      else if (sc >= 0.4) dist.medium++;
+      else dist.bad++;
+      if (typeof s.judge_model === "string") judgeSet.add(s.judge_model);
+      if (sc < 0.4) {
+        worst.push({
+          ts: t.ts,
+          route: t.route,
+          dimension: dim,
+          score: sc,
+          reason: typeof s.reason === "string" ? s.reason : "",
+          judge_model: typeof s.judge_model === "string" ? s.judge_model : "",
+        });
+      }
+    }
+  }
+  worst.sort((a, b) => a.score - b.score);
+  const worstSlice = worst.slice(0, Math.min(Math.max(Number(limit) || 10, 1), 50));
+
+  const scoreStats: Record<string, { count: number; avg: number; min: number; max: number }> = {};
+  for (const [k, v] of Object.entries(scoreByDim)) {
+    scoreStats[k] = {
+      count: v.count,
+      avg: Math.round((v.sum / v.count) * 100) / 100,
+      min: v.min === Infinity ? 0 : v.min,
+      max: v.max === -Infinity ? 0 : v.max,
+    };
+  }
+
+  return {
+    window_days: d,
+    total: rows.length,
+    by_route: byRoute,
+    by_direction: byDirection,
+    by_label: byLabel,
+    errors,
+    avg_ms: msN ? Math.round(msSum / msN) : null,
+    score_stats: scoreStats,
+    score_distribution: dist,
+    worst: worstSlice,
+    breakdown_totals: bdTotals,
+    judge_models: Array.from(judgeSet),
+  };
+}

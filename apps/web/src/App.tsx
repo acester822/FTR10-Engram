@@ -1091,6 +1091,16 @@ const ADVANCED_GROUPS = [
   },
 ];
 
+function ScorePill({ score, label }: any) {
+  const cls =
+    score >= 0.7
+      ? "bg-emerald-100 text-emerald-700"
+      : score >= 0.4
+      ? "bg-yellow-100 text-yellow-700"
+      : "bg-red-100 text-red-700";
+  return <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${cls}`}>{label !== undefined ? label : score}</span>;
+}
+
 function TracesView() {
   const [traces, setTraces] = useState([] as any[]);
   const [loading, setLoading] = useState(true);
@@ -1101,6 +1111,10 @@ function TracesView() {
   const [scoreMsg, setScoreMsg] = useState(null as any);
   const [scoringAll, setScoringAll] = useState(false);
   const [bulkMsg, setBulkMsg] = useState(null as any);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [report, setReport] = useState(null as any);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportDays, setReportDays] = useState("7");
 
   const fetchTraces = useCallback(async () => {
     setLoading(true);
@@ -1127,6 +1141,12 @@ function TracesView() {
   useEffect(() => {
     fetchTraces();
   }, [fetchTraces]);
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(fetchTraces, 2500);
+    return () => clearInterval(interval);
+  }, [autoRefresh, fetchTraces]);
 
   const openDetail = async (id: string) => {
     setScoreMsg(null); // clear the previous trace's score result when switching
@@ -1203,6 +1223,24 @@ function TracesView() {
     }
   };
 
+  const handleReport = async () => {
+    setReportLoading(true);
+    try {
+      const days = Number(reportDays) || 7;
+      const res = await fetch(`${API_BASE}/traces/report?days=${days}&limit=10`);
+      if (res.ok) {
+        const data = await res.json();
+        setReport(data.report);
+      } else {
+        setReport(null);
+      }
+    } catch {
+      setReport(null);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   const fmtTs = (ts: string) => {
     try {
       return new Date(ts).toLocaleString();
@@ -1216,9 +1254,7 @@ function TracesView() {
     return (
       <span className="inline-flex flex-wrap gap-1">
         {s.map((x: any, i: number) => (
-          <span key={i} className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-xs">
-            {x.dimension.replace("_", " ")}: {x.score}
-          </span>
+          <ScorePill key={i} score={x.score} label={`${x.dimension.replace("_", " ")}: ${x.score}`} />
         ))}
       </span>
     );
@@ -1254,7 +1290,31 @@ function TracesView() {
             Persistent request history for the memory/agent loop — full bodies (secrets redacted), genome/phenotype breakdown, and judge scores.
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          <button
+            onClick={() => setAutoRefresh(!autoRefresh)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+              autoRefresh
+                ? "bg-blue-100 text-blue-700 border border-blue-300"
+                : "bg-gray-100 text-gray-600 border border-gray-300"
+            }`}
+          >
+            <RefreshCw size={14} className={autoRefresh ? "animate-spin" : ""} />
+            Auto-refresh
+          </button>
+          <input
+            className="w-14 px-2 py-2 border border-gray-300 rounded-lg text-sm text-center"
+            value={reportDays}
+            onChange={(e: any) => setReportDays(e.target.value)}
+            title="Report window (days)"
+          />
+          <button
+            onClick={handleReport}
+            disabled={reportLoading}
+            className="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900 disabled:opacity-50"
+          >
+            {reportLoading ? "Generating..." : "Generate Report"}
+          </button>
           <button
             onClick={handleScoreAll}
             disabled={scoringAll}
@@ -1285,6 +1345,134 @@ function TracesView() {
         >
           {bulkMsg.ok ? "✓ " : "✗ "}
           {bulkMsg.text}
+        </div>
+      )}
+
+      {/* Report */}
+      {report && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-5">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-semibold text-slate-800">
+              Report — last {report.window_days} day{report.window_days === 1 ? "" : "s"}
+              <span className="ml-2 text-xs font-normal text-slate-400">
+                judge: {(report.judge_models || []).join(", ") || "—"}
+              </span>
+            </h3>
+            <button
+              onClick={() => setReport(null)}
+              className="px-3 py-2 bg-gray-100 text-gray-600 border border-gray-300 rounded-lg text-sm hover:bg-gray-200"
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="grid grid-cols-4 gap-3">
+            <div className="bg-slate-50 border border-gray-200 rounded-lg p-3">
+              <div className="text-xs text-slate-500 uppercase">Traces</div>
+              <div className="text-2xl font-bold text-slate-800">{report.total}</div>
+            </div>
+            <div className="bg-slate-50 border border-gray-200 rounded-lg p-3">
+              <div className="text-xs text-slate-500 uppercase">Errors (≥400)</div>
+              <div className={`text-2xl font-bold ${report.errors ? "text-red-600" : "text-slate-800"}`}>{report.errors}</div>
+            </div>
+            <div className="bg-slate-50 border border-gray-200 rounded-lg p-3">
+              <div className="text-xs text-slate-500 uppercase">Avg latency</div>
+              <div className="text-2xl font-bold text-slate-800">{report.avg_ms !== null ? `${report.avg_ms} ms` : "—"}</div>
+            </div>
+            <div className="bg-slate-50 border border-gray-200 rounded-lg p-3">
+              <div className="text-xs text-slate-500 uppercase">Genome / Phenotype</div>
+              <div className="text-2xl font-bold text-slate-800">
+                🧬{report.breakdown_totals.genome} / 🧠{report.breakdown_totals.phenotype}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4 text-sm">
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">By route</h4>
+              {Object.entries((report.by_route || {}) as any).map(([k, v]: any) => (
+                <div key={k} className="flex justify-between border-b border-gray-100 py-1">
+                  <span className="font-mono text-xs text-blue-600">{k}</span>
+                  <span className="text-xs">{v}</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">By label</h4>
+              {Object.entries((report.by_label || {}) as any).map(([k, v]: any) => (
+                <div key={k} className="flex justify-between border-b border-gray-100 py-1">
+                  <span className="text-xs">{k}</span>
+                  <span className="text-xs">{v}</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Sectors</h4>
+              {Object.entries((report.breakdown_totals.sectors || {}) as any).map(([k, v]: any) => (
+                <div key={k} className="flex justify-between border-b border-gray-100 py-1">
+                  <span className="text-xs">{k}</span>
+                  <span className="text-xs">{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase">Scores by dimension</h4>
+            {Object.keys(report.score_stats || {}).length === 0 ? (
+              <p className="text-xs text-slate-400">No scores in this window.</p>
+            ) : (
+              <div className="space-y-1">
+                {Object.entries(report.score_stats).map(([dim, st]: any) => (
+                  <div key={dim} className="flex items-center gap-3 border-b border-gray-100 py-1 text-sm">
+                    <span className="font-mono text-xs text-slate-600 w-44">{dim}</span>
+                    <ScorePill score={st.avg} />
+                    <span className="text-xs text-slate-500">
+                      avg · n={st.count} · min {st.min} · max {st.max}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 text-xs">
+            <span className="px-2 py-1 rounded bg-emerald-100 text-emerald-700">good ≥ 0.7: {report.score_distribution.good}</span>
+            <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-700">medium 0.4–0.7: {report.score_distribution.medium}</span>
+            <span className="px-2 py-1 rounded bg-red-100 text-red-700">bad &lt; 0.4: {report.score_distribution.bad}</span>
+          </div>
+
+          <div>
+            <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase">Lowest-scored traces (actionable)</h4>
+            {report.worst.length === 0 ? (
+              <p className="text-xs text-slate-400">None — no trace scored below 0.4 in this window.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-slate-500 border-b border-gray-200">
+                    <th className="pb-2 pr-3">Time</th>
+                    <th className="pb-2 pr-3">Route</th>
+                    <th className="pb-2 pr-3">Dimension</th>
+                    <th className="pb-2 pr-3">Score</th>
+                    <th className="pb-2">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.worst.map((w: any, i: number) => (
+                    <tr key={i} className="border-t border-gray-100">
+                      <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{fmtTs(w.ts)}</td>
+                      <td className="py-2 pr-3 font-mono text-xs text-blue-600">{w.route}</td>
+                      <td className="py-2 pr-3 text-xs">{w.dimension}</td>
+                      <td className="py-2 pr-3">
+                        <ScorePill score={w.score} />
+                      </td>
+                      <td className="py-2 text-xs text-slate-600">{w.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       )}
 
@@ -1455,7 +1643,20 @@ function TracesView() {
           {selected.scores && selected.scores.length > 0 && (
             <div>
               <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Scores</h4>
-              {jsonBlock(selected.scores)}
+              <div className="space-y-2">
+                {selected.scores.map((x: any, i: number) => (
+                  <div key={i} className="flex items-start gap-3 bg-slate-50 border border-gray-200 rounded-lg p-3 text-xs">
+                    <ScorePill score={x.score} />
+                    <div>
+                      <span className="font-semibold text-slate-700">{x.dimension}</span>
+                      <span className="text-slate-400 ml-2">
+                        {x.judge_model} · {fmtTs(x.ts)}
+                      </span>
+                      <p className="text-slate-600 mt-0.5">{x.reason}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {selected.error && (

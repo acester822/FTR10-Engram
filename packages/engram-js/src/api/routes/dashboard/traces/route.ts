@@ -10,6 +10,7 @@ import {
   getTrace,
   deleteAllTraces,
   pruneTraces,
+  traceReport,
 } from "../../../../services/traceStore";
 import { scoreTrace, scoreAllUnscored, TRACE_DIMENSIONS } from "../../../../services/traceScorer";
 
@@ -33,6 +34,20 @@ export const dashboard_traces_route = (app: any) => {
       res.json({ total: traces.length, traces });
     } catch (e) {
       fail(res, "traces_list_failed", e);
+    }
+  });
+
+  // Report aggregation — registered before GET /:id so "report" never matches
+  // as an id. Pure SQL+JS aggregate (no LLM call).
+  app.get("/api/dashboard/traces/report", async (req: any, res: any) => {
+    try {
+      const q = req.query || {};
+      const days = q.days !== undefined ? Number(q.days) : 7;
+      const limit = q.limit !== undefined ? Number(q.limit) : 10;
+      const report = await traceReport(Number.isFinite(days) ? days : 7, Number.isFinite(limit) ? limit : 10);
+      res.json({ ok: true, report });
+    } catch (e) {
+      fail(res, "traces_report_failed", e);
     }
   });
 
