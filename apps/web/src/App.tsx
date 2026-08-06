@@ -1311,18 +1311,27 @@ function TracesView() {
       const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
       const pageW = pdf.internal.pageSize.getWidth();
       const pageH = pdf.internal.pageSize.getHeight();
-      const imgW = pageW;
-      const imgH = (canvas.height * imgW) / canvas.width; // full height in mm
-      let heightLeft = imgH;
-      let position = 0;
-      pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
-      heightLeft -= pageH;
-      // Slice tall reports across multiple pages (classic html2canvas→jsPDF pattern)
-      while (heightLeft > 0) {
-        position = heightLeft - imgH;
-        pdf.addPage();
-        pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
+      const imgH = (canvas.height * pageW) / canvas.width; // full-width height in mm
+      if (imgH <= pageH * 1.5) {
+        // Fit the whole report on ONE page (kills the trailing-white page-2
+        // artifact): height fills the page minus small margins, width
+        // proportional, centered horizontally.
+        const fitH = pageH - 8;
+        const fitW = (canvas.width / canvas.height) * fitH;
+        const x = (pageW - fitW) / 2;
+        pdf.addImage(imgData, "JPEG", x, 4, fitW, fitH);
+      } else {
+        // Tall report: slice across pages (classic html2canvas→jsPDF pattern)
+        let heightLeft = imgH;
+        let position = 0;
+        pdf.addImage(imgData, "JPEG", 0, position, pageW, imgH);
         heightLeft -= pageH;
+        while (heightLeft > 0) {
+          position = heightLeft - imgH;
+          pdf.addPage();
+          pdf.addImage(imgData, "JPEG", 0, position, pageW, imgH);
+          heightLeft -= pageH;
+        }
       }
       pdf.save(`engram-report-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (e: any) {
