@@ -20,9 +20,14 @@ import {
   resolveGenerativeModel,
   resolveEmbeddingModel,
   resolveProviderUrl,
+  resolveJudgeModel,
+  resolveJudgeProviderUrl,
+  resolveJudgeApiKey,
   tryResolveGenerativeModel,
   tryResolveEmbeddingModel,
   tryResolveProviderUrl,
+  tryResolveJudgeModel,
+  tryResolveJudgeProviderUrl,
 } from "../../../database/modelRegistry";
 
 const FACETS = ["episodic", "semantic", "procedural", "emotional", "reflective"] as const;
@@ -31,14 +36,16 @@ function bodyJson(req: any): any {
   return typeof req.body === "object" && req.body !== null ? req.body : {};
 }
 
-/** Flatten the nested GUI shape { provider, generative, embedding } into setting keys. */
+/** Flatten the nested GUI shape { provider, generative, embedding, judge } into setting keys. */
 function flattenSettings(body: any): Record<string, string | undefined> {
   const out: Record<string, string | undefined> = {};
   const provider = body.provider || {};
   const generative = body.generative || {};
   const embedding = body.embedding || {};
+  const judge = body.judge || {};
   const gprov = generative.provider || {};
   const eprov = embedding.provider || {};
+  const jprov = judge.provider || {};
 
   out[SETTING_KEYS.providerType] = provider.type || "openai-compatible";
   if (provider.host !== undefined) out[SETTING_KEYS.providerHost] = String(provider.host).trim();
@@ -57,6 +64,13 @@ function flattenSettings(body: any): Record<string, string | undefined> {
   for (const f of FACETS) {
     if (embedding[f] !== undefined) out[`embedding.${f}`] = String(embedding[f]).trim();
   }
+
+  // Judge (trace scoring) — independent model/provider section
+  if (jprov.type !== undefined) out[SETTING_KEYS.judgeProviderType] = String(jprov.type).trim();
+  if (jprov.host !== undefined) out[SETTING_KEYS.judgeProviderHost] = String(jprov.host).trim();
+  if (jprov.port !== undefined) out[SETTING_KEYS.judgeProviderPort] = String(jprov.port).trim();
+  if (judge.model !== undefined) out[SETTING_KEYS.judgeModel] = String(judge.model).trim();
+  if (judge.api_key !== undefined) out[SETTING_KEYS.judgeApiKey] = String(judge.api_key).trim();
 
   // General (non-model) settings: { general: { <short>: value } } → "general.<short>"
   const general = body.general || {};
@@ -104,6 +118,15 @@ function settingsView() {
       emotional: s[SETTING_KEYS.facetEmotional] || "",
       reflective: s[SETTING_KEYS.facetReflective] || "",
     },
+    judge: {
+      provider: {
+        type: s[SETTING_KEYS.judgeProviderType] || "openai-compatible",
+        host: s[SETTING_KEYS.judgeProviderHost] || "",
+        port: s[SETTING_KEYS.judgeProviderPort] || "",
+      },
+      model: s[SETTING_KEYS.judgeModel] || "",
+      api_key: s[SETTING_KEYS.judgeApiKey] || "",
+    },
     general: generalSettingsView(),
     advanced: advancedSettingsView(),
   };
@@ -131,6 +154,10 @@ function resolvedView() {
       emotional: tryResolveEmbeddingModel("emotional"),
       reflective: tryResolveEmbeddingModel("reflective"),
     },
+    judge: {
+      model: tryResolveJudgeModel(),
+      providerUrl: tryResolveJudgeProviderUrl(),
+    },
   };
 }
 
@@ -148,9 +175,30 @@ function validatePort(port: string): string | null {
 }
 
 /** Live provider test for a section. Uses the settings passed in (after saving them). */
-async function testSection(section: "generative" | "embedding"): Promise<any> {
+async function testSection(section: "generative" | "embedding" | "judge"): Promise<any> {
   const started = Date.now();
   try {
+    if (section === "judge") {
+      const url = resolveJudgeProviderUrl();
+      const model = resolveJudgeModel();
+      const apiKey = resolveJudgeApiKey();
+      const res = await fetch(`${url}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: "ping" }],
+          max_tokens: 1,
+          stream: false,
+        }),
+      });
+      const ms = Date.now() - started;
+      if (!res.ok) {
+        const text = (await res.text().catch(() => "")).substring(0, 300);
+        return { ok: false, section, model, providerUrl: url, latencyMs: ms, error: `HTTP ${res.status}: ${text}` };
+      }
+      return { ok: true, section, model, providerUrl: url, latencyMs: ms };
+    }
     const url = resolveProviderUrl(section);
     if (section === "generative") {
       const model = resolveGenerativeModel("default");
@@ -218,6 +266,14 @@ export const settings_route = (app: any) => {
         const portErr = validatePort(flat[SETTING_KEYS.providerPort] || "");
         if (portErr) return bad(res, "provider.port", portErr);
       }
+      if (SETTING_KEYS.judgeProviderHost in flat) {
+        const hostErr = validateHost(flat[SETTING_KEYS.judgeProviderHost] || "");
+        if (hostErr) return bad(res, "judge.provider.host", hostErr);
+      }
+      if (SETTING_KEYS.judgeProviderPort in flat) {
+        const portErr = validatePort(flat[SETTING_KEYS.judgeProviderPort] || "");
+        if (portErr) return bad(res, "judge.provider.port", portErr);
+      }
       // Validate general + advanced (non-model) settings by declared type
       for (const def of [...GENERAL_SETTINGS, ...ADVANCED_SETTINGS]) {
         const v = flat[def.key];
@@ -239,7 +295,8 @@ export const settings_route = (app: any) => {
   app.post("/api/settings/test", async (req: any, res: any) => {
     try {
       const body = bodyJson(req);
-      const section = body.section === "embedding" ? "embedding" : "generative";
+      const section =
+        body.section === "embedding" ? "embedding" : body.section === "judge" ? "judge" : "generative";
 
       // The test button saves ALL settings first, then validates the section live.
       if (body.settings && typeof body.settings === "object") {

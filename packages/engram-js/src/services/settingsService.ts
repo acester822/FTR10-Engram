@@ -33,6 +33,11 @@ export const SETTING_KEYS = {
   facetProcedural: "embedding.procedural",
   facetEmotional: "embedding.emotional",
   facetReflective: "embedding.reflective",
+  judgeProviderType: "judge.provider.type",
+  judgeProviderHost: "judge.provider.host",
+  judgeProviderPort: "judge.provider.port",
+  judgeModel: "judge.model",
+  judgeApiKey: "judge.api_key",
 } as const;
 
 export const GENERATIVE_TASK_KEYS = {
@@ -93,6 +98,11 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.consol_deep_max_age_days", env: "EG_CONSOLIDATION_DEEP_MAX_AGE_DAYS", type: "number", label: "Deep Tier Window (days)", section: "consolidation" },
   { key: "general.consol_recent_min_group", env: "EG_CONSOLIDATION_RECENT_MIN_GROUP", type: "number", label: "Recent Tier Min Group", section: "consolidation" },
   { key: "general.consol_deep_min_group", env: "EG_CONSOLIDATION_DEEP_MIN_GROUP", type: "number", label: "Deep Tier Min Group", section: "consolidation" },
+  // Persistent trace store (v4.2.0-traces) — readers use process.env at call
+  // time, which these keys mirror into live (boot + on save).
+  { key: "general.trace_retention_days", env: "EG_TRACE_RETENTION_DAYS", type: "number", label: "Trace Retention (days)", section: "traces" },
+  { key: "general.trace_max_body_chars", env: "EG_TRACE_MAX_BODY_CHARS", type: "number", label: "Trace Max Body Chars", section: "traces" },
+  { key: "general.trace_auto_score_rate", env: "EG_TRACE_AUTO_SCORE_RATE", type: "number", label: "Trace Auto-Score Rate (0=off)", section: "traces" },
 ];
 
 // ── Advanced (infra / secrets / misc) settings — shown in a warning-labeled table.

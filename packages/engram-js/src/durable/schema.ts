@@ -3,7 +3,7 @@
  - what is the file used for
 */
 
-export const DURABLE_SCHEMA_VERSION = "4.1.0-settings";
+export const DURABLE_SCHEMA_VERSION = "4.2.0-traces";
 
 export const DURABLE_EDGE_TYPES = [
   "mentions",
@@ -35,6 +35,7 @@ export const DURABLE_TABLES = [
   "consolidation_results",
   "audit_log",
   "app_settings",
+  "traces",
 ] as const;
 
 export interface DurableSchemaOptions {
@@ -66,6 +67,7 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
   const consolidationResults = table(schema, "consolidation_results");
   const auditLog = table(schema, "audit_log");
   const appSettings = table(schema, "app_settings");
+  const traces = table(schema, "traces");
   const edgeTypeCheck = DURABLE_EDGE_TYPES.map((type) => `'${type}'`).join(",");
 
   return [
@@ -340,5 +342,33 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
     // semantic model), so recall can annotate or exclude them.
     `alter table ${memories} add column if not exists embedding_synthetic boolean not null default false`,
     `alter table ${memoryWindows} add column if not exists embedding_synthetic boolean not null default false`,
+    // Persistent request traces (v4.2.0-traces): every memory/chat request with
+    // full bodies (regex-redacted), genome/phenotype/sector breakdown, and judge
+    // scores. Hard-deleted by retention — independent of memories (survives
+    // memory deletion and vice versa).
+    `create table if not exists ${traces} (
+      id uuid primary key,
+      ts timestamptz not null default now(),
+      route text not null,
+      method text not null,
+      status integer,
+      ms integer,
+      direction text,
+      kind text,
+      label text,
+      session_id text,
+      project_id text,
+      user_id text,
+      model text,
+      request_body jsonb,
+      response_body jsonb,
+      breakdown jsonb,
+      injection jsonb,
+      scores jsonb not null default '[]'::jsonb,
+      error text,
+      created_at timestamptz not null default now()
+    )`,
+    `create index if not exists durable_traces_ts_idx on ${traces} (ts desc)`,
+    `create index if not exists durable_traces_route_idx on ${traces} (route)`,
   ];
 }

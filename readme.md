@@ -402,6 +402,7 @@ The web interface (React/Vite SPA on port 8099) is the primary dashboard:
 - **Performance Monitor** — CPU, memory, disk, and llama-swap metrics
 - **Memory Recall** — test the real recall engine (`POST /api/dashboard/recall`)
 - **Activity** — live memory read/write traffic (`/api/dashboard/activity`)
+- **Traces** — persistent request history with full bodies (secrets redacted), genome/phenotype breakdown, and LLM-judge scores (`/api/dashboard/traces*`)
 - **Settings** — the single source of truth: Provider Settings, Generative Models (master + per-task), Embedding Models (master + per-facet), General Settings (26 tuning knobs), and a read-only Advanced table (`.env` values); **Test & Save** buttons live-validate each model section
 
 ```bash
@@ -448,6 +449,10 @@ The server exposes two families: **root-level API routes** (used by clients and 
 | `/api/dashboard/consolidate`                                                                                                 | POST                 | Trigger consolidation (`?tier=recent` / `?tier=deep` / both)           |
 | `/api/dashboard/perf`                                                                                                        | GET                  | Server performance metrics                                              |
 | `/api/dashboard/activity`                                                                                                    | GET                  | Live memory activity feed (ring buffer)                                 |
+| `/api/dashboard/traces`                                                                                                      | GET                  | Persistent trace store — list (filters: route/direction/kind/status/scored) |
+| `/api/dashboard/traces/:id`                                                                                                  | GET                  | Full trace incl. request/response bodies                                |
+| `/api/dashboard/traces/:id/score`                                                                                            | POST                 | LLM-as-judge scoring (`dimension=recall_relevance\|extraction_fidelity\|answer_quality`) |
+| `/api/dashboard/traces` / `/api/dashboard/traces/prune`                                                                      | DELETE               | Clear all traces / hard-delete older than retention (`?days=N`)          |
 | `/api/dashboard/activity/clear`                                                                                              | POST                 | Clear the activity feed                                                 |
 | `/api/performance/system`                                                                                                    | GET                  | System metrics (CPU, memory, disk, load, uptime)                        |
 | `/api/performance/llama-swap`                                                                                                | GET                  | Upstream llama-swap box metrics                                         |

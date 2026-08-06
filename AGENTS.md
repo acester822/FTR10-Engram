@@ -105,7 +105,7 @@ Two-tier background cron (intervals/windows/min-groups overridable via `EG_CONSO
 Manual trigger via API: `POST /api/dashboard/consolidate` (`?tier=recent` / `?tier=deep` / both by default)
 
 ### Model Selection Guide:
-Models/providers are configured in the **web GUI Settings tab** (persisted in Postgres `app_settings`) — it is the single source of truth. Resolution (see `src/database/modelRegistry.ts`): **Settings → env override → fail with a clear message**. There are NO hardcoded model-name defaults anywhere in the codebase.
+Models/providers are configured in the **web GUI Settings tab** (persisted in Postgres `app_settings`) — it is the single source of truth. Resolution (see `src/database/modelRegistry.ts`): **Settings → env override → fail with a clear message**. There are NO hardcoded model-name defaults anywhere in the codebase. The **Judge** section is a fully independent model/provider for trace scoring (deliberately not tied to the generative chain; `EG_JUDGE_MODEL` / `EG_JUDGE_URL` / `EG_JUDGE_API_KEY` fallbacks).
 
 | Task | Deployed model | Notes |
 |---|---|---|
@@ -183,6 +183,7 @@ Supported embedding providers: `openai`, `gemini`, `aws`, `siray`, `local`.
 - **Compaction Engine**: Fully implemented — isolates recent tail, thins history, generates summary + facts via generative model
 - **Consolidation Engine**: Background cron job for memory maintenance (merge/update/promote/delete with synthesis fallback)
 - **Settings tab (single source of truth)**: providers, generative/embedding models, general tuning, and read-only advanced values — persisted in Postgres `app_settings`, no hardcoded model defaults
+- **Persistent trace store (v4.2.0-traces)**: every memory/chat request captured with full bodies (secrets regex-redacted), genome/phenotype/sector breakdown, and LLM-judge scores — Traces tab in the web GUI (`/api/dashboard/traces*`), retention-pruned by hard DELETE
 - **Model registry**: `modelRegistry.ts` resolves every model via Settings → env → fail
 - **Auto-search**: Web search via searxNcrawl MCP server (configurable, disabled by default)
 - **Memory decay engine**: Temporal salience computation with access-based reinforcement and exponential decay

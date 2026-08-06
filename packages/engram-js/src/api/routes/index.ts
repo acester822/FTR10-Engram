@@ -34,6 +34,7 @@ import { recall_route } from "./recall/route";
 import { cognitive_context_route } from "./cognitive-context/route";
 import { source_ingest_route } from "./sources/ingest/route";
 import { dashboard_route } from "./dashboard/route";
+import { dashboard_traces_route } from "./dashboard/traces/route";
 import { settings_route } from "./settings/route";
 import { ide_routes } from "./ide/route";
 import { performance_llamaswap_route } from "./performance/llamaswap/route";
@@ -70,6 +71,7 @@ export function routes(app: any) {
   stats_timeseries_route(app, ctx);
   chat_completions_route(app);
   dashboard_route(app);
+  dashboard_traces_route(app);
   settings_route(app);
   ide_routes(app, ctx);
   performance_llamaswap_route(app);

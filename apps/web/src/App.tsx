@@ -41,7 +41,7 @@ interface Stats {
   by_tier: Record<string, number>;
 }
 
-type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity" | "settings" | "mindmap";
+type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity" | "settings" | "mindmap" | "traces";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard" as Tab);
@@ -136,6 +136,13 @@ export default function App() {
             Mind Map
           </NavButton>
           <NavButton
+            active={activeTab === "traces"}
+            onClick={() => setActiveTab("traces")}
+            icon={<FileText size={20} />}
+          >
+            Traces
+          </NavButton>
+          <NavButton
             active={activeTab === "settings"}
             onClick={() => setActiveTab("settings")}
             icon={<SettingsIcon size={20} />}
@@ -168,6 +175,7 @@ export default function App() {
         {activeTab === "recall" && <RecallView />}
         {activeTab === "activity" && <ActivityView />}
         {activeTab === "mindmap" && <MemoryGraphView />}
+        {activeTab === "traces" && <TracesView />}
         {activeTab === "settings" && <SettingsView />}
       </main>
     </div>
@@ -1014,6 +1022,14 @@ const GENERAL_GROUPS = [
       ["consol_deep_min_group", "Deep Min Group", "number"],
     ],
   },
+  {
+    title: "Traces",
+    fields: [
+      ["trace_retention_days", "Retention (days)", "number"],
+      ["trace_max_body_chars", "Max Body Chars", "number"],
+      ["trace_auto_score_rate", "Auto-Score Rate (0=off)", "number"],
+    ],
+  },
 ];
 
 const ADVANCED_GROUPS = [
@@ -1075,6 +1091,344 @@ const ADVANCED_GROUPS = [
   },
 ];
 
+function TracesView() {
+  const [traces, setTraces] = useState([] as any[]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null as any);
+  const [filter, setFilter] = useState({ route: "", direction: "", kind: "", status: "", scored: "", limit: "100" });
+  const [dimension, setDimension] = useState("answer_quality" as string);
+  const [scoring, setScoring] = useState(false);
+  const [scoreMsg, setScoreMsg] = useState(null as any);
+
+  const fetchTraces = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (filter.route) params.set("route", filter.route);
+      if (filter.direction) params.set("direction", filter.direction);
+      if (filter.kind) params.set("kind", filter.kind);
+      if (filter.status) params.set("status", filter.status);
+      if (filter.scored) params.set("scored", filter.scored);
+      if (filter.limit) params.set("limit", filter.limit);
+      const res = await fetch(`${API_BASE}/traces?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setTraces(data.traces || []);
+      }
+    } catch {
+      // silently ignore — view handles empty state
+    } finally {
+      setLoading(false);
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    fetchTraces();
+  }, [fetchTraces]);
+
+  const openDetail = async (id: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/traces/${id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSelected(data.trace);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const doScore = async () => {
+    if (!selected) return;
+    setScoring(true);
+    setScoreMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/traces/${selected.id}/score`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dimension }),
+      });
+      const data = await res.json();
+      if (res.ok) setScoreMsg({ ok: true, text: `Scored ${data.score} — ${data.reason}` });
+      else setScoreMsg({ ok: false, text: (data && (data.msg || data.error)) || "Score failed" });
+      openDetail(selected.id);
+    } catch (e: any) {
+      setScoreMsg({ ok: false, text: String(e) });
+    } finally {
+      setScoring(false);
+    }
+  };
+
+  const handleClear = async () => {
+    if (!confirm("Delete ALL traces? This is permanent.")) return;
+    try {
+      await fetch(`${API_BASE}/traces`, { method: "DELETE" });
+      setSelected(null);
+      fetchTraces();
+    } catch {
+      alert("Failed to clear traces");
+    }
+  };
+
+  const handlePrune = async () => {
+    if (!confirm("Prune traces older than the retention window? (default 30 days)")) return;
+    try {
+      await fetch(`${API_BASE}/traces/prune`, { method: "DELETE" });
+      fetchTraces();
+    } catch {
+      alert("Failed to prune traces");
+    }
+  };
+
+  const fmtTs = (ts: string) => {
+    try {
+      return new Date(ts).toLocaleString();
+    } catch {
+      return ts;
+    }
+  };
+
+  const scoreBadge = (s: any[]) => {
+    if (!s || !s.length) return <span className="text-xs text-slate-400">unscored</span>;
+    return (
+      <span className="inline-flex flex-wrap gap-1">
+        {s.map((x: any, i: number) => (
+          <span key={i} className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-xs">
+            {x.dimension.replace("_", " ")}: {x.score}
+          </span>
+        ))}
+      </span>
+    );
+  };
+
+  const dirBadge = (d: string) =>
+    d === "in" ? "bg-emerald-100 text-emerald-700" : d === "out" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700";
+
+  const jsonBlock = (v: any) => {
+    if (v === null || v === undefined) return <span className="text-xs text-slate-400">—</span>;
+    let text: string;
+    try {
+      text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+    } catch {
+      text = String(v);
+    }
+    if (text.length > 60000) text = text.slice(0, 60000) + "\n… (truncated)";
+    return (
+      <pre className="text-xs text-slate-700 bg-slate-50 border border-gray-200 rounded-lg p-3 max-h-96 overflow-auto whitespace-pre-wrap break-all">
+        {text}
+      </pre>
+    );
+  };
+
+  const setF = (k: string, v: string) => setFilter((prev: any) => ({ ...prev, [k]: v }));
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">Traces</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            Persistent request history for the memory/agent loop — full bodies (secrets redacted), genome/phenotype breakdown, and judge scores.
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={handlePrune}
+            className="px-3 py-2 bg-amber-50 text-amber-700 border border-amber-300 rounded-lg text-sm hover:bg-amber-100 transition-colors"
+          >
+            Prune old
+          </button>
+          <button
+            onClick={handleClear}
+            className="px-3 py-2 bg-red-50 text-red-600 border border-red-300 rounded-lg text-sm hover:bg-red-100 transition-colors"
+          >
+            Clear all
+          </button>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="grid grid-cols-6 gap-3 bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+        <input
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+          placeholder="Route (e.g. /recall)"
+          value={filter.route}
+          onChange={(e: any) => setF("route", e.target.value)}
+        />
+        <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm" value={filter.direction} onChange={(e: any) => setF("direction", e.target.value)}>
+          <option value="">All directions</option>
+          <option value="in">IN (writes)</option>
+          <option value="out">OUT (reads)</option>
+          <option value="chat">Chat</option>
+          <option value="system">System</option>
+        </select>
+        <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm" value={filter.kind} onChange={(e: any) => setF("kind", e.target.value)}>
+          <option value="">All kinds</option>
+          <option value="write">write</option>
+          <option value="read">read</option>
+          <option value="chat">chat</option>
+          <option value="action">action</option>
+        </select>
+        <input
+          className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+          placeholder="Status (e.g. 200)"
+          value={filter.status}
+          onChange={(e: any) => setF("status", e.target.value)}
+        />
+        <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm" value={filter.scored} onChange={(e: any) => setF("scored", e.target.value)}>
+          <option value="">All traces</option>
+          <option value="true">Scored only</option>
+        </select>
+        <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm" value={filter.limit} onChange={(e: any) => setF("limit", e.target.value)}>
+          <option value="50">50 rows</option>
+          <option value="100">100 rows</option>
+          <option value="250">250 rows</option>
+          <option value="500">500 rows</option>
+        </select>
+      </div>
+
+      {/* List */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        {loading ? (
+          <div className="text-sm text-slate-500">Loading traces...</div>
+        ) : traces.length === 0 ? (
+          <div className="text-sm text-slate-500">
+            No traces match — memory traffic will appear here as Hermes / CLI / chat requests arrive.
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 border-b border-gray-200">
+                <th className="pb-2 pr-3">Time</th>
+                <th className="pb-2 pr-3">Route</th>
+                <th className="pb-2 pr-3">Dir</th>
+                <th className="pb-2 pr-3">Status</th>
+                <th className="pb-2 pr-3">ms</th>
+                <th className="pb-2 pr-3">Breakdown</th>
+                <th className="pb-2">Scores</th>
+              </tr>
+            </thead>
+            <tbody>
+              {traces.map((t: any) => (
+                <tr
+                  key={t.id}
+                  onClick={() => openDetail(t.id)}
+                  className="border-t border-gray-100 cursor-pointer hover:bg-slate-50"
+                >
+                  <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{fmtTs(t.ts)}</td>
+                  <td className="py-2 pr-3">
+                    <span className="font-mono text-xs text-blue-600">{t.route}</span>
+                    <span className="ml-2 text-xs text-slate-400">{t.label}</span>
+                  </td>
+                  <td className="py-2 pr-3">
+                    <span className={`px-1.5 py-0.5 rounded text-xs ${dirBadge(t.direction)}`}>{t.direction.toUpperCase()}</span>
+                  </td>
+                  <td className="py-2 pr-3 text-xs">{t.status}</td>
+                  <td className="py-2 pr-3 text-xs text-slate-500">{t.ms}</td>
+                  <td className="py-2 pr-3 text-xs text-slate-600">
+                    {t.breakdown
+                      ? `🧬${t.breakdown.genome ?? 0} 🧠${t.breakdown.phenotype ?? 0}${
+                          t.breakdown.sectors && Object.keys(t.breakdown.sectors).length
+                            ? ` · ${Object.entries(t.breakdown.sectors)
+                                .map(([k, v]) => `${k}:${v}`)
+                                .join(" ")}`
+                            : ""
+                        }`
+                      : t.injection
+                      ? `inject ${t.injection.genome}/${t.injection.phenotype}`
+                      : "—"}
+                  </td>
+                  <td className="py-2">{scoreBadge(t.scores)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Detail */}
+      {selected && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-semibold text-slate-800">
+              Trace {selected.route}{" "}
+              <span className="text-sm font-normal text-slate-400">({fmtTs(selected.ts)})</span>
+            </h3>
+            <div className="flex items-center gap-3">
+              <select
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                value={dimension}
+                onChange={(e: any) => setDimension(e.target.value)}
+              >
+                <option value="recall_relevance">recall_relevance</option>
+                <option value="extraction_fidelity">extraction_fidelity</option>
+                <option value="answer_quality">answer_quality</option>
+              </select>
+              <button
+                onClick={doScore}
+                disabled={scoring}
+                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                {scoring ? "Scoring..." : "Score now"}
+              </button>
+              <button
+                onClick={() => setSelected(null)}
+                className="px-3 py-2 bg-gray-100 text-gray-600 border border-gray-300 rounded-lg text-sm hover:bg-gray-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          {scoreMsg && (
+            <div
+              className={`px-3 py-2 rounded-lg text-sm ${
+                scoreMsg.ok ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+              }`}
+            >
+              {scoreMsg.ok ? "✓ " : "✗ "}
+              {scoreMsg.text}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Request</h4>
+              {jsonBlock(selected.request_body)}
+            </div>
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Response</h4>
+              {jsonBlock(selected.response_body)}
+            </div>
+          </div>
+          {selected.breakdown && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Breakdown</h4>
+              {jsonBlock(selected.breakdown)}
+            </div>
+          )}
+          {selected.injection && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Injection</h4>
+              {jsonBlock(selected.injection)}
+            </div>
+          )}
+          {selected.scores && selected.scores.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Scores</h4>
+              {jsonBlock(selected.scores)}
+            </div>
+          )}
+          {selected.error && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Error</h4>
+              <pre className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 overflow-auto">{selected.error}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettingsView() {
   const emptyForm = () => ({
     provider: { type: "openai-compatible", host: "", port: "" },
@@ -1093,6 +1447,11 @@ function SettingsView() {
       procedural: "",
       emotional: "",
       reflective: "",
+    },
+    judge: {
+      provider: { type: "openai-compatible", host: "", port: "" },
+      model: "",
+      api_key: "",
     },
     general: {},
     advanced: {},
@@ -1378,6 +1737,59 @@ function SettingsView() {
           )}
         </div>
         <SettingsResultBadge result={testResult && testResult.section === "embedding" ? testResult : null} />
+      </div>
+
+      {/* Judge Model (trace scoring) — fully independent provider */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-slate-800">Judge Model (trace scoring)</h3>
+          <button
+            onClick={() => runTest("judge")}
+            disabled={!!testing}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            <FlaskConical size={16} /> {testing === "judge" ? "Testing..." : "Test & Save"}
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mb-4">
+          Fully independent model/provider for scoring traces — deliberately NOT tied to the generative chain, so judging never
+          contends with the active chat's generative model. Point it at a separate llama-swap box if you have one.
+          {resolved?.judge
+            ? ` Currently resolving: ${resolved.judge.model || "— unset —"} @ ${resolved.judge.providerUrl || "— unset —"}`
+            : ""}
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <SettingsField
+            label="Judge Model"
+            value={form.judge.model}
+            onChange={(v: string) => set(["judge", "model"], v)}
+            placeholder="e.g. Gemma-4-26B-A4B-MTP"
+          />
+          <SettingsField
+            label="API Key (optional)"
+            value={form.judge.api_key}
+            onChange={(v: string) => set(["judge", "api_key"], v)}
+            placeholder="(empty if no key needed)"
+          />
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-4">
+          <SettingsField
+            label="Judge Provider URL"
+            value={form.judge.provider.host}
+            onChange={(v: string) => set(["judge", "provider", "host"], v)}
+            placeholder="10.10.10.41"
+          />
+          <SettingsField
+            label="Judge Provider Port"
+            value={form.judge.provider.port}
+            onChange={(v: string) => set(["judge", "provider", "port"], v)}
+            placeholder="8080"
+          />
+        </div>
+        <p className="mt-3 text-xs text-slate-400">
+          Base URL: <code className="text-blue-600">{baseUrlPreview(form.judge.provider.host, form.judge.provider.port)}</code>
+        </p>
+        <SettingsResultBadge result={testResult && testResult.section === "judge" ? testResult : null} />
       </div>
 
       {/* General Settings */}
@@ -2128,7 +2540,7 @@ const SECTOR_COLORS: Record<string, string> = {
 
 function MemoryGraphView() {
   const canvasRef = useRef(null);
-  const [graph, setGraph] = useState<{ nodes: any[]; edges: any[] } | null>(null);
+  const [graph, setGraph] = useState(null as { nodes: any[]; edges: any[] } | null);
   const [loading, setLoading] = useState(false);
   const [minSim, setMinSim] = useState(0.7);
   const [limit, setLimit] = useState(120);
@@ -2158,16 +2570,16 @@ function MemoryGraphView() {
     const ctx2d = canvas.getContext("2d");
     const W = canvas.width = 900;
     const H = canvas.height = 600;
-    const nodes = graph.nodes.map((n, i) => ({
+    const nodes = graph.nodes.map((n: any, i: number) => ({
       ...n,
       x: W / 2 + Math.cos((i / graph.nodes.length) * Math.PI * 2) * 200,
       y: H / 2 + Math.sin((i / graph.nodes.length) * Math.PI * 2) * 200,
       vx: 0, vy: 0,
     }));
-    const idIndex = new Map(nodes.map((n, i) => [n.id, i]));
+    const idIndex = new Map(nodes.map((n: any, i: number) => [n.id, i]));
     const edges = graph.edges
-      .filter((e) => idIndex.has(e.source) && idIndex.has(e.target))
-      .map((e) => ({ s: idIndex.get(e.source)!, t: idIndex.get(e.target)!, w: e.similarity }));
+      .filter((e: any) => idIndex.has(e.source) && idIndex.has(e.target))
+      .map((e: any) => ({ s: idIndex.get(e.source)!, t: idIndex.get(e.target)!, w: e.similarity }));
 
     let raf = 0;
     let frame = 0;
@@ -2241,7 +2653,7 @@ function MemoryGraphView() {
       const rect = canvas.getBoundingClientRect();
       const mx = (ev.clientX - rect.left) * (W / rect.width);
       const my = (ev.clientY - rect.top) * (H / rect.height);
-      hoverNode = nodes.find((n) => Math.hypot(n.x - mx, n.y - my) < 12 + n.importance_score * 12) || null;
+      hoverNode = nodes.find((n: any) => Math.hypot(n.x - mx, n.y - my) < 12 + n.importance_score * 12) || null;
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);

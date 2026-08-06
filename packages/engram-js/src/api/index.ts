@@ -16,6 +16,9 @@ import { loadSettings, seedSettingsFromEnv } from "../services/settingsService";
 import { run_migrations } from "../database/migrate";
 import { logger } from "../utils/logger";
 import { classifyActivity, recordActivity, deriveBreakdown } from "./activity";
+import { persistTrace, isTraceableRoute } from "../services/traceStore";
+import { maybeAutoScore } from "../services/traceScorer";
+import * as crypto from "crypto";
 
 export function createApp() {
   const app = createHttpApp({ max_payload_size: env.max_payload_size });
@@ -119,10 +122,63 @@ export function createApp() {
            });
        }
 
-       return origEnd(...args);
-     };
+       // ── Persistent trace store (v4.2.0-traces) ──
+       // Fire-and-forget capture of the memory/agent loop with full bodies
+       // (regex-redacted), breakdown, and injection stats. Never blocks the
+       // response; failures only log. Runs regardless of auth — the auth
+       // middleware sits AFTER this one.
+       if (isTraceableRoute(req.method, req.url)) {
+         const body = req.body || {};
+         let respText: string | undefined;
+         let respJson: any = null;
+         try {
+           respText = Buffer.concat(responseChunks).toString("utf8");
+           if (respText) respJson = JSON.parse(respText);
+         } catch {
+           respJson = null;
+         }
+         const clsT = classifyActivity(req.method, req.url);
+         const isChat = req.url.startsWith("/v1/chat/completions");
+         const direction = clsT?.direction || (isChat ? "chat" : "system");
+         const kind = clsT?.kind || (isChat ? "chat" : "action");
+         const label = clsT?.label || (isChat ? "chat" : "action");
+         const injection =
+           respJson &&
+           (typeof respJson.genome_count === "number" || typeof respJson.phenotype_count === "number")
+             ? {
+                 genome: Number(respJson.genome_count) || 0,
+                 phenotype: Number(respJson.phenotype_count) || 0,
+                 web_used: !!respJson.web_used,
+               }
+             : undefined;
+         const traceRec = {
+           id: crypto.randomUUID(),
+           ts: Date.now(),
+           route: req.url.split("?")[0],
+           method: req.method,
+           status,
+           ms,
+           direction,
+           kind,
+           label,
+           sessionId: typeof body.session_id === "string" ? body.session_id : undefined,
+           projectId: typeof body.project_id === "string" ? body.project_id : undefined,
+           userId: typeof body.user_id === "string" ? body.user_id : undefined,
+           model: typeof body.model === "string" ? body.model : undefined,
+           requestBody: body,
+           responseBody: respJson || respText,
+           breakdown: clsT ? deriveBreakdown(clsT, body, respJson) : undefined,
+           injection,
+           error: status >= 400 ? (respText || "").slice(0, 500) : undefined,
+         };
+         persistTrace(traceRec);
+         maybeAutoScore(traceRec);
+       }
 
-     res.setHeader("Access-Control-Allow-Origin", "*");
+       return origEnd(...args);
+       };
+
+       res.setHeader("Access-Control-Allow-Origin", "*");
      res.setHeader(
        "Access-Control-Allow-Methods",
        "GET,POST,PUT,PATCH,DELETE,OPTIONS",

@@ -112,3 +112,56 @@ export function tryResolveProviderUrl(section: ModelSection): string {
     return "";
   }
 }
+
+// ── Judge (trace scoring) — a FULLY INDEPENDENT model/provider, deliberately
+//    NOT part of the generative chain (Aug 2026 user decision): the judge often
+//    lives on a separate llama-swap box so scoring never contends with the
+//    active chat's generative model. Resolution: Settings "Judge" section →
+//    EG_JUDGE_* env → fail with a clear message. No generative fallbacks. ──
+
+export function resolveJudgeModel(): string {
+  const model = firstNonEmpty(getSetting(SETTING_KEYS.judgeModel), process.env.EG_JUDGE_MODEL);
+  if (!model) {
+    throw new Error(
+      'No judge model configured — set it in the Engram Settings tab (Judge section) or EG_JUDGE_MODEL.',
+    );
+  }
+  return model;
+}
+
+export function resolveJudgeProviderUrl(): string {
+  const host = firstNonEmpty(
+    getSetting(SETTING_KEYS.judgeProviderHost),
+    envUrlHost(process.env.EG_JUDGE_URL),
+  );
+  if (!host) {
+    throw new Error(
+      'No judge provider configured — set it in the Engram Settings tab (Judge section) or EG_JUDGE_URL.',
+    );
+  }
+  const port = firstNonEmpty(
+    getSetting(SETTING_KEYS.judgeProviderPort),
+    envUrlPort(process.env.EG_JUDGE_URL),
+  );
+  return `http://${host}${port ? `:${port}` : ""}/v1`;
+}
+
+export function resolveJudgeApiKey(): string {
+  return getSetting(SETTING_KEYS.judgeApiKey) || process.env.EG_JUDGE_API_KEY || "";
+}
+
+export function tryResolveJudgeModel(): string {
+  try {
+    return resolveJudgeModel();
+  } catch {
+    return "";
+  }
+}
+
+export function tryResolveJudgeProviderUrl(): string {
+  try {
+    return resolveJudgeProviderUrl();
+  } catch {
+    return "";
+  }
+}

@@ -1,6 +1,6 @@
 # Implementation Plan: Persistent Trace Store + Response Scoring
 
-> **Status:** PLANNED — not yet implemented. This is the design doc for the "track everything, score responses" work. Open items are marked **[DECIDE]**. When implemented, append the ✅ Implementation Summary at the bottom of this file per repo convention.
+> **Status:** ✅ IMPLEMENTED 2026-08-06 — see the Implementation Summary at the bottom of this file. The plan below is the original design, kept for reference.
 
 ## Overview
 
@@ -117,12 +117,12 @@ Follow the documented new-tab recipe (`references/gui-dark-mode.md` — "New tab
 
 New keys (all live getters with `process.env` fallback; add the GUI-exposed ones to `GENERAL_SETTINGS`):
 
-| Key | Default | Meaning |
-|---|---|---|
-| `EG_TRACE_RETENTION_DAYS` | `30` | Hard-delete traces older than N days (prune on boot + piggyback the consolidation scheduler tick) |
-| `EG_TRACE_MAX_BODY_CHARS` | `65536` | Cap stored response body size |
-| `EG_TRACE_AUTO_SCORE_RATE` | `0` | Score every Nth trace (0 = off) |
-| `EG_JUDGE_MODEL` | unset → master | Judge model override |
+| Key                        | Default        | Meaning                                                                                           |
+| -------------------------- | -------------- | ------------------------------------------------------------------------------------------------- |
+| `EG_TRACE_RETENTION_DAYS`  | `30`           | Hard-delete traces older than N days (prune on boot + piggyback the consolidation scheduler tick) |
+| `EG_TRACE_MAX_BODY_CHARS`  | `65536`        | Cap stored response body size                                                                     |
+| `EG_TRACE_AUTO_SCORE_RATE` | `0`            | Score every Nth trace (0 = off)                                                                   |
+| `EG_JUDGE_MODEL`           | unset → master | Judge model override                                                                              |
 
 Prune job: boot-time sweep + reuse the existing consolidation scheduler interval (do not add a second cron framework). Hard DELETE (user preference: hard deletion over soft).
 
@@ -137,27 +137,77 @@ Prune job: boot-time sweep + reuse the existing consolidation scheduler interval
 
 ## Files changed (planned)
 
-| File | Change |
-|---|---|
-| `packages/engram-js/src/durable/schema.ts` | `traces` table + index + version bump |
-| `packages/engram-js/src/api/index.ts` | persistence hook in existing capture wrappers + skip-list |
-| `packages/engram-js/src/api/routes/dashboard/traces/route.ts` | NEW — list/get/score/clear/prune |
-| `packages/engram-js/src/api/routes/index.ts` | register traces route |
-| `packages/engram-js/src/api/routes/chat/completions/route.ts` | surface injection stats on response (`_trace.injection`) |
-| `packages/engram-js/src/database/modelRegistry.ts` | `"judge"` GenerativeTask + key |
-| `packages/engram-js/src/services/traceScorer.ts` | NEW — judge scoring |
-| `packages/engram-js/src/configuration/index.ts` + `settingsService.ts` | `EG_TRACE_*` live getters + `GENERAL_SETTINGS` |
-| `apps/web/src/App.tsx` | Traces tab (list + detail + score + prune) |
-| `readme.md` / `AGENTS.md` | endpoints + settings tables (post-implementation) |
+| File                                                                   | Change                                                    |
+| ---------------------------------------------------------------------- | --------------------------------------------------------- |
+| `packages/engram-js/src/durable/schema.ts`                             | `traces` table + index + version bump                     |
+| `packages/engram-js/src/api/index.ts`                                  | persistence hook in existing capture wrappers + skip-list |
+| `packages/engram-js/src/api/routes/dashboard/traces/route.ts`          | NEW — list/get/score/clear/prune                          |
+| `packages/engram-js/src/api/routes/index.ts`                           | register traces route                                     |
+| `packages/engram-js/src/api/routes/chat/completions/route.ts`          | surface injection stats on response (`_trace.injection`)  |
+| `packages/engram-js/src/database/modelRegistry.ts`                     | `"judge"` GenerativeTask + key                            |
+| `packages/engram-js/src/services/traceScorer.ts`                       | NEW — judge scoring                                       |
+| `packages/engram-js/src/configuration/index.ts` + `settingsService.ts` | `EG_TRACE_*` live getters + `GENERAL_SETTINGS`            |
+| `apps/web/src/App.tsx`                                                 | Traces tab (list + detail + score + prune)                |
+| `readme.md` / `AGENTS.md`                                              | endpoints + settings tables (post-implementation)         |
 
 ## Open decisions
 
 - [DECIDE] Redact trace bodies by default (secret regex pass) vs. store verbatim with a flag. Leaning: redact-by-default — the June 2026 leaked-sudo-password incident is the cautionary tale.
+  - I think store verbatim is the correct answer here, BUT with regex redaction, Hermes does this now automatically with their sessions, may be a good idea to explore how they are doing it.
 - [DECIDE] `EG_TRACE_AUTO_SCORE_RATE` default: 0 (manual only) vs. auto-score `extraction_fidelity` (the highest-value metric for store quality).
+  - auto-score
 - [DECIDE] Dedicated judge model row in Settings tab vs. env-only (`EG_JUDGE_MODEL`).
+  - Dedicated judge model row in Settings tab but the programming for this needs to NOT be tied to the already present generative modeling. The reason for this is because what I anticipate would happen is I am actively in a chat, the generative model is needed for the active chat, and as such there would be a conflict. Instead wire this in as it's own individual model. Make sure this selection also has the same different provider options as I will most likely be using my other llama-swap for the judging portion
 
 ---
 
-## ✅ Implementation Summary
+## ✅ Implementation Summary (2026-08-06)
 
-*(append here when implemented — table of files changed, plan↔reality deviations, config flags, verification performed)*
+Implemented and deployed (commit pending). All Open Decisions resolved per user:
+
+- **Redaction**: store verbatim + regex redaction (mirrors Hermes `security.redact_secrets`) — verified live: a fake `sk-…` key in a recall query stored as `[REDACTED]`.
+- **Auto-score**: ON by default (`EG_TRACE_AUTO_SCORE_RATE` default `1` = every eligible trace); judge-unconfigured attempts log at debug, not warn.
+- **Judge**: fully independent model/provider section in the Settings tab ("Judge Model (trace scoring)") with its own provider type/host/port/model/API key + Test & Save — NOT tied to the generative chain (resolved via `resolveJudgeModel/resolveJudgeProviderUrl/resolveJudgeApiKey`; `EG_JUDGE_MODEL` / `EG_JUDGE_URL` / `EG_JUDGE_API_KEY` fallbacks).
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `packages/engram-js/src/durable/schema.ts` | `traces` table + `durable_traces_ts_idx`/`route_idx` + `DURABLE_SCHEMA_VERSION = "4.2.0-traces"` |
+| `packages/engram-js/src/services/traceStore.ts` | NEW — route selection, secret redaction, fire-and-forget persist, list/get/delete/prune |
+| `packages/engram-js/src/services/traceScorer.ts` | NEW — LLM-as-judge (3 dimensions), SSE answer extraction, tolerant JSON parse, auto-score |
+| `packages/engram-js/src/api/index.ts` | persist + maybeAutoScore hook in the existing `res.end` capture wrapper |
+| `packages/engram-js/src/api/routes/dashboard/traces/route.ts` | NEW — GET list / GET :id / POST :id/score / DELETE / DELETE prune |
+| `packages/engram-js/src/api/routes/index.ts` | register `dashboard_traces_route` |
+| `packages/engram-js/src/api/routes/settings/route.ts` | judge flatten/view/resolved/test + host/port validation |
+| `packages/engram-js/src/database/modelRegistry.ts` | judge resolvers (standalone, no generative fallback) |
+| `packages/engram-js/src/services/settingsService.ts` | `judge.*` SETTING_KEYS + `general.trace_*` GENERAL_SETTINGS |
+| `apps/web/src/App.tsx` | Traces tab (list/filter/detail/Score now/prune/clear) + Settings Judge card + Traces general group |
+| `readme.md` / `AGENTS.md` | traces endpoints + Judge section docs |
+
+### Plan ↔ reality deviations
+
+1. **Selective capture, not literally "all requests"**: traceable routes = the memory/agent loop (`/recall`, `/api/dashboard/recall`, `/api/cognitive-context`, `/memories` POST/DELETE, `/ingest*`, `/v1/chat/completions`, consolidate POST, settings PUT). GUI polling endpoints (activity/logs/stats/settings GET) are excluded deliberately — they'd drown the store in dashboard noise. Trace routes themselves are skip-listed (verified: no self-recursion).
+2. **No `_trace.injection` on the chat proxy**: the proxy streams SSE and changing the stream contract was avoided; chat `response_body` stores the raw SSE stream (capped) and the scorer extracts the assistant text from it. Injection stats are captured from shaped JSON responses (`/api/cognitive-context` → `{genome, phenotype, web_used}`).
+3. **Judge not in `GenerativeTask`**: per the user's decision it's a standalone resolver set, not a generative task.
+4. **Fixed pre-existing build violations** in `MemoryGraphView` (`useState<…>` type-arg → cast form, implicit-any map params) — `npm run build` was already red on main; fixed to ship a green build.
+5. **`tsconfig.tsbuildinfo` is tracked in git** and regenerates on build — restore/commit it with the build.
+
+### Config flags (Settings tab → Traces group, or env)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `EG_TRACE_RETENTION_DAYS` | 30 | hard-delete older than N days (`DELETE /api/dashboard/traces/prune`) |
+| `EG_TRACE_MAX_BODY_CHARS` | 65536 | cap on stored response body |
+| `EG_TRACE_AUTO_SCORE_RATE` | 1 | 0=off, N=score every Nth eligible trace |
+| `EG_JUDGE_MODEL` / `EG_JUDGE_URL` / `EG_JUDGE_API_KEY` | unset | judge fallbacks (Settings tab Judge section is primary) |
+
+### Verification performed (all live, on the deployed containers)
+
+- `npx tsc --noEmit` clean; `npm run build` green (web).
+- Traces table exists with all 19 columns; containers rebuilt + recreated.
+- Live probes: `/recall`, `/ingest/conversation`, `/v1/chat/completions` (upstream 404 — still traced with error field), and the **Hermes plugin's own `/api/cognitive-context` prefetch** (2 genome + 5 phenotype) — all landed as traces with correct breakdowns.
+- Redaction verified on the full trace row (fake `sk-` key → `[REDACTED]`).
+- Score endpoint returns the clean "No judge model configured" error (judge wiring proven; user configures the judge box in Settings).
+- Regression: activity buffer, web GUI :8099, settings judge section, prune endpoint all working.
+- Traces probe data cleaned up (`DELETE /api/dashboard/traces/prune`).
