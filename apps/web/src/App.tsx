@@ -1117,6 +1117,7 @@ function TracesView() {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportOpts, setReportOpts] = useState({ preset: "7", from: "", to: "", route: "", direction: "", status: "" });
   const [facets, setFacets] = useState({ routes: [] as string[], statuses: [] as string[] });
+  const reportRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -1271,7 +1272,9 @@ function TracesView() {
     }
   };
 
-  // ── PDF download (jsPDF vendored at public/vendor — local-first, no CDN) ──
+  // ── PDF download: capture the RENDERED report panel with html2canvas and
+  //    embed it in a jsPDF (pixel-identical to the GUI). Both libs vendored at
+  //    public/vendor — local-first, no CDN at runtime. ──
   const ensureJsPDF = () =>
     new Promise((resolve) => {
       const w = window as any;
@@ -1282,74 +1285,46 @@ function TracesView() {
       document.head.appendChild(s);
     });
 
-  const downloadReport = async () => {
-    if (!report) return;
-    try {
-      const jspdfMod: any = await ensureJsPDF();
-      const { jsPDF } = jspdfMod;
-      const doc = new jsPDF();
-      const W = doc.internal.pageSize.getWidth();
-      let y = 16;
-      const line = (txt: any, size = 10, bold = false, gap = 6) => {
-        if (y > 270) {
-          doc.addPage();
-          y = 16;
-        }
-        doc.setFontSize(size);
-        doc.setFont("helvetica", bold ? "bold" : "normal");
-        doc.text(String(txt ?? "").replace(/[^\x00-\xFF]/g, "?"), 14, y);
-        y += gap;
-      };
-      const hr = () => {
-        y += 2;
-        doc.setDrawColor(200);
-        doc.line(14, y, W - 14, y);
-        y += 6;
-      };
+  const ensureHtml2Canvas = () =>
+    new Promise((resolve) => {
+      const w = window as any;
+      if (w.html2canvas) return resolve(w.html2canvas);
+      const s = document.createElement("script");
+      s.src = "/vendor/html2canvas.min.js";
+      s.onload = () => resolve(w.html2canvas);
+      document.head.appendChild(s);
+    });
 
-      const windowLabel =
-        report.from && report.to
-          ? `${report.from.slice(0, 10)} → ${report.to.slice(0, 10)}`
-          : `last ${report.window_days} day${report.window_days === 1 ? "" : "s"}`;
-      line(`Engram Trace Report — ${windowLabel}`, 16, true, 9);
-      line(`Generated ${new Date().toLocaleString()}`, 9, false, 8);
-      hr();
-      line(`Traces: ${report.total}    Errors (>=400): ${report.errors}    Avg latency: ${report.avg_ms ?? "—"} ms`, 11, true, 7);
-      line(`Genome: ${report.breakdown_totals.genome}    Phenotype: ${report.breakdown_totals.phenotype}`, 10, false, 7);
-      line(`Judge: ${(report.judge_models || []).join(", ") || "—"}`, 9, false, 7);
-      hr();
-      line("By route:", 11, true);
-      Object.entries((report.by_route || {}) as any).forEach(([k, v]) => line(`  ${k}: ${v}`, 10));
-      line("By label:", 11, true);
-      Object.entries((report.by_label || {}) as any).forEach(([k, v]) => line(`  ${k}: ${v}`, 10));
-      if (Object.keys(report.breakdown_totals.sectors || {}).length) {
-        line("Sectors:", 11, true);
-        Object.entries((report.breakdown_totals.sectors || {}) as any).forEach(([k, v]) => line(`  ${k}: ${v}`, 10));
+  const downloadReport = async () => {
+    if (!report || !reportRef.current) return;
+    try {
+      const [jspdfMod, html2canvasFn]: any[] = await Promise.all([ensureJsPDF(), ensureHtml2Canvas()]);
+      const { jsPDF } = jspdfMod;
+      // Render the actual report DOM node at 2x for crisp text.
+      const canvas = await html2canvasFn(reportRef.current, {
+        scale: 2,
+        backgroundColor: "#f8fafc", // slate-50 (same as page bg behind the card)
+        useCORS: true,
+        logging: false,
+      });
+      const imgData = canvas.toDataURL("image/jpeg", 0.92);
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const imgW = pageW;
+      const imgH = (canvas.height * imgW) / canvas.width; // full height in mm
+      let heightLeft = imgH;
+      let position = 0;
+      pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
+      heightLeft -= pageH;
+      // Slice tall reports across multiple pages (classic html2canvas→jsPDF pattern)
+      while (heightLeft > 0) {
+        position = heightLeft - imgH;
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, position, imgW, imgH);
+        heightLeft -= pageH;
       }
-      hr();
-      line("Scores by dimension:", 11, true);
-      const dims = Object.entries((report.score_stats || {}) as any);
-      if (!dims.length) line("  (none in window)", 10);
-      dims.forEach(([dim, st]: any) => line(`  ${dim}: avg ${st.avg} (n=${st.count}, min ${st.min}, max ${st.max})`, 10));
-      line(
-        `Distribution — good >=0.7: ${report.score_distribution.good}  medium 0.4-0.7: ${report.score_distribution.medium}  bad <0.4: ${report.score_distribution.bad}`,
-        9,
-      );
-      hr();
-      line("Lowest-scored traces (actionable):", 11, true);
-      if (!report.worst.length) line("  None scored below 0.4 in window", 10);
-      report.worst.forEach((w: any) => {
-        line(`  [${w.score}] ${w.route} (${w.dimension})`, 10);
-        line(`      ${w.reason}`, 9);
-      });
-      hr();
-      line("Suggestions:", 11, true);
-      if (!report.suggestions || !report.suggestions.length) line("  (none)", 10);
-      report.suggestions.forEach((s: any) => {
-        line(`  [${s.severity.toUpperCase()}] ${s.title}`, 10);
-        line(`      ${s.detail}`, 9);
-      });
-      doc.save(`engram-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+      pdf.save(`engram-report-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (e: any) {
       alert(`PDF download failed: ${e?.message || e}`);
     }
@@ -1573,7 +1548,10 @@ function TracesView() {
 
       {/* Report */}
       {report && (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-5">
+        <div
+          ref={reportRef}
+          className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-5"
+        >
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold text-slate-800">
               Report —{" "}
