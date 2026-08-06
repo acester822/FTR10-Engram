@@ -11,6 +11,20 @@ The judge governance foundation (v4.3.0) made scores trustworthy: calibration �
 
 Everything (Tier 1 and 2) writes an `audit_log` row (`actor_id='auto-heal'`, before/after state, triggering check) and a finding in the findings ledger. The Memory Audit tab lists every changed/manipulated memory — nothing silent.
 
+## Relationship to the consolidation engine (shared code)
+
+**Do NOT merge the engines.** Consolidation = memory ORGANIZATION (LLM sweeper: merge related memories, promote standing rules, tidy groups; no governance gate, no audit trail). Integrity = memory VALIDITY (complete/true/coherent; deterministic checks + GATED judge; full audit). Different purposes, different gates.
+
+**Overlap (2 domains, complementary mechanisms):**
+- Near-dupe handling: consolidation merges LLM-judged *within chunks* (probabilistic); integrity supersedes deterministic pairs (sim ≥ 0.92, guaranteed). Order: integrity pair-check runs FIRST so consolidation doesn't spend LLM calls on resolved pairs.
+- Junk deletion: consolidation deletes noise groups LLM-judged ("usually"); integrity's SECRET/empty regexes are guaranteed. Both respect `superseded_at` → mutually helpful, never conflicting.
+
+**Shared mutation + audit layer (refactor, do this):**
+Consolidation currently mutates memories via INLINE raw SQL (`DELETE/UPDATE` in `consolidationEngine.ts` ~lines 396–447, bypassing repository functions) and writes NO audit_log. Extract `src/durable/mutations.ts` with the primitives BOTH engines call:
+`supersedeMemories(ids, reason, actor)`, `hardDeleteMemories(ids, actor)`, `updateMemoryContent(id, content, actor)`, `reclassifyMemorySector(id, sector)`, `recordMemoryAudit(actor, event, target, before, after, metadata)`.
+
+Refactor consolidation's `executeActions` to use them (behavior unchanged) → consolidation gains audit_log entries (merge/update/promote/delete), so the Memory Audit tab is the COMPLETE "changed or manipulated" surface, not just integrity's. The integrity engine uses the same primitives. One mutation path, one audit format.
+
 ## Design
 
 ### Schema (v4.4.0-integrity)
@@ -21,16 +35,16 @@ Everything (Tier 1 and 2) writes an `audit_log` row (`actor_id='auto-heal'`, bef
 
 ### Phase 1 — Deterministic checks (Tier 1, AUTO)
 
-| Check | Detection | Action |
-|---|---|---|
-| `null_embeddings` | active rows (`superseded_at IS NULL`, tier≠archived) with `embedding IS NULL` | backfill via `embed()` (batched UPDATEs — the proven backfill recipe); embed backend down → flag |
-| `synthetic_embeddings` | `embedding_synthetic=true` | re-embed once; still synthetic → flag medium |
-| `empty_content` | content empty/whitespace | delete (hard) |
-| `secrets` | SECRET regexes from memory-cleanup rules | delete (hard) — the June incident rule |
-| `invalid_sector` | sector ∉ 5-value enum | reclassify via `normalizeSector` (fallback 'semantic') + note in detail |
-| `near_duplicates` | pairwise similarity > 0.92 (pgvector `<=>`) among active rows, or `isNearDuplicate` substring overlap | supersede the older row (newer wins) — reversible via clearing `superseded_at` |
-| `contradictions_open` | `contradictions` rows with `status='open'` | **flag only** — never auto-resolve |
-| `coverage_probes` | run the recall-eval case set (scripts/recall-eval-cases.ts) live; any case that previously hit but now returns 0 results | flag high — "a fact that should exist is no longer retrievable" (deleted? embedding lost? superseded?) |
+| Check                  | Detection                                                                                                                | Action                                                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `null_embeddings`      | active rows (`superseded_at IS NULL`, tier≠archived) with `embedding IS NULL`                                            | backfill via `embed()` (batched UPDATEs — the proven backfill recipe); embed backend down → flag       |
+| `synthetic_embeddings` | `embedding_synthetic=true`                                                                                               | re-embed once; still synthetic → flag medium                                                           |
+| `empty_content`        | content empty/whitespace                                                                                                 | delete (hard)                                                                                          |
+| `secrets`              | SECRET regexes from memory-cleanup rules                                                                                 | delete (hard) — the June incident rule                                                                 |
+| `invalid_sector`       | sector ∉ 5-value enum                                                                                                    | reclassify via `normalizeSector` (fallback 'semantic') + note in detail                                |
+| `near_duplicates`      | pairwise similarity > 0.92 (pgvector `<=>`) among active rows, or `isNearDuplicate` substring overlap                    | supersede the older row (newer wins) — reversible via clearing `superseded_at`                         |
+| `contradictions_open`  | `contradictions` rows with `status='open'`                                                                               | **flag only** — never auto-resolve                                                                     |
+| `coverage_probes`      | run the recall-eval case set (scripts/recall-eval-cases.ts) live; any case that previously hit but now returns 0 results | flag high — "a fact that should exist is no longer retrievable" (deleted? embedding lost? superseded?) |
 
 ### Phase 2 — Judge-assisted check (Tier 2, GATED)
 
@@ -55,18 +69,18 @@ Everything (Tier 1 and 2) writes an `audit_log` row (`actor_id='auto-heal'`, bef
 - **Memory Audit tab (GUI):**
   - **Gate status card** — calibration %, MAD, Tier 2 ENABLED/DISABLED + why.
   - **Findings ledger** — check, memory snippet, severity, action taken, judge reason; filterable by status; open findings get Dismiss / Apply buttons.
-  - **Audit trail** — every memory mutation (auto-heal AND manual GUI edits — [DECIDE] wire dashboard memory edit/delete to write audit_log too, so the tab is the complete "changed or manipulated" surface) with before → after, actor, reason, timestamp.
+  - **Audit trail** — every memory mutation (auto-heal AND consolidation's merge/update/promote/delete via the refactored primitives AND manual GUI edits — [DECIDE] wire dashboard memory edit/delete to write audit_log too, so the tab is the complete "changed or manipulated" surface) with before → after, actor, reason, timestamp.
 
 ### Config (Settings → General → Integrity, live getters)
 
-| Key | Default | Meaning |
-|---|---|---|
-| `EG_INTEGRITY_ENABLED` | `false` | master switch |
-| `EG_INTEGRITY_INTERVAL_MS` | `86400000` (24h) | schedule (piggyback the consolidation scheduler boot path) |
-| `EG_INTEGRITY_MIN_CALIBRATION` | `0.8` | Tier 2 gate |
-| `EG_INTEGRITY_MAX_MAD` | `0.1` | Tier 2 gate |
-| `EG_INTEGRITY_SAMPLE_SIZE` | `25` | judge-sampled memories per run |
-| `EG_INTEGRITY_DELETE_CONFIDENCE` | `0.15` | judge score below this → delete candidate |
+| Key                              | Default          | Meaning                                                    |
+| -------------------------------- | ---------------- | ---------------------------------------------------------- |
+| `EG_INTEGRITY_ENABLED`           | `false`          | master switch                                              |
+| `EG_INTEGRITY_INTERVAL_MS`       | `86400000` (24h) | schedule (piggyback the consolidation scheduler boot path) |
+| `EG_INTEGRITY_MIN_CALIBRATION`   | `0.8`            | Tier 2 gate                                                |
+| `EG_INTEGRITY_MAX_MAD`           | `0.1`            | Tier 2 gate                                                |
+| `EG_INTEGRITY_SAMPLE_SIZE`       | `25`             | judge-sampled memories per run                             |
+| `EG_INTEGRITY_DELETE_CONFIDENCE` | `0.15`           | judge score below this → delete candidate                  |
 
 ### API
 
@@ -78,18 +92,20 @@ Everything (Tier 1 and 2) writes an `audit_log` row (`actor_id='auto-heal'`, bef
 
 ### Files changed (planned)
 
-| File | Change |
-|---|---|
-| `packages/engram-js/src/durable/schema.ts` | `integrity_runs` + `integrity_findings` + version 4.4.0-integrity |
-| `packages/engram-js/src/services/integrityEngine.ts` | NEW — checks, two-tier executor, gate checks, audit/finding writes |
-| `packages/engram-js/src/services/traceScorer.ts` | export generic judge-call helper for the memory-validity rubric |
-| `packages/engram-js/src/api/routes/dashboard/integrity/route.ts` | NEW — run/status/findings/resolve |
-| `packages/engram-js/src/api/routes/dashboard/memory-audit/route.ts` | NEW — audit trail |
-| `packages/engram-js/src/api/routes/index.ts` | register both |
-| `packages/engram-js/src/services/settingsService.ts` | `general.integrity_*` GENERAL_SETTINGS |
-| `packages/engram-js/src/api/index.ts` | start integrity scheduler beside consolidation |
-| `apps/web/src/App.tsx` | Memory Audit tab (gates, findings, audit trail) |
-| `readme.md` / `AGENTS.md` | docs |
+| File                                                                | Change                                                             |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `packages/engram-js/src/durable/schema.ts`                          | `integrity_runs` + `integrity_findings` + version 4.4.0-integrity  |
+| `packages/engram-js/src/durable/mutations.ts`                        | NEW — shared mutation + audit primitives (BOTH engines call these) |
+| `packages/engram-js/src/services/consolidationEngine.ts`            | refactor `executeActions` to use shared primitives (gains audit_log) |
+| `packages/engram-js/src/services/integrityEngine.ts`                | NEW — checks, two-tier executor, gate checks, audit/finding writes |
+| `packages/engram-js/src/services/traceScorer.ts`                    | export generic judge-call helper for the memory-validity rubric    |
+| `packages/engram-js/src/api/routes/dashboard/integrity/route.ts`    | NEW — run/status/findings/resolve                                  |
+| `packages/engram-js/src/api/routes/dashboard/memory-audit/route.ts` | NEW — audit trail                                                  |
+| `packages/engram-js/src/api/routes/index.ts`                        | register both                                                      |
+| `packages/engram-js/src/services/settingsService.ts`                | `general.integrity_*` GENERAL_SETTINGS                             |
+| `packages/engram-js/src/api/index.ts`                               | start integrity scheduler beside consolidation                     |
+| `apps/web/src/App.tsx`                                              | Memory Audit tab (gates, findings, audit trail)                    |
+| `readme.md` / `AGENTS.md`                                           | docs                                                               |
 
 ### Verification plan
 
