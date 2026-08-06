@@ -8,12 +8,15 @@ A native **memory-provider plugin** that wires [FTR10 Engram](../../readme.md) i
 Engram becomes Hermes's **memory + cognition sidecar**. Hermes stays the orchestrator
 (it talks to its own LLM, e.g. OpenRouter); Engram is never the chat proxy.
 
-- **Before each turn** → `prefetch()` injects cached **genome** directives + **phenotype**
-  recall (`POST /recall`) into the user message as a `<memory-context>` block.
-- **After each turn** → `sync_turn()` hands the **full turn** (user msg + assistant reply +
-  tool I/O) to `POST /ingest/conversation`, so Engram's own extraction LLM decides what to
-  store (genome vs phenotype, sector, decay). Hermes never pre-filters — Engram is the
-  memory authority.
+- **Before each turn** → `prefetch()` calls `POST /api/cognitive-context`, and Engram
+  composes the whole block server-side: cached **genome** directives + **phenotype** recall
+  (hybrid vector + keyword), plus gated outward web search only when inward recall is weak.
+  Falls back to local genome + `POST /recall` on Engram builds without the route.
+- **After each turn** → `sync_turn()` sends the turn (user message + assistant reply) to
+  `POST /ingest/conversation`, so Engram's own extraction LLM decides what to store (genome
+  vs phenotype, sector, decay). Hermes never pre-filters — Engram is the memory authority.
+  Tool calls/results are deliberately **not** forwarded — raw tool output is noise without
+  a heavy filter (see the IDE-save diff lesson).
 - **Maintenance tools** → `engram_consolidate`, `engram_decay`, `engram_contradiction`,
   plus explicit `engram_remember` / `engram_recall` / `engram_forget`. Consolidation also
   runs automatically on session end.

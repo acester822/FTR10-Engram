@@ -300,8 +300,8 @@ The extension activates on startup, connects to `http://localhost:8098` (configu
 
 When wired into [Hermes Agent](https://github.com/NousResearch/Hermes) as a native memory-provider plugin, Engram is **not** the chat proxy — Hermes talks to its own LLM and Engram is a sidecar memory + cognition engine:
 
-- **Before each turn** → `prefetch()` injects cached genome directives + phenotype recall (`POST /recall`) into the turn as a `<memory-context>` block.
-- **After each turn** → `sync_turn()` hands the full turn to `POST /ingest/conversation` so Engram's extraction LLM decides what to store (genome promotion is explicitly disabled for chat turns — genome is reserved for explicit `engram_remember(genome: true)`).
+- **Before each turn** → `prefetch()` calls `POST /api/cognitive-context` — Engram composes the whole block server-side (cached genome + hybrid phenotype recall, plus gated outward web search only when inward recall is weak) and returns it as a single string injected into the turn as a `<memory-context>` block. Falls back to local genome + `POST /recall` on Engram builds without the route.
+- **After each turn** → `sync_turn()` hands the turn (user message + assistant reply) to `POST /ingest/conversation` so Engram's extraction LLM decides what to store (genome promotion is explicitly disabled for chat turns — genome is reserved for explicit `engram_remember(genome: true)`). Tool calls/results are deliberately **not** forwarded — raw tool output is noise without a heavy filter (see the IDE-save diff lesson).
 - Engram's chat proxy, compaction, and auto-search are **not** used in this mode; consolidation / decay / contradiction are exposed as `engram_consolidate` / `engram_decay` / `engram_contradiction` tools.
 - The plugin lives at `apps/hermes-plugin/` (copied to `~/.hermes/plugins/engram/`); activate with `hermes config set memory.provider engram`. No MCP server — stdlib `urllib` only.
 
@@ -423,6 +423,7 @@ The server exposes two families: **root-level API routes** (used by clients and 
 | `/v1/chat/completions`                                                                                                       | POST                 | OpenAI-compatible chat endpoint with memory injection (the proxy)       |
 | `/health`                                                                                                                    | GET                  | Health check                                                            |
 | `/recall`                                                                                                                    | POST                 | Memory recall/search (embed query → hybrid recall)                      |
+| `/api/cognitive-context`                                                                                                     | POST                 | Shaped context block for the Hermes sidecar (genome + phenotype + gated outward web) |
 | `/memories`                                                                                                                  | GET/POST             | List / create memories                                                  |
 | `/memories/:id`                                                                                                              | GET / PATCH / DELETE | Read / update / delete a memory                                         |
 | `/memories/:id/explain`                                                                                                      | GET                  | Explain why a memory was recalled                                       |

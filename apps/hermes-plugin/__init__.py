@@ -8,11 +8,15 @@ Architecture note (the "reroute"):
   never the chat proxy.
   - Hermes's model.base_url points at the real LLM (OpenRouter), NOT Engram.
   - Engram is reached only through this plugin's HTTP calls:
-      * prefetch()  -> /recall  (+ cached genome)  injected before each turn
-      * sync_turn() -> /ingest/conversation  FULL TURN (user msg + assistant
-                      reply + tool I/O) so Engram's own extraction LLM decides
-                      what is worth storing (genome vs phenotype, sector, decay).
+      * prefetch()  -> /api/cognitive-context (shaped block: genome + phenotype
+                      + gated outward web) injected before each turn; falls back
+                      to /recall (+ cached genome) on Engram builds without it
+      * sync_turn() -> /ingest/conversation  the turn (user msg + assistant
+                      reply) so Engram's own extraction LLM decides what is
+                      worth storing (genome vs phenotype, sector, decay).
                       Hermes does NOT pre-filter — Engram is the memory authority.
+                      Tool calls/results are NOT forwarded — raw tool output is
+                      noise without a heavy filter (see the IDE-save diff lesson).
       * on_memory_write() -> /memories  only for the explicit engram_remember tool
       * maintenance tools -> /api/dashboard/consolidate, /admin/decay/run,
         /contradictions
@@ -522,12 +526,13 @@ class EngramMemoryProvider(MemoryProvider):
     # -- write path --------------------------------------------------------
 
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "", messages=None) -> None:
-        """Option B: hand Engram the FULL turn so its extraction LLM decides storage.
+        """Option B: hand Engram the turn so its extraction LLM decides storage.
 
-        We do NOT pre-filter or summarize. If `messages` is supplied we pass the
-        entire transcript (user msg + assistant reply + any tool calls/results);
-        otherwise we fall back to the (user, assistant) pair. Engram classifies
-        genome vs phenotype, sector, and decay — Hermes stays the orchestrator.
+        We do NOT pre-filter or summarize. Only the user message + assistant reply
+        are sent to /ingest/conversation (the `messages` transcript reconstruction
+        below is scaffolding only — tool calls/results are NOT forwarded; raw tool
+        output is noise without a heavy filter). Engram classifies genome vs
+        phenotype, sector, and decay — Hermes stays the orchestrator.
         """
         if not self._client or not assistant_content:
             return
