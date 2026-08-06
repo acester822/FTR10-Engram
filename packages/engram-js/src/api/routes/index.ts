@@ -11,6 +11,7 @@ import { consolidation_complete_route } from "./consolidations/complete/route";
 import { consolidation_create_route } from "./consolidations/create/route";
 import { edge_execute_route } from "./edges/execute/route";
 import { graph_temporal_query_route } from "./graph/temporal/query/route";
+import { memory_graph_route } from "./memory-graph/route";
 import { health_route } from "./health/route";
 import { candidate_accept_route } from "./ingest/candidates/accept/route";
 import { candidate_reject_route } from "./ingest/candidates/reject/route";
@@ -57,6 +58,7 @@ export function routes(app: any) {
   consolidation_complete_route(app, ctx);
   edge_execute_route(app, ctx);
   graph_temporal_query_route(app, ctx);
+  memory_graph_route(app, ctx);
   admin_decay_run_route(app, ctx);
   ingest_event_route(app, ctx);
   ingest_document_route(app, ctx);

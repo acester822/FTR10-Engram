@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 
 // Local type alias — @types/react doesn't resolve in this monorepo setup with bundler moduleResolution
 type ReactNode = any;
-import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical } from "lucide-react";
+import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical, Share2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 const API_BASE = "/api/dashboard";
@@ -41,7 +41,7 @@ interface Stats {
   by_tier: Record<string, number>;
 }
 
-type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity" | "settings";
+type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity" | "settings" | "mindmap";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard" as Tab);
@@ -129,6 +129,13 @@ export default function App() {
             Activity
           </NavButton>
           <NavButton
+            active={activeTab === "mindmap"}
+            onClick={() => setActiveTab("mindmap")}
+            icon={<Share2 size={20} />}
+          >
+            Mind Map
+          </NavButton>
+          <NavButton
             active={activeTab === "settings"}
             onClick={() => setActiveTab("settings")}
             icon={<SettingsIcon size={20} />}
@@ -160,6 +167,7 @@ export default function App() {
         {activeTab === "performance" && <PerformanceMonitor />}
         {activeTab === "recall" && <RecallView />}
         {activeTab === "activity" && <ActivityView />}
+        {activeTab === "mindmap" && <MemoryGraphView />}
         {activeTab === "settings" && <SettingsView />}
       </main>
     </div>
@@ -2104,6 +2112,193 @@ function PerformanceMonitor() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Mind Map (read-only semantic proximity view) ───────────────────────────────
+const SECTOR_COLORS: Record<string, string> = {
+  semantic: "#3b82f6",
+  procedural: "#10b981",
+  episodic: "#f59e0b",
+  emotional: "#ef4444",
+  reflective: "#a855f7",
+  unknown: "#94a3b8",
+};
+
+function MemoryGraphView() {
+  const canvasRef = useRef(null);
+  const [graph, setGraph] = useState<{ nodes: any[]; edges: any[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [minSim, setMinSim] = useState(0.7);
+  const [limit, setLimit] = useState(120);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ min_sim: String(minSim), limit: String(limit) });
+      const res = await fetch(`/api/memory-graph?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        setGraph({ nodes: data.nodes || [], edges: data.edges || [] });
+      }
+    } catch {
+      // ignore — empty state handles it
+    } finally {
+      setLoading(false);
+    }
+  }, [minSim, limit]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Force-directed layout on a canvas (self-contained, no d3).
+  useEffect(() => {
+    if (!graph || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx2d = canvas.getContext("2d");
+    const W = canvas.width = 900;
+    const H = canvas.height = 600;
+    const nodes = graph.nodes.map((n, i) => ({
+      ...n,
+      x: W / 2 + Math.cos((i / graph.nodes.length) * Math.PI * 2) * 200,
+      y: H / 2 + Math.sin((i / graph.nodes.length) * Math.PI * 2) * 200,
+      vx: 0, vy: 0,
+    }));
+    const idIndex = new Map(nodes.map((n, i) => [n.id, i]));
+    const edges = graph.edges
+      .filter((e) => idIndex.has(e.source) && idIndex.has(e.target))
+      .map((e) => ({ s: idIndex.get(e.source)!, t: idIndex.get(e.target)!, w: e.similarity }));
+
+    let raf = 0;
+    let frame = 0;
+    const step = () => {
+      frame++;
+      // repulsion
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const dx = nodes[i].x - nodes[j].x;
+          const dy = nodes[i].y - nodes[j].y;
+          const d2 = dx * dx + dy * dy + 0.01;
+          const f = 1200 / d2;
+          const d = Math.sqrt(d2);
+          const fx = (dx / d) * f, fy = (dy / d) * f;
+          nodes[i].vx += fx; nodes[i].vy += fy;
+          nodes[j].vx -= fx; nodes[j].vy -= fy;
+        }
+      }
+      // attraction along edges
+      for (const e of edges) {
+        const a = nodes[e.s], b = nodes[e.t];
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.sqrt(dx * dx + dy * dy) + 0.01;
+        const f = (d - 80) * 0.02 * (0.5 + e.w);
+        const fx = (dx / d) * f, fy = (dy / d) * f;
+        a.vx += fx; a.vy += fy;
+        b.vx -= fx; b.vy -= fy;
+      }
+      // gravity to center + integrate
+      for (const n of nodes) {
+        n.vx += (W / 2 - n.x) * 0.005;
+        n.vy += (H / 2 - n.y) * 0.005;
+        n.vx *= 0.85; n.vy *= 0.85;
+        n.x += n.vx; n.y += n.vy;
+        n.x = Math.max(20, Math.min(W - 20, n.x));
+        n.y = Math.max(20, Math.min(H - 20, n.y));
+      }
+      // draw
+      ctx2d.clearRect(0, 0, W, H);
+      ctx2d.fillStyle = "#0f172a";
+      ctx2d.fillRect(0, 0, W, H);
+      for (const e of edges) {
+        const a = nodes[e.s], b = nodes[e.t];
+        ctx2d.strokeStyle = `rgba(148,163,184,${0.15 + e.w * 0.5})`;
+        ctx2d.lineWidth = 0.5 + e.w * 2;
+        ctx2d.beginPath();
+        ctx2d.moveTo(a.x, a.y);
+        ctx2d.lineTo(b.x, b.y);
+        ctx2d.stroke();
+      }
+      for (const n of nodes) {
+        const r = 4 + n.importance_score * 12;
+        const color = SECTOR_COLORS[n.sector] || SECTOR_COLORS.unknown;
+        ctx2d.globalAlpha = n.superseded ? 0.35 : 1;
+        ctx2d.fillStyle = color;
+        ctx2d.beginPath();
+        ctx2d.arc(n.x, n.y, r, 0, Math.PI * 2);
+        ctx2d.fill();
+        ctx2d.globalAlpha = 1;
+        if (n === hoverNode) {
+          ctx2d.fillStyle = "#e2e8f0";
+          ctx2d.font = "11px sans-serif";
+          ctx2d.fillText(n.label, n.x + r + 4, n.y + 3);
+        }
+      }
+      // stop settling after a while
+      if (frame < 400) raf = requestAnimationFrame(step);
+    };
+    let hoverNode: any = null;
+    canvas.onmousemove = (ev: any) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = (ev.clientX - rect.left) * (W / rect.width);
+      const my = (ev.clientY - rect.top) * (H / rect.height);
+      hoverNode = nodes.find((n) => Math.hypot(n.x - mx, n.y - my) < 12 + n.importance_score * 12) || null;
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [graph]);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Memory Mind Map</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Semantic proximity &mdash; edges are cosine similarity between memory embeddings, not inferred relationships.
+            Faded nodes were superseded. For show; no writes.
+          </p>
+        </div>
+        <button
+          onClick={load}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-100 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors"
+        >
+          <RefreshCw size={16} /> Refresh
+        </button>
+      </div>
+
+      <div className="flex items-center gap-6 mb-4 flex-wrap">
+        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          Min similarity: {minSim.toFixed(2)}
+          <input type="range" min={0.4} max={0.95} step={0.05} value={minSim}
+            onChange={(e) => setMinSim(Number(e.target.value))} />
+        </label>
+        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          Max nodes: {limit}
+          <input type="range" min={30} max={200} step={10} value={limit}
+            onChange={(e) => setLimit(Number(e.target.value))} />
+        </label>
+        <div className="flex items-center gap-3 text-xs">
+          {Object.entries(SECTOR_COLORS).map(([s, c]) => (
+            <span key={s} className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-full" style={{ background: c }} />
+              <span className="capitalize text-slate-500 dark:text-slate-400">{s}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
+        <canvas ref={canvasRef} className="w-full block" style={{ maxHeight: 600 }} />
+      </div>
+
+      {loading && <p className="text-sm text-slate-400 mt-2">Loading graph&hellip;</p>}
+      {!loading && graph && graph.nodes.length === 0 && (
+        <p className="text-sm text-slate-400 mt-2">No memories with embeddings found.</p>
+      )}
+      {!loading && graph && graph.edges.length === 0 && graph.nodes.length > 0 && (
+        <p className="text-sm text-slate-400 mt-2">
+          {graph.nodes.length} memories loaded, but no edges above the similarity threshold &mdash; lower &ldquo;Min similarity&rdquo; to connect them.
+        </p>
+      )}
     </div>
   );
 }
