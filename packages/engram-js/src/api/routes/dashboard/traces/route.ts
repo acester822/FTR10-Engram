@@ -15,6 +15,7 @@ import {
 } from "../../../../services/traceStore";
 import { scoreTrace, scoreAllUnscored, TRACE_DIMENSIONS } from "../../../../services/traceScorer";
 import { generateSuggestions } from "../../../../services/traceSuggestions";
+import { markTraceReviewed } from "../../../../services/traceStore";
 
 export const dashboard_traces_route = (app: any) => {
   app.get("/api/dashboard/traces", async (req: any, res: any) => {
@@ -28,6 +29,7 @@ export const dashboard_traces_route = (app: any) => {
         model: typeof q.model === "string" ? q.model : undefined,
         sector: typeof q.sector === "string" ? q.sector : undefined,
         scored: typeof q.scored === "string" ? q.scored : undefined,
+        review: typeof q.review === "string" ? q.review : undefined,
         since: typeof q.since === "string" ? q.since : undefined,
         until: typeof q.until === "string" ? q.until : undefined,
         limit: q.limit,
@@ -79,6 +81,16 @@ export const dashboard_traces_route = (app: any) => {
       res.json({ trace });
     } catch (e) {
       fail(res, "traces_get_failed", e);
+    }
+  });
+
+  app.post("/api/dashboard/traces/:id/review", async (req: any, res: any) => {
+    try {
+      const marked = await markTraceReviewed(req.params.id);
+      if (!marked) return res.status(404).json({ err: "not_found" });
+      res.json({ ok: true });
+    } catch (e) {
+      fail(res, "traces_review_failed", e);
     }
   });
 

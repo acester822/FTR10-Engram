@@ -3,7 +3,7 @@
  - what is the file used for
 */
 
-export const DURABLE_SCHEMA_VERSION = "4.2.0-traces";
+export const DURABLE_SCHEMA_VERSION = "4.3.0-governance";
 
 export const DURABLE_EDGE_TYPES = [
   "mentions",
@@ -36,6 +36,7 @@ export const DURABLE_TABLES = [
   "audit_log",
   "app_settings",
   "traces",
+  "judge_calibration",
 ] as const;
 
 export interface DurableSchemaOptions {
@@ -68,6 +69,7 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
   const auditLog = table(schema, "audit_log");
   const appSettings = table(schema, "app_settings");
   const traces = table(schema, "traces");
+  const judgeCalibration = table(schema, "judge_calibration");
   const edgeTypeCheck = DURABLE_EDGE_TYPES.map((type) => `'${type}'`).join(",");
 
   return [
@@ -370,5 +372,20 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
     )`,
     `create index if not exists durable_traces_ts_idx on ${traces} (ts desc)`,
     `create index if not exists durable_traces_route_idx on ${traces} (route)`,
+    // Review loop (v4.3.0-governance): when a trace was reviewed/acknowledged.
+    `alter table ${traces} add column if not exists reviewed_at timestamptz`,
+    // Judge governance: curated traces with HUMAN-LABELED expected scores used
+    // to calibrate the LLM judge (agreement rate) — the "trust the judge"
+    // checkpoint. Rows hard-delete with their trace.
+    `create table if not exists ${judgeCalibration} (
+      id uuid primary key default gen_random_uuid(),
+      trace_id uuid not null references ${traces}(id) on delete cascade,
+      dimension text not null check (dimension in ('recall_relevance', 'extraction_fidelity', 'answer_quality')),
+      expected_score real not null check (expected_score >= 0 and expected_score <= 1),
+      note text,
+      active boolean not null default true,
+      created_at timestamptz not null default now()
+    )`,
+    `create index if not exists durable_judge_calibration_trace_idx on ${judgeCalibration} (trace_id)`,
   ];
 }

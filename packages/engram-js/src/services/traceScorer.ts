@@ -142,7 +142,9 @@ function parseJudge(content: string): { score: number; reason: string } | null {
 export async function scoreTrace(
   id: string,
   dimension: TraceDimension,
+  opts: { persist?: boolean } = {},
 ): Promise<{ ok: boolean; error?: string; raw?: string; score?: number; reason?: string; judge_model?: string; ms?: number; ts?: string }> {
+  const persist = opts.persist !== false;
   try {
     const rows = await pg_all(`SELECT * FROM public.traces WHERE id = $1`, [id]);
     const trace = rows[0];
@@ -206,11 +208,13 @@ export async function scoreTrace(
       ms,
       ts: new Date().toISOString(),
     };
-    const scores = Array.isArray(trace.scores) ? trace.scores : [];
-    await pg_run(`UPDATE public.traces SET scores = $2::jsonb WHERE id = $1`, [
-      id,
-      JSON.stringify([...scores, entry]),
-    ]);
+    if (persist) {
+      const scores = Array.isArray(trace.scores) ? trace.scores : [];
+      await pg_run(`UPDATE public.traces SET scores = $2::jsonb WHERE id = $1`, [
+        id,
+        JSON.stringify([...scores, entry]),
+      ]);
+    }
     return { ok: true, ...entry };
   } catch (e: any) {
     logger.warn({ module: "traceScorer", err: e?.message }, "scoreTrace failed");

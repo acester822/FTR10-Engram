@@ -103,6 +103,10 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.trace_retention_days", env: "EG_TRACE_RETENTION_DAYS", type: "number", label: "Trace Retention (days)", section: "traces" },
   { key: "general.trace_max_body_chars", env: "EG_TRACE_MAX_BODY_CHARS", type: "number", label: "Trace Max Body Chars", section: "traces" },
   { key: "general.trace_auto_score_rate", env: "EG_TRACE_AUTO_SCORE_RATE", type: "number", label: "Trace Auto-Score Rate (0=off)", section: "traces" },
+  // Judge governance policy (v4.3.0-governance) — score thresholds drive the
+  // distribution buckets, suggestions, policy alerts, and the review loop.
+  { key: "general.policy_good_threshold", env: "EG_POLICY_GOOD_THRESHOLD", type: "number", label: "Good Score Threshold", section: "policy" },
+  { key: "general.policy_bad_threshold", env: "EG_POLICY_BAD_THRESHOLD", type: "number", label: "Bad Score Threshold", section: "policy" },
 ];
 
 // ── Advanced (infra / secrets / misc) settings — shown in a warning-labeled table.

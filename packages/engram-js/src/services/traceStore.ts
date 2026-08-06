@@ -33,6 +33,20 @@ export function traceAutoScoreRate(): number {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 1;
 }
 
+/** Policy score thresholds (Settings → General → Policy, or EG_POLICY_*_THRESHOLD).
+ *  Drive the distribution buckets, suggestions, policy alerts, and the review
+ *  loop. Clamped to (0,1] with good strictly above bad. */
+export function policyThresholds(): { good: number; bad: number } {
+  const parse = (v: string | undefined, d: number): number => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 && n <= 1 ? n : d;
+  };
+  let good = parse(process.env.EG_POLICY_GOOD_THRESHOLD, 0.7);
+  let bad = parse(process.env.EG_POLICY_BAD_THRESHOLD, 0.4);
+  if (bad >= good) bad = Math.max(good - 0.1, 0.1);
+  return { good, bad };
+}
+
 // ── Route selection: the memory/agent loop, NOT GUI telemetry. Polling
 //    endpoints (activity, logs, stats, settings GET) are excluded deliberately
 //    so the store holds signal, not dashboard noise. ──
@@ -171,13 +185,14 @@ export interface TraceFilter {
   model?: string;
   sector?: string;
   scored?: string | boolean;
+  review?: string; // "1" = unreviewed traces with a score below the bad threshold
   since?: string;
   until?: string;
   limit?: string | number;
   offset?: string | number;
 }
 
-/** List rows WITHOUT full bodies (summary + breakdown + scores). */
+/** List rows WITHOUT full bodies (summary + breakdown + scores + review state). */
 export async function listTraces(f: TraceFilter = {}): Promise<any[]> {
   const where: string[] = [];
   const params: any[] = [];
@@ -197,22 +212,43 @@ export async function listTraces(f: TraceFilter = {}): Promise<any[]> {
   if (f.scored === "true" || f.scored === true || f.scored === "1") {
     where.push(`jsonb_array_length(coalesce(scores, '[]'::jsonb)) > 0`);
   }
+  const policy = policyThresholds();
+  if (f.review === "1" || f.review === "true") {
+    params.push(policy.bad);
+    where.push(
+      `reviewed_at IS NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(scores, '[]'::jsonb)) s WHERE (s->>'score')::numeric < $${params.length})`,
+    );
+  }
   if (f.since) push("ts", ">=", new Date(String(f.since)).toISOString());
   if (f.until) push("ts", "<=", new Date(String(f.until)).toISOString());
   const limit = Math.min(Math.max(Number(f.limit) || 100, 1), 500);
   const offset = Math.max(Number(f.offset) || 0, 0);
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   return pg_all(
-    `SELECT id, ts, route, method, status, ms, direction, kind, label, model, breakdown, injection, scores, error
+    `SELECT id, ts, route, method, status, ms, direction, kind, label, model, breakdown, injection, scores, error, reviewed_at,
+       (reviewed_at IS NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(scores, '[]'::jsonb)) s WHERE (s->>'score')::numeric < ${policy.bad})) AS needs_review
      FROM public.traces ${whereSql}
      ORDER BY ts DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset],
   );
 }
 
-/** Full row including request_body / response_body. */
+/** Mark a trace as reviewed (clears the needs-review flag). */
+export async function markTraceReviewed(id: string): Promise<boolean> {
+  const rows = await pg_all(`UPDATE public.traces SET reviewed_at = now() WHERE id = $1 RETURNING id`, [id]);
+  return rows.length > 0;
+}
+
+/** Full row including request_body / response_body (+ review state). */
 export async function getTrace(id: string): Promise<any | null> {
-  const rows = await pg_all(`SELECT * FROM public.traces WHERE id = $1`, [id]);
+  const bad = policyThresholds().bad;
+  const rows = await pg_all(
+    `SELECT *, (
+       reviewed_at IS NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(scores, '[]'::jsonb)) s WHERE (s->>'score')::numeric < ${bad})
+     ) AS needs_review
+     FROM public.traces WHERE id = $1`,
+    [id],
+  );
   return rows[0] || null;
 }
 
@@ -232,7 +268,7 @@ export async function pruneTraces(days?: number): Promise<number> {
 
 // ── Facets (for GUI dropdowns — distinct values from real data) ────────
 
-export async function traceFacets(): Promise<{ routes: string[]; statuses: number[] }> {
+export async function traceFacets(): Promise<{ routes: string[]; statuses: number[]; policy: { good: number; bad: number } }> {
   const [r, s] = await Promise.all([
     pg_all(`SELECT DISTINCT route FROM public.traces ORDER BY route`, []),
     pg_all(`SELECT DISTINCT status FROM public.traces WHERE status IS NOT NULL ORDER BY status`, []),
@@ -240,6 +276,7 @@ export async function traceFacets(): Promise<{ routes: string[]; statuses: numbe
   return {
     routes: r.map((x: any) => x.route).filter(Boolean),
     statuses: s.map((x: any) => x.status),
+    policy: policyThresholds(),
   };
 }
 
@@ -270,6 +307,8 @@ export interface TraceReport {
   worst: Array<{ ts: string; route: string; dimension: string; score: number; reason: string; judge_model: string }>;
   breakdown_totals: { genome: number; phenotype: number; sectors: Record<string, number> };
   judge_models: string[];
+  policy: { good: number; bad: number };
+  policy_alerts: Array<{ severity: "high" | "medium"; dimension: string | null; message: string }>;
 }
 
 /** Aggregate the trace store over a window — volume, errors, latency, score
@@ -313,6 +352,7 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
   const byDirection: Record<string, number> = {};
   const byLabel: Record<string, number> = {};
   const scoreByDim: Record<string, { count: number; sum: number; min: number; max: number }> = {};
+  const policy = policyThresholds();
   const dist = { good: 0, medium: 0, bad: 0 };
   const bdTotals: { genome: number; phenotype: number; sectors: Record<string, number> } = {
     genome: 0,
@@ -351,11 +391,11 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
       st.max = Math.max(st.max, Number(s.score) || 0);
       scoreByDim[dim] = st;
       const sc = Number(s.score) || 0;
-      if (sc >= 0.7) dist.good++;
-      else if (sc >= 0.4) dist.medium++;
+      if (sc >= policy.good) dist.good++;
+      else if (sc >= policy.bad) dist.medium++;
       else dist.bad++;
       if (typeof s.judge_model === "string") judgeSet.add(s.judge_model);
-      if (sc < 0.4) {
+      if (sc < policy.bad) {
         worst.push({
           ts: t.ts,
           route: t.route,
@@ -380,6 +420,32 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
     };
   }
 
+  // Policy alerts: dimension averages below thresholds (with enough samples),
+  // and any failed requests. The governance surface for "something is not right".
+  const policyAlerts: TraceReport["policy_alerts"] = [];
+  for (const [dim, st] of Object.entries(scoreStats)) {
+    if (st.count >= 3 && st.avg < policy.bad) {
+      policyAlerts.push({
+        severity: "high",
+        dimension: dim,
+        message: `${dim} average ${st.avg} is BELOW the bad threshold (${policy.bad}) across ${st.count} scores`,
+      });
+    } else if (st.count >= 3 && st.avg < policy.good) {
+      policyAlerts.push({
+        severity: "medium",
+        dimension: dim,
+        message: `${dim} average ${st.avg} is below the good threshold (${policy.good}) across ${st.count} scores`,
+      });
+    }
+  }
+  if (errors > 0) {
+    policyAlerts.push({
+      severity: "high",
+      dimension: null,
+      message: `${errors} failed request(s) (status >= 400) in the window`,
+    });
+  }
+
   return {
     window_days: d,
     from: opts.from ? new Date(opts.from).toISOString() : null,
@@ -395,5 +461,7 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
     worst: worstSlice,
     breakdown_totals: bdTotals,
     judge_models: Array.from(judgeSet),
+    policy,
+    policy_alerts: policyAlerts,
   };
 }

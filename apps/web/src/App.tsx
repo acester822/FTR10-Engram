@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 
 // Local type alias — @types/react doesn't resolve in this monorepo setup with bundler moduleResolution
 type ReactNode = any;
-import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical, Share2, Download } from "lucide-react";
+import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical, Share2, Download, ClipboardList, Flag, AlertTriangle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 const API_BASE = "/api/dashboard";
@@ -41,7 +41,7 @@ interface Stats {
   by_tier: Record<string, number>;
 }
 
-type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity" | "settings" | "mindmap" | "traces";
+type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity" | "settings" | "mindmap" | "traces" | "governance";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard" as Tab);
@@ -143,6 +143,13 @@ export default function App() {
             Traces
           </NavButton>
           <NavButton
+            active={activeTab === "governance"}
+            onClick={() => setActiveTab("governance")}
+            icon={<ClipboardList size={20} />}
+          >
+            Governance
+          </NavButton>
+          <NavButton
             active={activeTab === "settings"}
             onClick={() => setActiveTab("settings")}
             icon={<SettingsIcon size={20} />}
@@ -176,6 +183,7 @@ export default function App() {
         {activeTab === "activity" && <ActivityView />}
         {activeTab === "mindmap" && <MemoryGraphView />}
         {activeTab === "traces" && <TracesView />}
+        {activeTab === "governance" && <GovernanceView />}
         {activeTab === "settings" && <SettingsView />}
       </main>
     </div>
@@ -1030,6 +1038,13 @@ const GENERAL_GROUPS = [
       ["trace_auto_score_rate", "Auto-Score Rate (0=off)", "number"],
     ],
   },
+  {
+    title: "Policy",
+    fields: [
+      ["policy_good_threshold", "Good Score Threshold", "number"],
+      ["policy_bad_threshold", "Bad Score Threshold", "number"],
+    ],
+  },
 ];
 
 const ADVANCED_GROUPS = [
@@ -1091,11 +1106,11 @@ const ADVANCED_GROUPS = [
   },
 ];
 
-function ScorePill({ score, label }: any) {
+function ScorePill({ score, label, good = 0.7, bad = 0.4 }: any) {
   const cls =
-    score >= 0.7
+    score >= good
       ? "bg-emerald-100 text-emerald-700"
-      : score >= 0.4
+      : score >= bad
       ? "bg-yellow-100 text-yellow-700"
       : "bg-red-100 text-red-700";
   return <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${cls}`}>{label !== undefined ? label : score}</span>;
@@ -1116,7 +1131,7 @@ function TracesView() {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportOpts, setReportOpts] = useState({ preset: "7", from: "", to: "", route: "", direction: "", status: "" });
-  const [facets, setFacets] = useState({ routes: [] as string[], statuses: [] as string[] });
+  const [facets, setFacets] = useState({ routes: [] as string[], statuses: [] as string[], policy: { good: 0.7, bad: 0.4 } });
   const reportRef = useRef(null);
 
   useEffect(() => {
@@ -1125,7 +1140,11 @@ function TracesView() {
         const res = await fetch(`${API_BASE}/traces/facets`);
         if (res.ok) {
           const d = await res.json();
-          setFacets({ routes: d.routes || [], statuses: (d.statuses || []).map((s: any) => String(s)) });
+          setFacets({
+            routes: d.routes || [],
+            statuses: (d.statuses || []).map((s: any) => String(s)),
+            policy: d.policy || { good: 0.7, bad: 0.4 },
+          });
         }
       } catch {
         // ignore — dropdowns fall back to free text behavior
@@ -1143,7 +1162,8 @@ function TracesView() {
       if (filter.direction) params.set("direction", filter.direction);
       if (filter.kind) params.set("kind", filter.kind);
       if (filter.status) params.set("status", filter.status);
-      if (filter.scored) params.set("scored", filter.scored);
+      if (filter.scored === "review") params.set("review", "1");
+      else if (filter.scored) params.set("scored", filter.scored);
       if (filter.limit) params.set("limit", filter.limit);
       const res = await fetch(`${API_BASE}/traces?${params.toString()}`);
       if (res.ok) {
@@ -1174,6 +1194,11 @@ function TracesView() {
       if (res.ok) {
         const data = await res.json();
         setSelected(data.trace);
+        // Review loop: opening an unreviewed low-scored trace clears its flag.
+        if (data.trace && data.trace.needs_review) {
+          fetch(`${API_BASE}/traces/${id}/review`, { method: "POST" }).catch(() => {});
+          fetchTraces(false);
+        }
       }
     } catch {
       // ignore
@@ -1343,7 +1368,7 @@ function TracesView() {
     return (
       <span className="inline-flex flex-wrap gap-1">
         {s.map((x: any, i: number) => (
-          <ScorePill key={i} score={x.score} label={`${x.dimension.replace("_", " ")}: ${x.score}`} />
+          <ScorePill key={i} score={x.score} label={`${x.dimension.replace("_", " ")}: ${x.score}`} good={facets.policy.good} bad={facets.policy.bad} />
         ))}
       </span>
     );
@@ -1579,6 +1604,31 @@ function TracesView() {
             </div>
           </div>
 
+          {/* Policy alerts (governance surface for "something is not right") */}
+          {report.policy_alerts && report.policy_alerts.length > 0 && (
+            <div className="space-y-2">
+              {report.policy_alerts.map((a: any, i: number) => (
+                <div
+                  key={i}
+                  className={`flex items-start gap-2 px-3 py-2 rounded-lg border text-sm ${
+                    a.severity === "high" ? "bg-red-50 border-red-200" : "bg-yellow-50 border-yellow-200"
+                  }`}
+                >
+                  <AlertTriangle size={14} className={a.severity === "high" ? "text-red-500 mt-0.5" : "text-yellow-500 mt-0.5"} />
+                  <div>
+                    <span className="font-semibold text-slate-800 text-xs">Policy alert</span>
+                    {a.dimension && (
+                      <span className="ml-1 text-[10px] uppercase text-slate-400 bg-white px-1.5 py-0.5 rounded border border-gray-200">
+                        {a.dimension}
+                      </span>
+                    )}
+                    <p className="text-xs text-slate-600 mt-0.5">{a.message}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="grid grid-cols-4 gap-3">
             <div className="bg-slate-50 border border-gray-200 rounded-lg p-3">
               <div className="text-xs text-slate-500 uppercase">Traces</div>
@@ -1639,7 +1689,7 @@ function TracesView() {
                 {Object.entries(report.score_stats).map(([dim, st]: any) => (
                   <div key={dim} className="flex items-center gap-3 border-b border-gray-100 py-1 text-sm">
                     <span className="font-mono text-xs text-slate-600 w-44">{dim}</span>
-                    <ScorePill score={st.avg} />
+                    <ScorePill score={st.avg} good={facets.policy.good} bad={facets.policy.bad} />
                     <span className="text-xs text-slate-500">
                       avg · n={st.count} · min {st.min} · max {st.max}
                     </span>
@@ -1677,7 +1727,7 @@ function TracesView() {
                       <td className="py-2 pr-3 font-mono text-xs text-blue-600">{w.route}</td>
                       <td className="py-2 pr-3 text-xs">{w.dimension}</td>
                       <td className="py-2 pr-3">
-                        <ScorePill score={w.score} />
+                        <ScorePill score={w.score} good={facets.policy.good} bad={facets.policy.bad} />
                       </td>
                       <td className="py-2 text-xs text-slate-600">{w.reason}</td>
                     </tr>
@@ -1763,6 +1813,7 @@ function TracesView() {
         <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm" value={filter.scored} onChange={(e: any) => setF("scored", e.target.value)}>
           <option value="">All traces</option>
           <option value="true">Scored only</option>
+          <option value="review">Needs review</option>
         </select>
         <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm" value={filter.limit} onChange={(e: any) => setF("limit", e.target.value)}>
           <option value="50">50 rows</option>
@@ -1823,7 +1874,14 @@ function TracesView() {
                       ? `inject ${t.injection.genome}/${t.injection.phenotype}`
                       : "—"}
                   </td>
-                  <td className="py-2">{scoreBadge(t.scores)}</td>
+                  <td className="py-2">
+                    {scoreBadge(t.scores)}
+                    {t.needs_review && (
+                      <span className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-xs font-semibold">
+                        <Flag size={10} /> needs review
+                      </span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1902,7 +1960,7 @@ function TracesView() {
               <div className="space-y-2">
                 {selected.scores.map((x: any, i: number) => (
                   <div key={i} className="flex items-start gap-3 bg-slate-50 border border-gray-200 rounded-lg p-3 text-xs">
-                    <ScorePill score={x.score} />
+                    <ScorePill score={x.score} good={facets.policy.good} bad={facets.policy.bad} />
                     <div>
                       <span className="font-semibold text-slate-700">{x.dimension}</span>
                       <span className="text-slate-400 ml-2">
@@ -1923,6 +1981,413 @@ function TracesView() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function GovernanceView() {
+  // ── Calibration ──
+  const [calEntries, setCalEntries] = useState([] as any[]);
+  const [calLoading, setCalLoading] = useState(true);
+  const [calForm, setCalForm] = useState({ trace_id: "", dimension: "recall_relevance", expected_score: "0.7", note: "" });
+  const [calResult, setCalResult] = useState(null as any);
+  const [calRunning, setCalRunning] = useState(false);
+  const [calMsg, setCalMsg] = useState(null as any);
+  // ── Consistency ──
+  const [consistency, setConsistency] = useState(null as any);
+  const [consistencyRunning, setConsistencyRunning] = useState(false);
+  const [consSamples, setConsSamples] = useState("5");
+  const [consRepeats, setConsRepeats] = useState("3");
+  // ── Review queue ──
+  const [reviewQueue, setReviewQueue] = useState([] as any[]);
+  const [reviewLoading, setReviewLoading] = useState(true);
+
+  const loadCalibration = useCallback(async () => {
+    setCalLoading(true);
+    try {
+      const res = await fetch("/api/dashboard/judge/calibration");
+      if (res.ok) {
+        const d = await res.json();
+        setCalEntries(d.entries || []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setCalLoading(false);
+    }
+  }, []);
+
+  const loadReviewQueue = useCallback(async () => {
+    setReviewLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/traces?review=1&limit=20`);
+      if (res.ok) {
+        const d = await res.json();
+        setReviewQueue(d.traces || []);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setReviewLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCalibration();
+    loadReviewQueue();
+  }, [loadCalibration, loadReviewQueue]);
+
+  const addCal = async () => {
+    setCalMsg(null);
+    try {
+      const res = await fetch("/api/dashboard/judge/calibration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          trace_id: calForm.trace_id.trim(),
+          dimension: calForm.dimension,
+          expected_score: Number(calForm.expected_score),
+          note: calForm.note || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCalForm({ trace_id: "", dimension: "recall_relevance", expected_score: "0.7", note: "" });
+        setCalMsg({ ok: true, text: "Calibration entry added." });
+        loadCalibration();
+      } else {
+        setCalMsg({ ok: false, text: (data && (data.msg || data.error)) || "Add failed" });
+      }
+    } catch (e: any) {
+      setCalMsg({ ok: false, text: String(e) });
+    }
+  };
+
+  const delCal = async (id: string) => {
+    try {
+      await fetch(`/api/dashboard/judge/calibration/${id}`, { method: "DELETE" });
+      loadCalibration();
+    } catch {
+      // ignore
+    }
+  };
+
+  const runCal = async () => {
+    setCalRunning(true);
+    setCalResult(null);
+    try {
+      const res = await fetch("/api/dashboard/judge/run-calibration", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tolerance: 0.15 }),
+      });
+      if (res.ok) setCalResult(await res.json());
+    } catch {
+      // ignore
+    } finally {
+      setCalRunning(false);
+    }
+  };
+
+  const runCons = async () => {
+    setConsistencyRunning(true);
+    setConsistency(null);
+    try {
+      const res = await fetch("/api/dashboard/judge/consistency", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ samples: Number(consSamples) || 5, repeats: Number(consRepeats) || 3 }),
+      });
+      if (res.ok) setConsistency(await res.json());
+    } catch {
+      // ignore
+    } finally {
+      setConsistencyRunning(false);
+    }
+  };
+
+  const reviewOne = async (id: string) => {
+    try {
+      await fetch(`${API_BASE}/traces/${id}/review`, { method: "POST" });
+      loadReviewQueue();
+    } catch {
+      // ignore
+    }
+  };
+
+  const fmtTs = (ts: string) => {
+    try {
+      return new Date(ts).toLocaleString();
+    } catch {
+      return ts;
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-800">Judge Governance</h2>
+        <p className="text-sm text-slate-500 mt-1">
+          The "trust the judge" checkpoint — calibration vs human labels, score stability, and the review queue. No
+          score should drive an action (auto-heal, repair, delete) until these are green.
+        </p>
+      </div>
+
+      {/* Calibration */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-semibold text-slate-800">Judge Calibration</h3>
+          <button
+            onClick={runCal}
+            disabled={calRunning || calEntries.length === 0}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {calRunning ? "Scoring..." : "Run calibration"}
+          </button>
+        </div>
+        <p className="text-xs text-slate-400">
+          Curated traces with HUMAN-LABELED expected scores. Running calibration re-scores each entry (fresh judge
+          call, not persisted) and reports agreement within a 0.15 tolerance.
+        </p>
+
+        {calResult && (
+          <div className="flex flex-wrap gap-3">
+            <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm">
+              <span className="text-xs text-slate-500 uppercase block">Agreement</span>
+              <span className={`text-xl font-bold ${calResult.agree_rate !== null && calResult.agree_rate >= 0.8 ? "text-emerald-600" : "text-red-600"}`}>
+                {calResult.agree_rate !== null ? `${Math.round(calResult.agree_rate * 100)}%` : "—"}
+              </span>
+              <span className="text-xs text-slate-500 ml-1">({calResult.agree}/{calResult.checked})</span>
+            </div>
+            <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm">
+              <span className="text-xs text-slate-500 uppercase block">Avg abs error</span>
+              <span className="text-xl font-bold text-slate-800">{calResult.avg_abs_error ?? "—"}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Add form */}
+        <div className="grid grid-cols-6 gap-3 bg-slate-50 border border-gray-200 rounded-lg p-3">
+          <input
+            className="col-span-2 px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono"
+            placeholder="Trace id (uuid)"
+            value={calForm.trace_id}
+            onChange={(e: any) => setCalForm({ ...calForm, trace_id: e.target.value })}
+          />
+          <select
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            value={calForm.dimension}
+            onChange={(e: any) => setCalForm({ ...calForm, dimension: e.target.value })}
+          >
+            <option value="recall_relevance">recall_relevance</option>
+            <option value="extraction_fidelity">extraction_fidelity</option>
+            <option value="answer_quality">answer_quality</option>
+          </select>
+          <input
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            placeholder="Expected (0-1)"
+            value={calForm.expected_score}
+            onChange={(e: any) => setCalForm({ ...calForm, expected_score: e.target.value })}
+          />
+          <input
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            placeholder="Note (why this label)"
+            value={calForm.note}
+            onChange={(e: any) => setCalForm({ ...calForm, note: e.target.value })}
+          />
+          <button
+            onClick={addCal}
+            className="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900"
+          >
+            Add
+          </button>
+        </div>
+        {calMsg && (
+          <div className={`px-3 py-2 rounded-lg text-sm ${calMsg.ok ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+            {calMsg.ok ? "✓ " : "✗ "}
+            {calMsg.text}
+          </div>
+        )}
+
+        {/* Calibration list */}
+        {calLoading ? (
+          <div className="text-sm text-slate-500">Loading calibration set...</div>
+        ) : calEntries.length === 0 ? (
+          <div className="text-sm text-slate-500">
+            No calibration entries yet — add traces with your human-labeled expected scores. Pick traces from the
+            Traces tab (copy the id from the detail view) that represent clearly good and clearly bad outcomes.
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 border-b border-gray-200">
+                <th className="pb-2 pr-3">Trace</th>
+                <th className="pb-2 pr-3">Dimension</th>
+                <th className="pb-2 pr-3">Expected</th>
+                <th className="pb-2 pr-3">Last actual</th>
+                <th className="pb-2 pr-3">Note</th>
+                <th className="pb-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {calEntries.map((e: any) => {
+                const last = (e.scores || []).filter((s: any) => s.dimension === e.dimension).pop();
+                const match = last && Math.abs(last.score - e.expected_score) <= 0.15;
+                return (
+                  <tr key={e.id} className="border-t border-gray-100">
+                    <td className="py-2 pr-3">
+                      <span className="font-mono text-xs text-blue-600">{e.route || "deleted trace"}</span>
+                      <span className="ml-2 text-xs text-slate-400">{fmtTs(e.ts)}</span>
+                    </td>
+                    <td className="py-2 pr-3 text-xs">{e.dimension}</td>
+                    <td className="py-2 pr-3">
+                      <ScorePill score={e.expected_score} />
+                    </td>
+                    <td className="py-2 pr-3">
+                      {last ? (
+                        <span className={`text-xs font-semibold ${match ? "text-emerald-600" : "text-red-600"}`}>
+                          {last.score} {match ? "✓" : "✗"}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-slate-500">{e.note || ""}</td>
+                    <td className="py-2 text-right">
+                      <button
+                        onClick={() => delCal(e.id)}
+                        className="text-xs text-red-500 hover:text-red-700"
+                        title="Remove from calibration set"
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Consistency */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-semibold text-slate-800">Score Consistency</h3>
+          <div className="flex items-center gap-2">
+            <input
+              className="w-16 px-2 py-2 border border-gray-300 rounded-lg text-sm text-center"
+              title="Sample size"
+              value={consSamples}
+              onChange={(e: any) => setConsSamples(e.target.value)}
+            />
+            <span className="text-xs text-slate-400">traces ×</span>
+            <input
+              className="w-14 px-2 py-2 border border-gray-300 rounded-lg text-sm text-center"
+              title="Repeats"
+              value={consRepeats}
+              onChange={(e: any) => setConsRepeats(e.target.value)}
+            />
+            <span className="text-xs text-slate-400">repeats</span>
+            <button
+              onClick={runCons}
+              disabled={consistencyRunning}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {consistencyRunning ? "Scoring..." : "Run consistency"}
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-slate-400">
+          Re-scores a random sample N times (non-persisting). Low mean absolute deviation (MAD) = stable judge.
+        </p>
+        {consistency && (
+          <div className="space-y-3">
+            <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm inline-block">
+              <span className="text-xs text-slate-500 uppercase block">Overall MAD (mean abs dev)</span>
+              <span className={`text-xl font-bold ${consistency.overall_mean_abs_dev !== null && consistency.overall_mean_abs_dev <= 0.1 ? "text-emerald-600" : consistency.overall_mean_abs_dev !== null && consistency.overall_mean_abs_dev <= 0.2 ? "text-yellow-600" : "text-red-600"}`}>
+                {consistency.overall_mean_abs_dev ?? "—"}
+              </span>
+              <span className="text-xs text-slate-500 ml-1">({consistency.checked} traces × {consistency.repeats})</span>
+            </div>
+            {consistency.per_trace && consistency.per_trace.length > 0 && (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-slate-500 border-b border-gray-200">
+                    <th className="pb-2 pr-3">Route</th>
+                    <th className="pb-2 pr-3">Dimension</th>
+                    <th className="pb-2 pr-3">Scores</th>
+                    <th className="pb-2 pr-3">Mean</th>
+                    <th className="pb-2">MAD</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {consistency.per_trace.map((t: any, i: number) => (
+                    <tr key={i} className="border-t border-gray-100">
+                      <td className="py-2 pr-3 font-mono text-xs text-blue-600">{t.route}</td>
+                      <td className="py-2 pr-3 text-xs">{t.dimension}</td>
+                      <td className="py-2 pr-3 text-xs text-slate-600">{[...t.scores].sort((a, b) => a - b).join(", ")}</td>
+                      <td className="py-2 pr-3 text-xs">{t.mean}</td>
+                      <td className="py-2 text-xs font-semibold">{t.mad}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Review queue */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-3">
+        <h3 className="text-lg font-semibold text-slate-800">
+          Needs Review{" "}
+          <span className="text-sm font-normal text-slate-400">(unreviewed traces scored below the bad threshold)</span>
+        </h3>
+        {reviewLoading ? (
+          <div className="text-sm text-slate-500">Loading...</div>
+        ) : reviewQueue.length === 0 ? (
+          <div className="text-sm text-slate-500">Nothing pending — every low-scored trace has been reviewed.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 border-b border-gray-200">
+                <th className="pb-2 pr-3">Time</th>
+                <th className="pb-2 pr-3">Route</th>
+                <th className="pb-2 pr-3">Lowest score</th>
+                <th className="pb-2 pr-3">Reason</th>
+                <th className="pb-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {reviewQueue.map((t: any) => {
+                const low = (t.scores || []).reduce((a: any, b: any) => (b.score < a.score ? b : a), { score: 1 });
+                return (
+                  <tr key={t.id} className="border-t border-gray-100">
+                    <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{fmtTs(t.ts)}</td>
+                    <td className="py-2 pr-3 font-mono text-xs text-blue-600">{t.route}</td>
+                    <td className="py-2 pr-3">
+                      <ScorePill score={low.score} />
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-slate-600">{(low.reason || "").slice(0, 90)}</td>
+                    <td className="py-2 text-right">
+                      <button
+                        onClick={() => reviewOne(t.id)}
+                        className="px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-300 rounded-lg text-xs hover:bg-blue-100"
+                      >
+                        Mark reviewed
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        <p className="text-xs text-slate-400">
+          Opening a flagged trace in the Traces tab also clears its flag automatically.
+        </p>
+      </div>
     </div>
   );
 }

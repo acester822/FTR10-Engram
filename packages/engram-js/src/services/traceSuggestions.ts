@@ -10,6 +10,7 @@
 import { all_async as pg_all } from "../database/connection";
 import { tryResolveGenerativeModel } from "../database/modelRegistry";
 import type { TraceReport } from "./traceStore";
+import { policyThresholds } from "./traceStore";
 
 export interface Suggestion {
   severity: "high" | "medium" | "info";
@@ -43,6 +44,7 @@ function sectorMix(r: TraceReport): string {
 
 export async function generateSuggestions(r: TraceReport): Promise<Suggestion[]> {
   const out: Suggestion[] = [];
+  const policy = policyThresholds();
   const dimAvg = (d: string) => r.score_stats?.[d]?.avg;
   const dimCount = (d: string) => r.score_stats?.[d]?.count || 0;
   const dims = Object.keys(r.score_stats || {});
@@ -60,7 +62,7 @@ export async function generateSuggestions(r: TraceReport): Promise<Suggestion[]>
   // ── recall_relevance ──
   const rr = dimAvg("recall_relevance");
   if (dims.includes("recall_relevance")) {
-    if (rr !== undefined && rr < 0.5) {
+    if (rr !== undefined && rr < policy.bad) {
       out.push({
         severity: "high",
         dimension: "recall_relevance",
@@ -94,7 +96,7 @@ export async function generateSuggestions(r: TraceReport): Promise<Suggestion[]>
         detail:
           `Trigger POST /api/dashboard/consolidate (tier=recent + deep) to fold near-duplicates, then audit the active store for junk (see memory-cleanup rules: IDE-save dumps, session state, self-referential meta). Sector mix in window: ${sectorMix(r)}.`,
       });
-    } else if (rr !== undefined && rr >= 0.7) {
+    } else if (rr !== undefined && rr >= policy.good) {
       out.push({
         severity: "info",
         dimension: "recall_relevance",
@@ -106,7 +108,7 @@ export async function generateSuggestions(r: TraceReport): Promise<Suggestion[]>
 
   // ── extraction_fidelity ──
   const ef = dimAvg("extraction_fidelity");
-  if (dims.includes("extraction_fidelity") && ef !== undefined && ef < 0.5) {
+  if (dims.includes("extraction_fidelity") && ef !== undefined && ef < policy.bad) {
     // Resolve the ACTUAL extraction model from the settings registry — advice
     // must reflect reality, not historical defaults.
     const extractionModel = tryResolveGenerativeModel("extraction") || "unset";
@@ -139,7 +141,7 @@ export async function generateSuggestions(r: TraceReport): Promise<Suggestion[]>
 
   // ── answer_quality ──
   const aq = dimAvg("answer_quality");
-  if (dims.includes("answer_quality") && aq !== undefined && aq < 0.5) {
+  if (dims.includes("answer_quality") && aq !== undefined && aq < policy.bad) {
     if (r.errors > 0) {
       out.push({
         severity: "high",
