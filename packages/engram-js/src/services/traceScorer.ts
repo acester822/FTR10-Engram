@@ -230,10 +230,12 @@ export function autoScoreDimensionFor(trace: { label?: string }): TraceDimension
   return null;
 }
 
-/** Fire-and-forget: score an eligible trace when the rate hits. */
-export function maybeAutoScore(trace: { id: string; label?: string }): void {
+/** Fire-and-forget: score an eligible trace when the rate hits. Skips failed
+ *  requests (status >= 400) — a 404 chat turn isn't worth judging. */
+export function maybeAutoScore(trace: { id: string; label?: string; status?: number }): void {
   const rate = traceAutoScoreRate();
   if (rate <= 0) return;
+  if (typeof trace.status === "number" && trace.status >= 400) return;
   const dimension = autoScoreDimensionFor(trace);
   if (!dimension) return;
   autoScoreCounter = (autoScoreCounter + 1) % rate;
@@ -250,4 +252,39 @@ export function maybeAutoScore(trace: { id: string; label?: string }): void {
       }
     })
     .catch(() => {});
+}
+
+/** Backfill: score every unscored eligible trace (oldest first, bounded batch).
+ *  Auto-score covers NEW traces at capture time; this covers traces recorded
+ *  before the judge existed. Re-invoke for the next batch. */
+export async function scoreAllUnscored(
+  limit = 25,
+): Promise<{ scored: number; failed: number; skipped: number; remaining: number }> {
+  const rows = await pg_all(
+    `SELECT id, label, status FROM public.traces
+     WHERE jsonb_array_length(coalesce(scores, '[]'::jsonb)) = 0
+       AND (status IS NULL OR status < 400)
+     ORDER BY ts ASC LIMIT $1`,
+    [Math.min(Math.max(limit, 1), 100)],
+  );
+  let scored = 0;
+  let failed = 0;
+  let skipped = 0;
+  for (const row of rows) {
+    const dim = autoScoreDimensionFor(row);
+    if (!dim) {
+      skipped++;
+      continue;
+    }
+    const r = await scoreTrace(row.id, dim);
+    if (r.ok) scored++;
+    else failed++;
+  }
+  const remainingRows = await pg_all(
+    `SELECT count(*)::int AS n FROM public.traces
+     WHERE jsonb_array_length(coalesce(scores, '[]'::jsonb)) = 0
+       AND (status IS NULL OR status < 400)`,
+    [],
+  );
+  return { scored, failed, skipped, remaining: remainingRows[0]?.n || 0 };
 }

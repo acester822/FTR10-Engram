@@ -211,3 +211,9 @@ Implemented and deployed (commit pending). All Open Decisions resolved per user:
 - Score endpoint returns the clean "No judge model configured" error (judge wiring proven; user configures the judge box in Settings).
 - Regression: activity buffer, web GUI :8099, settings judge section, prune endpoint all working.
 - Traces probe data cleaned up (`DELETE /api/dashboard/traces/prune`).
+
+### Follow-up (2026-08-06, deployed same day)
+
+- **Stale score-result fix**: switching traces in the GUI now clears the previous trace's score message (`openDetail` resets `scoreMsg`).
+- **Bulk backfill**: `POST /api/dashboard/traces/score-unscored?limit=N` (default 25, max 100) scores every unscored eligible trace oldest-first; GUI "Score unscored" button reports `{scored, failed, skipped, remaining}` and re-invoking drains the rest. Verified live: 3 scored / 0 failed / 0 remaining.
+- **Status filter**: auto-score and bulk-score skip failed requests (`status >= 400`) — a 404 chat turn isn't worth judging. (Traces scored before this change keep their scores.)

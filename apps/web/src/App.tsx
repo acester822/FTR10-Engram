@@ -1099,6 +1099,8 @@ function TracesView() {
   const [dimension, setDimension] = useState("answer_quality" as string);
   const [scoring, setScoring] = useState(false);
   const [scoreMsg, setScoreMsg] = useState(null as any);
+  const [scoringAll, setScoringAll] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState(null as any);
 
   const fetchTraces = useCallback(async () => {
     setLoading(true);
@@ -1127,6 +1129,7 @@ function TracesView() {
   }, [fetchTraces]);
 
   const openDetail = async (id: string) => {
+    setScoreMsg(null); // clear the previous trace's score result when switching
     try {
       const res = await fetch(`${API_BASE}/traces/${id}`);
       if (res.ok) {
@@ -1177,6 +1180,26 @@ function TracesView() {
       fetchTraces();
     } catch {
       alert("Failed to prune traces");
+    }
+  };
+
+  const handleScoreAll = async () => {
+    setScoringAll(true);
+    setBulkMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/traces/score-unscored?limit=25`, { method: "POST" });
+      const data = await res.json();
+      if (res.ok)
+        setBulkMsg({
+          ok: true,
+          text: `Scored ${data.scored} (${data.failed} failed, ${data.skipped} skipped) — ${data.remaining} unscored remaining`,
+        });
+      else setBulkMsg({ ok: false, text: (data && (data.msg || data.error)) || "Bulk score failed" });
+      fetchTraces();
+    } catch (e: any) {
+      setBulkMsg({ ok: false, text: String(e) });
+    } finally {
+      setScoringAll(false);
     }
   };
 
@@ -1233,6 +1256,13 @@ function TracesView() {
         </div>
         <div className="flex gap-3">
           <button
+            onClick={handleScoreAll}
+            disabled={scoringAll}
+            className="px-3 py-2 bg-blue-50 text-blue-700 border border-blue-300 rounded-lg text-sm hover:bg-blue-100 transition-colors disabled:opacity-50"
+          >
+            {scoringAll ? "Scoring..." : "Score unscored"}
+          </button>
+          <button
             onClick={handlePrune}
             className="px-3 py-2 bg-amber-50 text-amber-700 border border-amber-300 rounded-lg text-sm hover:bg-amber-100 transition-colors"
           >
@@ -1246,6 +1276,17 @@ function TracesView() {
           </button>
         </div>
       </div>
+
+      {bulkMsg && (
+        <div
+          className={`px-3 py-2 rounded-lg text-sm ${
+            bulkMsg.ok ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+          }`}
+        >
+          {bulkMsg.ok ? "✓ " : "✗ "}
+          {bulkMsg.text}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="grid grid-cols-6 gap-3 bg-white p-4 rounded-xl shadow-sm border border-gray-200">

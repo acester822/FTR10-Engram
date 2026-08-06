@@ -11,7 +11,7 @@ import {
   deleteAllTraces,
   pruneTraces,
 } from "../../../../services/traceStore";
-import { scoreTrace, TRACE_DIMENSIONS } from "../../../../services/traceScorer";
+import { scoreTrace, scoreAllUnscored, TRACE_DIMENSIONS } from "../../../../services/traceScorer";
 
 export const dashboard_traces_route = (app: any) => {
   app.get("/api/dashboard/traces", async (req: any, res: any) => {
@@ -43,6 +43,19 @@ export const dashboard_traces_route = (app: any) => {
       res.json({ trace });
     } catch (e) {
       fail(res, "traces_get_failed", e);
+    }
+  });
+
+  // Backfill: score every unscored eligible trace (bounded batch — re-invoke
+  // for more). Registered before the :id routes so "score-unscored" never
+  // matches as an id.
+  app.post("/api/dashboard/traces/score-unscored", async (req: any, res: any) => {
+    try {
+      const raw = req.query?.limit !== undefined ? Number(req.query.limit) : 25;
+      const result = await scoreAllUnscored(Number.isFinite(raw) ? raw : 25);
+      res.json({ ok: true, ...result });
+    } catch (e) {
+      fail(res, "traces_score_all_failed", e);
     }
   });
 
