@@ -1115,7 +1115,22 @@ function TracesView() {
   const [report, setReport] = useState(null as any);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
-  const [reportOpts, setReportOpts] = useState({ preset: "7", from: "", to: "", route: "", direction: "" });
+  const [reportOpts, setReportOpts] = useState({ preset: "7", from: "", to: "", route: "", direction: "", status: "" });
+  const [facets, setFacets] = useState({ routes: [] as string[], statuses: [] as string[] });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/traces/facets`);
+        if (res.ok) {
+          const d = await res.json();
+          setFacets({ routes: d.routes || [], statuses: (d.statuses || []).map((s: any) => String(s)) });
+        }
+      } catch {
+        // ignore — dropdowns fall back to free text behavior
+      }
+    })();
+  }, []);
 
   const fetchTraces = useCallback(async (showLoading = false) => {
     // showLoading=true on first load / filter change; background polls pass
@@ -1240,6 +1255,7 @@ function TracesView() {
       }
       if (reportOpts.route) p.set("route", reportOpts.route);
       if (reportOpts.direction) p.set("direction", reportOpts.direction);
+      if (reportOpts.status) p.set("status", reportOpts.status);
       p.set("limit", "10");
       const res = await fetch(`${API_BASE}/traces/report?${p.toString()}`);
       if (res.ok) {
@@ -1325,6 +1341,13 @@ function TracesView() {
       report.worst.forEach((w: any) => {
         line(`  [${w.score}] ${w.route} (${w.dimension})`, 10);
         line(`      ${w.reason}`, 9);
+      });
+      hr();
+      line("Suggestions:", 11, true);
+      if (!report.suggestions || !report.suggestions.length) line("  (none)", 10);
+      report.suggestions.forEach((s: any) => {
+        line(`  [${s.severity.toUpperCase()}] ${s.title}`, 10);
+        line(`      ${s.detail}`, 9);
       });
       doc.save(`engram-report-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (e: any) {
@@ -1473,12 +1496,35 @@ function TracesView() {
               <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">
                 Route (optional)
               </label>
-              <input
+              <select
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                placeholder="e.g. /recall"
                 value={reportOpts.route}
                 onChange={(e: any) => setReportOpts({ ...reportOpts, route: e.target.value })}
-              />
+              >
+                <option value="">All routes</option>
+                {facets.routes.map((r: string) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">
+                Status (optional)
+              </label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                value={reportOpts.status}
+                onChange={(e: any) => setReportOpts({ ...reportOpts, status: e.target.value })}
+              >
+                <option value="">All statuses</option>
+                {facets.statuses.map((s: string) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">
@@ -1662,17 +1708,54 @@ function TracesView() {
               </table>
             )}
           </div>
+
+          {/* Suggestions (deterministic remediation, grounded in report + live store health) */}
+          {report.suggestions && report.suggestions.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase">Suggestions</h4>
+              <div className="space-y-2">
+                {report.suggestions.map((s: any, i: number) => (
+                  <div
+                    key={i}
+                    className={`px-3 py-2 rounded-lg border text-sm ${
+                      s.severity === "high"
+                        ? "bg-red-50 border-red-200"
+                        : s.severity === "medium"
+                        ? "bg-yellow-50 border-yellow-200"
+                        : "bg-blue-50 border-blue-200"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-800 text-xs">{s.title}</span>
+                      {s.dimension && (
+                        <span className="text-[10px] uppercase text-slate-400 bg-white px-1.5 py-0.5 rounded border border-gray-200">
+                          {s.dimension}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1">{s.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Filters */}
       <div className="grid grid-cols-6 gap-3 bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-        <input
+        <select
           className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-          placeholder="Route (e.g. /recall)"
           value={filter.route}
           onChange={(e: any) => setF("route", e.target.value)}
-        />
+        >
+          <option value="">All routes</option>
+          {facets.routes.map((r: string) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
         <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm" value={filter.direction} onChange={(e: any) => setF("direction", e.target.value)}>
           <option value="">All directions</option>
           <option value="in">IN (writes)</option>
@@ -1687,12 +1770,18 @@ function TracesView() {
           <option value="chat">chat</option>
           <option value="action">action</option>
         </select>
-        <input
+        <select
           className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-          placeholder="Status (e.g. 200)"
           value={filter.status}
           onChange={(e: any) => setF("status", e.target.value)}
-        />
+        >
+          <option value="">All statuses</option>
+          {facets.statuses.map((s: string) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
         <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm" value={filter.scored} onChange={(e: any) => setF("scored", e.target.value)}>
           <option value="">All traces</option>
           <option value="true">Scored only</option>

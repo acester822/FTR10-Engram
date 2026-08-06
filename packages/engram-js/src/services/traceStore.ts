@@ -230,6 +230,19 @@ export async function pruneTraces(days?: number): Promise<number> {
   return rows.length;
 }
 
+// ── Facets (for GUI dropdowns — distinct values from real data) ────────
+
+export async function traceFacets(): Promise<{ routes: string[]; statuses: number[] }> {
+  const [r, s] = await Promise.all([
+    pg_all(`SELECT DISTINCT route FROM public.traces ORDER BY route`, []),
+    pg_all(`SELECT DISTINCT status FROM public.traces WHERE status IS NOT NULL ORDER BY status`, []),
+  ]);
+  return {
+    routes: r.map((x: any) => x.route).filter(Boolean),
+    statuses: s.map((x: any) => x.status),
+  };
+}
+
 // ── Report aggregation (real data, no LLM) ─────────────────────────────
 
 export interface TraceReportOptions {
@@ -238,6 +251,7 @@ export interface TraceReportOptions {
   to?: string; // ISO date-time
   route?: string;
   direction?: string;
+  status?: number;
   limit?: number;
 }
 
@@ -282,6 +296,10 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
   if (opts.direction) {
     params.push(opts.direction);
     where.push(`direction = $${params.length}`);
+  }
+  if (opts.status !== undefined && opts.status !== null) {
+    params.push(Number(opts.status));
+    where.push(`status = $${params.length}`);
   }
   const rows = await pg_all(
     `SELECT ts, route, direction, label, status, ms, breakdown, scores

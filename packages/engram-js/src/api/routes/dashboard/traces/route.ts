@@ -11,8 +11,10 @@ import {
   deleteAllTraces,
   pruneTraces,
   traceReport,
+  traceFacets,
 } from "../../../../services/traceStore";
 import { scoreTrace, scoreAllUnscored, TRACE_DIMENSIONS } from "../../../../services/traceScorer";
+import { generateSuggestions } from "../../../../services/traceSuggestions";
 
 export const dashboard_traces_route = (app: any) => {
   app.get("/api/dashboard/traces", async (req: any, res: any) => {
@@ -37,20 +39,34 @@ export const dashboard_traces_route = (app: any) => {
     }
   });
 
+  // Facets for GUI dropdowns (distinct routes/statuses from real data).
+  // Registered before GET /:id so "facets" never matches as an id.
+  app.get("/api/dashboard/traces/facets", async (_req: any, res: any) => {
+    try {
+      const facets = await traceFacets();
+      res.json({ ok: true, ...facets });
+    } catch (e) {
+      fail(res, "traces_facets_failed", e);
+    }
+  });
+
   // Report aggregation — registered before GET /:id so "report" never matches
-  // as an id. Pure SQL+JS aggregate (no LLM call).
+  // as an id. Pure SQL+JS aggregate (no LLM call) + deterministic suggestions.
   app.get("/api/dashboard/traces/report", async (req: any, res: any) => {
     try {
       const q = req.query || {};
+      const statusRaw = q.status !== undefined && q.status !== "" ? Number(q.status) : undefined;
       const report = await traceReport({
         days: q.days !== undefined ? Number(q.days) : 7,
         from: typeof q.from === "string" && q.from ? q.from : undefined,
         to: typeof q.to === "string" && q.to ? q.to : undefined,
         route: typeof q.route === "string" && q.route ? q.route : undefined,
         direction: typeof q.direction === "string" && q.direction ? q.direction : undefined,
+        status: Number.isFinite(statusRaw as number) ? (statusRaw as number) : undefined,
         limit: q.limit !== undefined ? Number(q.limit) : 10,
       });
-      res.json({ ok: true, report });
+      const suggestions = await generateSuggestions(report);
+      res.json({ ok: true, report: { ...report, suggestions } });
     } catch (e) {
       fail(res, "traces_report_failed", e);
     }
