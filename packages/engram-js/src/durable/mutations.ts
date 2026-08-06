@@ -53,7 +53,9 @@ export async function recordMemoryAudit(e: AuditEntry): Promise<void> {
   });
 }
 
-const ROW_SELECT = `id, user_id, project_id, content, sector, is_genome, memory_tier, importance_tier, importance_score, recorded_at, superseded_at`;
+// Full row incl. embedding so a hard-delete can be UNDONE faithfully
+// (before_state stored on every mutation carries everything needed to restore).
+const ROW_SELECT = `id, user_id, project_id, content, sector, is_genome, memory_tier, importance_tier, importance_score, recorded_at, superseded_at, embedding, embedding_synthetic, decay_rate, access_count, metadata`;
 
 async function fetchRows(ids: string[]): Promise<any[]> {
   if (!ids.length) return [];
@@ -194,4 +196,125 @@ export async function reclassifyMemorySector(
     metadata,
   });
   return true;
+}
+
+// ── Undo ─────────────────────────────────────────────────────────────────
+// Reverses an audited mutation using its before_state. Supersede = clear
+// superseded_at (trivially reversible). Delete = re-insert the full row
+// (embedding restored from before_state). Update/reclassify = write back the
+// captured fields. Every undo writes its own audit row so the trail is
+// complete and an undo is never itself undoable.
+
+export async function undoAuditEntry(
+  auditId: string,
+): Promise<{ ok: boolean; error?: string; message?: string }> {
+  const rows = await pg_all(`SELECT * FROM public.audit_log WHERE id = $1`, [auditId]);
+  if (!rows.length) return { ok: false, error: "audit entry not found" };
+  const a = rows[0];
+  if (a.event_type === "memory_undo") return { ok: false, error: "cannot undo an undo" };
+  const op = a.operation;
+  const targetId = a.target_id;
+  const before = a.before_state ?? null;
+
+  if (op === "supersede") {
+    const cur = await pg_all(`SELECT id, superseded_at FROM public.memories WHERE id = $1`, [targetId]);
+    if (!cur.length) return { ok: false, error: "memory no longer exists" };
+    if (!cur[0].superseded_at) return { ok: false, message: "memory is not superseded — nothing to undo" };
+    await pg_run(`UPDATE public.memories SET superseded_at = NULL WHERE id = $1`, [targetId]);
+    await recordMemoryAudit({
+      actor_id: "user",
+      actor_type: "user",
+      event_type: "memory_undo",
+      operation: "undo_supersede",
+      target_table: "memories",
+      target_id: targetId,
+      before_state: { superseded_at: cur[0].superseded_at },
+      after_state: { superseded_at: null },
+      metadata: { undo_of: auditId },
+    });
+    return { ok: true, message: "supersede undone — memory active again" };
+  }
+
+  if (op === "delete") {
+    if (!before || !before.id) return { ok: false, error: "before_state missing — cannot restore this delete" };
+    const exists = await pg_all(`SELECT id FROM public.memories WHERE id = $1`, [before.id]);
+    if (exists.length) return { ok: false, error: "memory already exists" };
+    await pg_run(
+      `INSERT INTO public.memories
+         (id, user_id, project_id, content, sector, is_genome, memory_tier, importance_tier, importance_score,
+          recorded_at, superseded_at, embedding, embedding_synthetic, decay_rate, access_count, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::halfvec, $13, $14, $15, $16::jsonb)`,
+      [
+        before.id,
+        before.user_id ?? "anonymous",
+        before.project_id ?? null,
+        before.content ?? "",
+        before.sector ?? "semantic",
+        before.is_genome ?? false,
+        before.memory_tier ?? "active",
+        before.importance_tier ?? "medium",
+        before.importance_score ?? 0.5,
+        before.recorded_at ?? new Date().toISOString(),
+        before.superseded_at ?? null,
+        before.embedding ?? null,
+        before.embedding_synthetic ?? false,
+        before.decay_rate ?? 0.1,
+        before.access_count ?? 0,
+        JSON.stringify(before.metadata ?? {}),
+      ],
+    );
+    await recordMemoryAudit({
+      actor_id: "user",
+      actor_type: "user",
+      event_type: "memory_undo",
+      operation: "undo_delete",
+      target_table: "memories",
+      target_id: before.id,
+      before_state: { deleted: true },
+      after_state: { id: before.id, content: before.content, sector: before.sector },
+      metadata: { undo_of: auditId },
+    });
+    return { ok: true, message: "delete undone — memory restored" };
+  }
+
+  if (op === "update" || op === "reclassify") {
+    if (!before || !targetId) return { ok: false, error: "before_state missing — cannot undo" };
+    const cur = await pg_all(`SELECT id, content, sector, is_genome, decay_rate FROM public.memories WHERE id = $1`, [targetId]);
+    if (!cur.length) return { ok: false, error: "memory no longer exists" };
+    const sets: string[] = [];
+    const params: any[] = [targetId];
+    if (before.content !== undefined && before.content !== cur[0].content) {
+      params.push(before.content);
+      sets.push(`content = $${params.length}`);
+    }
+    if (before.sector !== undefined && before.sector !== cur[0].sector) {
+      params.push(before.sector);
+      sets.push(`sector = $${params.length}`);
+    }
+    if (before.is_genome !== undefined && before.is_genome !== cur[0].is_genome) {
+      params.push(before.is_genome);
+      sets.push(`is_genome = $${params.length}`);
+    }
+    if (before.decay_rate !== undefined && before.decay_rate !== cur[0].decay_rate) {
+      params.push(before.decay_rate);
+      sets.push(`decay_rate = $${params.length}`);
+    }
+    if (sets.length) {
+      await pg_run(`UPDATE public.memories SET ${sets.join(", ")} WHERE id = $1`, params);
+    }
+    await recordMemoryAudit({
+      actor_id: "user",
+      actor_type: "user",
+      event_type: "memory_undo",
+      operation: `undo_${op}`,
+      target_table: "memories",
+      target_id: targetId,
+      before_state: { content: cur[0].content, sector: cur[0].sector },
+      after_state: before,
+      metadata: { undo_of: auditId },
+    });
+    return { ok: true, message: `${op} undone — fields restored` };
+  }
+
+  return { ok: false, error: `operation '${op}' is not undoable` };
 }

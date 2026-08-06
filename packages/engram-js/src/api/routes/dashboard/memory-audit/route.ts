@@ -7,6 +7,7 @@
 */
 
 import { all_async as pg_all } from "../../../../database/connection";
+import { undoAuditEntry } from "../../../../durable/mutations";
 import { fail } from "../../_kit";
 
 export const dashboard_memory_audit_route = (app: any) => {
@@ -30,6 +31,16 @@ export const dashboard_memory_audit_route = (app: any) => {
       res.json({ ok: true, entries: rows });
     } catch (e) {
       fail(res, "memory_audit_failed", e);
+    }
+  });
+
+  app.post("/api/dashboard/memory-audit/:id/undo", async (req: any, res: any) => {
+    try {
+      const r = await undoAuditEntry(req.params.id);
+      if (!r.ok) return res.status(r.error ? 409 : 200).json({ ok: false, error: r.error, message: r.message });
+      res.json({ ok: true, message: r.message });
+    } catch (e) {
+      fail(res, "memory_audit_undo_failed", e);
     }
   });
 };

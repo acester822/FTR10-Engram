@@ -321,6 +321,10 @@ export async function runIntegrity(): Promise<any> {
     const rows = await pg_all(
       `SELECT id, content, sector FROM public.memories
        WHERE superseded_at IS NULL AND memory_tier <> 'archived' AND embedding IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM public.integrity_findings f
+           WHERE f.check_name = 'false_memory_sampling' AND f.memory_id = memories.id AND f.status = 'open'
+         )
        ORDER BY (CASE WHEN access_count = 0 THEN 0 ELSE 1 END), recorded_at ASC
        LIMIT $1`,
       [sampleSize()],
@@ -408,7 +412,7 @@ export async function listFindings(f: { status?: string; severity?: string; limi
   }
   const limit = Math.min(Math.max(Number(f.limit) || 100, 1), 500);
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  return pg_all(
+  const rows = await pg_all(
     `SELECT f.id, f.check_name, f.memory_id, f.severity, f.action_taken, f.detail, f.status, f.created_at, f.resolved_at,
             m.content AS memory_content, m.sector AS memory_sector, m.superseded_at AS memory_superseded_at
      FROM public.integrity_findings f
@@ -417,6 +421,8 @@ export async function listFindings(f: { status?: string; severity?: string; limi
      ORDER BY f.created_at DESC LIMIT $${params.length + 1}`,
     [...params, limit],
   );
+  // Surface the verdict at the top level so the GUI can show what Apply would do.
+  return rows.map((f: any) => ({ ...f, verdict: f.detail?.verdict ?? null }));
 }
 
 /** Human disposition of a finding.

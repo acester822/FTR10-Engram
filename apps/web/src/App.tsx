@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 
 // Local type alias — @types/react doesn't resolve in this monorepo setup with bundler moduleResolution
 type ReactNode = any;
-import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical, Share2, Download, ClipboardList, Flag, AlertTriangle, ClipboardCheck, History } from "lucide-react";
+import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical, Share2, Download, ClipboardList, Flag, AlertTriangle, ClipboardCheck, History, Undo2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 const API_BASE = "/api/dashboard";
@@ -2705,6 +2705,7 @@ function MemoryAuditView() {
   const [runResult, setRunResult] = useState(null as any);
   const [expandedFinding, setExpandedFinding] = useState(null as any);
   const [expandedAudit, setExpandedAudit] = useState(null as any);
+  const [auditMsg, setAuditMsg] = useState(null as any);
 
   const load = useCallback(async () => {
     try {
@@ -2749,6 +2750,29 @@ function MemoryAuditView() {
       load();
     } catch {
       // ignore
+    }
+  };
+
+  const canUndo = (e: any) =>
+    ["supersede", "delete", "update", "reclassify"].includes(e.operation) &&
+    e.event_type !== "memory_undo" &&
+    !!e.before_state;
+
+  const undoEntry = async (e: any) => {
+    const what =
+      e.operation === "supersede"
+        ? "un-supersede this memory (make it active again)"
+        : e.operation === "delete"
+        ? "restore the deleted memory (full row, incl. embedding)"
+        : "restore the fields from before the change";
+    if (!confirm(`Undo this ${e.operation}? This will ${what}.`)) return;
+    try {
+      const res = await fetch(`/api/dashboard/memory-audit/${e.id}/undo`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      setAuditMsg(data.ok ? { ok: true, text: data.message || "Undone" } : { ok: false, text: data.error || data.message || "Undo failed" });
+      load();
+    } catch {
+      setAuditMsg({ ok: false, text: "Undo failed" });
     }
   };
 
@@ -2892,7 +2916,8 @@ function MemoryAuditView() {
           <span className="font-semibold text-slate-600">Apply</span> performs the suggested repair on the memory
           (delete, or supersede — which is reversible) and records it in the audit trail.{" "}
           <span className="font-semibold text-slate-600">Dismiss</span> closes the finding without touching the memory.
-          Open findings with the flag action have had <b>nothing done to the memory yet</b>.
+          Open findings with the flag action have had <b>nothing done to the memory yet</b> — the{" "}
+          <b>Would do</b> column shows exactly what Apply would do.
         </p>
         {findings.length === 0 ? (
           <div className="text-sm text-slate-500">No findings yet — run an integrity check.</div>
@@ -2904,6 +2929,7 @@ function MemoryAuditView() {
                 <th className="pb-2 pr-3">Severity</th>
                 <th className="pb-2 pr-3">Memory</th>
                 <th className="pb-2 pr-3">Action</th>
+                <th className="pb-2 pr-3">Would do</th>
                 <th className="pb-2 pr-3">Status</th>
                 <th className="pb-2 pr-3">When</th>
                 <th className="pb-2"></th>
@@ -2919,6 +2945,19 @@ function MemoryAuditView() {
                     </td>
                     <td className="py-2 pr-3 text-xs text-slate-600 max-w-xs truncate">{f.memory_content || (f.memory_id ? `deleted ${f.memory_id.slice(0, 8)}…` : "—")}</td>
                     <td className="py-2 pr-3 text-xs">{f.action_taken}</td>
+                    <td className="py-2 pr-3 text-xs">
+                      {f.status === "open" && f.action_taken === "flag" ? (
+                        f.verdict === "delete candidate" ? (
+                          <span className="text-red-600 font-medium">Delete memory</span>
+                        ) : f.verdict === "supersede candidate" ? (
+                          <span className="text-amber-600 font-medium">Supersede (reversible)</span>
+                        ) : (
+                          <span className="text-slate-500">{f.verdict || f.action_taken}</span>
+                        )
+                      ) : (
+                        <span className="text-slate-600">{f.action_taken}</span>
+                      )}
+                    </td>
                     <td className="py-2 pr-3 text-xs">{f.status}</td>
                     <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{fmtTs(f.created_at)}</td>
                     <td className="py-2 text-right whitespace-nowrap">
@@ -2957,7 +2996,12 @@ function MemoryAuditView() {
         <h3 className="text-lg font-semibold text-slate-800">
           <History size={16} className="inline mr-1 text-slate-400" /> Audit Trail
         </h3>
-        <p className="text-xs text-slate-400">Every mutation to the memories table — auto-heal, consolidation, and manual GUI edits.</p>
+        <p className="text-xs text-slate-400">Every mutation to the memories table — auto-heal, consolidation, and manual GUI edits. The undo button restores the before-state (supersedes are reversible; deletes are re-inserted with their embedding).</p>
+        {auditMsg && (
+          <div className={`px-3 py-2 rounded-lg text-xs ${auditMsg.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-600 border border-red-200"}`}>
+            {auditMsg.ok ? "✓ " : "✗ "}{auditMsg.text}
+          </div>
+        )}
         {auditEntries.length === 0 ? (
           <div className="text-sm text-slate-500">No audited mutations yet.</div>
         ) : (
@@ -2968,7 +3012,8 @@ function MemoryAuditView() {
                 <th className="pb-2 pr-3">Actor</th>
                 <th className="pb-2 pr-3">Operation</th>
                 <th className="pb-2 pr-3">Target</th>
-                <th className="pb-2">Before → After</th>
+                <th className="pb-2 pr-3">Before → After</th>
+                <th className="pb-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -2983,7 +3028,18 @@ function MemoryAuditView() {
                     </td>
                     <td className="py-2 pr-3 text-xs">{e.operation}</td>
                     <td className="py-2 pr-3 font-mono text-xs text-slate-500">{e.target_id ? `${e.target_id.slice(0, 8)}…` : "—"}</td>
-                    <td className="py-2 text-xs text-slate-500">click to view JSON</td>
+                    <td className="py-2 pr-3 text-xs text-slate-500">click to view JSON</td>
+                    <td className="py-2 text-right">
+                      {canUndo(e) && (
+                        <button
+                          title="Undo this change (restores the before-state)"
+                          onClick={(ev: any) => { ev.stopPropagation(); undoEntry(e); }}
+                          className="p-1.5 rounded border border-gray-300 text-slate-500 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50"
+                        >
+                          <Undo2 size={13} />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                   {expandedAudit === e.id && (
                     <tr className="border-t border-gray-100 bg-slate-50">

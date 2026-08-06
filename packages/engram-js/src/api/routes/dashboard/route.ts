@@ -23,10 +23,14 @@ function execFileAsync(cmd: string, args: string[]): Promise<[string, string]> {
   });
 }
 
-/** Fetch a memory row for audit before/after state. */
+/** Fetch a memory row for audit before/after state — MUST include embedding
+ *  so an undo of a delete can restore the row exactly (recall-invisible
+ *  otherwise). Mirrors mutations.fetchRows' ROW_SELECT. */
 async function getMemoryRow(id: string): Promise<any | null> {
   const rows = await pg_all(
-    `SELECT id, user_id, project_id, content, sector, is_genome, memory_tier, recorded_at FROM public.memories WHERE id = $1`,
+    `SELECT id, user_id, project_id, content, sector, is_genome, memory_tier, importance_tier, importance_score,
+            recorded_at, superseded_at, embedding, embedding_synthetic, decay_rate, access_count, metadata
+     FROM public.memories WHERE id = $1`,
     [id],
   );
   return rows[0] || null;
