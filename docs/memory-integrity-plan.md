@@ -1,6 +1,6 @@
 # Implementation Plan: Memory Integrity Engine (auto-heal)
 
-> **Status:** PLANNED — not yet implemented. This is the design for the memory-STORE integrity engine (the user's model): it runs against the `memories` table on a schedule and verifies memories are **complete** (embeddable), **valid** (true, not noise/false), and **coherent** (no contradictions/duplicates) — repairing by delete / supersede / merge / backfill, with every action audited and surfaced in a new "Memory Audit" tab. It is NOT a retrieval-side fix (re-recall with distilled queries is a separate, small add-on — see §Retrieval-path add-on).
+> **Status:** ✅ IMPLEMENTED 2026-08-06 (v4.4.0-integrity) — see the Implementation Summary at the bottom, including the first-run incident and its fixes.
 
 ## Overview
 
@@ -16,6 +16,7 @@ Everything (Tier 1 and 2) writes an `audit_log` row (`actor_id='auto-heal'`, bef
 **Do NOT merge the engines.** Consolidation = memory ORGANIZATION (LLM sweeper: merge related memories, promote standing rules, tidy groups; no governance gate, no audit trail). Integrity = memory VALIDITY (complete/true/coherent; deterministic checks + GATED judge; full audit). Different purposes, different gates.
 
 **Overlap (2 domains, complementary mechanisms):**
+
 - Near-dupe handling: consolidation merges LLM-judged *within chunks* (probabilistic); integrity supersedes deterministic pairs (sim ≥ 0.92, guaranteed). Order: integrity pair-check runs FIRST so consolidation doesn't spend LLM calls on resolved pairs.
 - Junk deletion: consolidation deletes noise groups LLM-judged ("usually"); integrity's SECRET/empty regexes are guaranteed. Both respect `superseded_at` → mutually helpful, never conflicting.
 
@@ -92,20 +93,20 @@ Refactor consolidation's `executeActions` to use them (behavior unchanged) → c
 
 ### Files changed (planned)
 
-| File                                                                | Change                                                             |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `packages/engram-js/src/durable/schema.ts`                          | `integrity_runs` + `integrity_findings` + version 4.4.0-integrity  |
-| `packages/engram-js/src/durable/mutations.ts`                        | NEW — shared mutation + audit primitives (BOTH engines call these) |
+| File                                                                | Change                                                               |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `packages/engram-js/src/durable/schema.ts`                          | `integrity_runs` + `integrity_findings` + version 4.4.0-integrity    |
+| `packages/engram-js/src/durable/mutations.ts`                       | NEW — shared mutation + audit primitives (BOTH engines call these)   |
 | `packages/engram-js/src/services/consolidationEngine.ts`            | refactor `executeActions` to use shared primitives (gains audit_log) |
-| `packages/engram-js/src/services/integrityEngine.ts`                | NEW — checks, two-tier executor, gate checks, audit/finding writes |
-| `packages/engram-js/src/services/traceScorer.ts`                    | export generic judge-call helper for the memory-validity rubric    |
-| `packages/engram-js/src/api/routes/dashboard/integrity/route.ts`    | NEW — run/status/findings/resolve                                  |
-| `packages/engram-js/src/api/routes/dashboard/memory-audit/route.ts` | NEW — audit trail                                                  |
-| `packages/engram-js/src/api/routes/index.ts`                        | register both                                                      |
-| `packages/engram-js/src/services/settingsService.ts`                | `general.integrity_*` GENERAL_SETTINGS                             |
-| `packages/engram-js/src/api/index.ts`                               | start integrity scheduler beside consolidation                     |
-| `apps/web/src/App.tsx`                                              | Memory Audit tab (gates, findings, audit trail)                    |
-| `readme.md` / `AGENTS.md`                                           | docs                                                               |
+| `packages/engram-js/src/services/integrityEngine.ts`                | NEW — checks, two-tier executor, gate checks, audit/finding writes   |
+| `packages/engram-js/src/services/traceScorer.ts`                    | export generic judge-call helper for the memory-validity rubric      |
+| `packages/engram-js/src/api/routes/dashboard/integrity/route.ts`    | NEW — run/status/findings/resolve                                    |
+| `packages/engram-js/src/api/routes/dashboard/memory-audit/route.ts` | NEW — audit trail                                                    |
+| `packages/engram-js/src/api/routes/index.ts`                        | register both                                                        |
+| `packages/engram-js/src/services/settingsService.ts`                | `general.integrity_*` GENERAL_SETTINGS                               |
+| `packages/engram-js/src/api/index.ts`                               | start integrity scheduler beside consolidation                       |
+| `apps/web/src/App.tsx`                                              | Memory Audit tab (gates, findings, audit trail)                      |
+| `readme.md` / `AGENTS.md`                                           | docs                                                                 |
 
 ### Verification plan
 
@@ -123,12 +124,45 @@ For the case where the store is healthy but retrieval misses (the 090f5c45 trace
 ## Open decisions
 
 - [DECIDE] Tier 2 default OFF until calibration ≥ 0.8 — **leaning: yes** (matches "off until green").
+  - Yes, but I want the switch to be automatic, ≥ 0.8 it turns on, <= 0.8 it turns off, with a flashing red icon at the top of the gui that states that
 - [DECIDE] Memory-validity rubric = standalone judge call (not a 4th trace dimension) — **leaning: yes** (keeps trace dimensions clean).
+  - Yes
 - [DECIDE] Near-dupe merge = supersede-older-by-newer (reversible) — **leaning: yes**.
+  - Yes
 - [DECIDE] Memory Audit tab also captures manual GUI memory edits via audit_log — **leaning: yes** (complete "changed or manipulated" surface).
+  - Yes
 
 ---
 
-## ✅ Implementation Summary
+## ✅ Implementation Summary (2026-08-06)
 
-*(append here when implemented — files changed, plan↔reality deviations, config flags, verification performed)*
+Implemented + deployed. Open decisions resolved per user:
+- **Gate automatic** (user's answer): the gate computes itself from PERSISTED eval results (`judge_evals` table — `runCalibration`/`runConsistency` now write there). Calibration ≥ 0.8 AND MAD ≤ 0.1 AND fresh (≤ 7d) → open; otherwise closed. The GUI shows a **flashing red banner** at the top of the app while the engine is enabled but the gate is closed. Verified live: after re-running evals (0.83 / 0) the gate opened by itself.
+- Standalone memory-validity rubric (via the new shared `callJudge` in traceScorer — trace dimensions unchanged). ✅
+- Near-dupe = supersede-older-by-newer. ✅
+- Manual GUI memory edits/deletes now write audit_log (actor `gui`). ✅
+
+### Files changed
+- `durable/schema.ts` — `integrity_runs`, `integrity_findings` (memory_id ON DELETE SET NULL so findings survive their memory), `judge_evals`, v4.4.0-integrity.
+- `durable/mutations.ts` (NEW) — `recordMemoryAudit`, `hardDeleteMemories`, `supersedeMemories`, `updateMemoryContent` (merge/promote semantics), `reclassifyMemorySector`. Shared by consolidation + integrity.
+- `services/consolidationEngine.ts` — `executeActions` refactored onto the shared primitives (behavior unchanged; now writes audit_log for every merge/update/promote/delete).
+- `services/traceScorer.ts` — `callJudge()` extracted (generic judge call, non-persisting); `parseJudge` exported.
+- `services/traceGovernance.ts` — `persistJudgeEval`/`latestJudgeEval`; calibration/consistency runs persist results.
+- `services/integrityEngine.ts` (NEW) — automatic gate, 8 Tier-1 checks, gated Tier-2 sampling, run/findings ledger, scheduler.
+- `api/routes/dashboard/integrity/route.ts` + `memory-audit/route.ts` (NEW); dashboard memory edit/delete audited.
+- `settingsService.ts` — `general.integrity_*` (enabled, interval, min_calibration, max_mad, sample_size, delete_confidence, tier2_action, gate_max_age_days).
+- `apps/web` — Memory Audit tab (gate card, findings ledger with Apply/Dismiss, audit trail with before/after JSON), flashing gate banner, Integrity settings group.
+
+### ⚠️ First-run incident (honest record)
+The FIRST live run executed with two silent-write bugs and one governance gap:
+1. **`audit_log.id` has NO default** (`uuid primary key`) — `recordMemoryAudit` omitted the id, so EVERY audit insert silently failed ("null value in column id violates not-null constraint"). Consequence: the first run's 18 near-dupe supersedes + 19 Tier-2 deletions happened with **zero audit trail** — unrecorded mutations, exactly what this system must never do. FIXED: `crypto.randomUUID()` supplied in the insert; verified via a live GUI-edit audit row.
+2. **Findings FK ordering** — the run row was inserted at the END, but findings reference `run_id` during the run → every finding insert FK-failed silently. FIXED: run row inserted first, summary UPDATE at the end.
+3. **Governance gap**: the gate validated TRACE-scoring calibration (0.83), but Tier 2's memory-validity rubric is a DIFFERENT rubric that had never been validated — yet it deleted 19/25 sampled memories (76% of the oldest/never-accessed rows). Some of those were plausibly genuine June-era noise, but the process was wrong: an unvalidated rubric should never hard-delete. FIXED: **`EG_INTEGRITY_TIER2_ACTION` defaults to `flag`** — Tier 2 samples + creates findings with judge scores/reasons, but does NOT delete or supersede until the user explicitly opts in (delete/supersede still require the gate open). This directly encodes "off until green" for the validity rubric.
+- Also discovered: consolidation's merge/update never set the `is_genome`/`decay_rate` COLUMNS (metadata only) — behavior preserved exactly in the refactor; flagged for a future decision.
+
+### Verification
+- Audit write path verified live (GUI edit → audit row). Gate auto-open verified (0.83/0 → open). Run 1 exercised the full pipeline (Tier-1 found 18 near-dupes, superseded; Tier-2 sampled 25). Run 2 (post-fix): judge box was unreachable (`fetch failed` — environmental, matches the user's earlier 503s) → Tier 2 degraded to errors=25, **zero deletions** — the safe-degrade behavior working as designed.
+
+### Notes / next phase
+- **Validate the memory-validity rubric** before flipping `EG_INTEGRITY_TIER2_ACTION` past `flag`: curate a memory-validity calibration set (human labels on sampled memories), measure agreement, and only then consider delete/supersede. This is the honest path to the user's 99.9999% requirement.
+- Retrieval-path add-on (distilled re-recall on low-relevance traces) remains separate/later.

@@ -12,6 +12,7 @@ import {
 import { send_telemetry } from "../configuration/telemetry";
 import { createHttpApp } from "./httpApp";
 import { consolidationEngine } from "../services/consolidationEngine";
+import { integrityEngine } from "../services/integrityEngine";
 import { loadSettings, seedSettingsFromEnv } from "../services/settingsService";
 import { run_migrations } from "../database/migrate";
 import { logger } from "../utils/logger";
@@ -228,6 +229,8 @@ export async function startServer() {
 
   // 🧠 START THE HIPPOCAMPUS — background consolidation cron (deferred to avoid startup crash)
   setTimeout(() => { consolidationEngine.start?.(); }, 2000);
+  // 🛡️ START THE INTEGRITY ENGINE — memory auto-heal (respects EG_INTEGRITY_ENABLED)
+  setTimeout(() => { integrityEngine.start?.(); }, 4000);
 
   logger.info({ module: 'server', port: env.port }, `Starting on port ${env.port}`);
   app.listen(env.port, () => {

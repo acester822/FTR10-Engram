@@ -9,6 +9,7 @@ import { embed } from "../../../embeddings/embed";
 import { bad, fail, run_async, all_async, make_db } from "../_kit";
 import { all_async as pg_all, run_async as pg_run } from "../../../database/connection";
 import { activityLog, clearActivity } from "../../activity";
+import { recordMemoryAudit } from "../../../durable/mutations";
 import os from "os";
 import { execFile } from "child_process";
 import { readLog, clearLog } from "../../../utils/logger";
@@ -20,6 +21,15 @@ function execFileAsync(cmd: string, args: string[]): Promise<[string, string]> {
       resolve([stdout, stderr]);
     });
   });
+}
+
+/** Fetch a memory row for audit before/after state. */
+async function getMemoryRow(id: string): Promise<any | null> {
+  const rows = await pg_all(
+    `SELECT id, user_id, project_id, content, sector, is_genome, memory_tier, recorded_at FROM public.memories WHERE id = $1`,
+    [id],
+  );
+  return rows[0] || null;
 }
 
 interface DashboardStats {
@@ -284,7 +294,21 @@ export const dashboard_route = (app: any) => {
       const content = body.content;
       const sector = body.sector ?? (body.metadata as any)?.sector;
       const isGenome = body.is_genome !== undefined ? body.is_genome : (body.contracts as any)?.is_genome;
+      const before = await getMemoryRow(id);
       await updateMemory(id, content, sector, isGenome);
+      if (before) {
+        await recordMemoryAudit({
+          actor_id: "gui",
+          actor_type: "user",
+          event_type: "memory_edit",
+          operation: "update",
+          target_table: "memories",
+          target_id: id,
+          before_state: { content: before.content, sector: before.sector, is_genome: before.is_genome },
+          after_state: { content, sector, is_genome: isGenome ?? before.is_genome },
+          metadata: { source: "web gui" },
+        });
+      }
       return res.json({ success: true });
     } catch (e: unknown) {
       fail(res, "dashboard_memory_update_failed", e);
@@ -296,7 +320,20 @@ export const dashboard_route = (app: any) => {
     try {
       const id = req.params.id;
       if (!id) return bad(res, "id", "memory ID is required");
+      const before = await getMemoryRow(id);
       await deleteMemory(id);
+      if (before) {
+        await recordMemoryAudit({
+          actor_id: "gui",
+          actor_type: "user",
+          event_type: "memory_edit",
+          operation: "delete",
+          target_table: "memories",
+          target_id: id,
+          before_state: before,
+          metadata: { source: "web gui" },
+        });
+      }
       return res.json({ success: true });
     } catch (e: unknown) {
       fail(res, "dashboard_memory_delete_failed", e);

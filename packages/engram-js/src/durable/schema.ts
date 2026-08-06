@@ -3,7 +3,7 @@
  - what is the file used for
 */
 
-export const DURABLE_SCHEMA_VERSION = "4.3.0-governance";
+export const DURABLE_SCHEMA_VERSION = "4.4.0-integrity";
 
 export const DURABLE_EDGE_TYPES = [
   "mentions",
@@ -37,6 +37,9 @@ export const DURABLE_TABLES = [
   "app_settings",
   "traces",
   "judge_calibration",
+  "integrity_runs",
+  "integrity_findings",
+  "judge_evals",
 ] as const;
 
 export interface DurableSchemaOptions {
@@ -70,6 +73,9 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
   const appSettings = table(schema, "app_settings");
   const traces = table(schema, "traces");
   const judgeCalibration = table(schema, "judge_calibration");
+  const integrityRuns = table(schema, "integrity_runs");
+  const integrityFindings = table(schema, "integrity_findings");
+  const judgeEvals = table(schema, "judge_evals");
   const edgeTypeCheck = DURABLE_EDGE_TYPES.map((type) => `'${type}'`).join(",");
 
   return [
@@ -387,5 +393,37 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
       created_at timestamptz not null default now()
     )`,
     `create index if not exists durable_judge_calibration_trace_idx on ${judgeCalibration} (trace_id)`,
+    // Memory integrity engine (v4.4.0-integrity): run ledger + findings.
+    `create table if not exists ${integrityRuns} (
+      id uuid primary key,
+      started_at timestamptz not null default now(),
+      completed_at timestamptz,
+      tier2_enabled boolean not null default false,
+      summary jsonb not null default '{}'::jsonb,
+      gate jsonb not null default '{}'::jsonb
+    )`,
+    `create table if not exists ${integrityFindings} (
+      id uuid primary key default gen_random_uuid(),
+      run_id uuid not null references ${integrityRuns}(id) on delete cascade,
+      check_name text not null,
+      memory_id uuid references ${memories}(id) on delete set null,
+      severity text not null default 'medium',
+      action_taken text not null default 'none',
+      detail jsonb not null default '{}'::jsonb,
+      status text not null default 'open',
+      created_at timestamptz not null default now(),
+      resolved_at timestamptz
+    )`,
+    `create index if not exists durable_integrity_findings_status_idx on ${integrityFindings} (status, severity)`,
+    `create index if not exists durable_integrity_findings_run_idx on ${integrityFindings} (run_id)`,
+    // Persisted judge eval results (calibration/consistency) — the AUTOMATIC
+    // Tier-2 gate reads the latest of each (user decision: >=0.8 on, <0.8 off).
+    `create table if not exists ${judgeEvals} (
+      id uuid primary key default gen_random_uuid(),
+      kind text not null check (kind in ('calibration', 'consistency')),
+      result jsonb not null,
+      created_at timestamptz not null default now()
+    )`,
+    `create index if not exists durable_judge_evals_kind_idx on ${judgeEvals} (kind, created_at desc)`,
   ];
 }

@@ -120,7 +120,7 @@ function buildRubric(dimension: TraceDimension, trace: any): { system: string; u
 
 // ── Tolerant JSON parse (fences anywhere, outermost object, log raw) ──
 
-function parseJudge(content: string): { score: number; reason: string } | null {
+export function parseJudge(content: string): { score: number; reason: string } | null {
   let text = content.trim().replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) return null;
@@ -139,6 +139,54 @@ function parseJudge(content: string): { score: number; reason: string } | null {
 
 // ── Scoring ─────────────────────────────────────────────────────────────
 
+// ── Generic judge call (shared by trace scoring AND the integrity engine's
+//    memory-validity rubric). Returns the raw assistant content; callers parse. ──
+
+export async function callJudge(
+  system: string,
+  user: string,
+): Promise<{ ok: boolean; content?: string; error?: string; ms?: number; model?: string }> {
+  const model = resolveJudgeModel();
+  const baseUrl = resolveJudgeProviderUrl();
+  const apiKey = resolveJudgeApiKey();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), JUDGE_TIMEOUT_MS);
+  const started = Date.now();
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        temperature: 0,
+        max_tokens: JUDGE_MAX_TOKENS,
+        response_format: { type: "json_object" },
+      }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  const ms = Date.now() - started;
+  if (!res.ok) {
+    const text = (await res.text().catch(() => "")).substring(0, 300);
+    logger.warn({ module: "traceScorer", status: res.status, ms }, `judge HTTP ${res.status}`);
+    return { ok: false, error: `judge HTTP ${res.status}: ${text}` };
+  }
+  const data: any = await res.json().catch(() => null);
+  const content: string =
+    typeof data?.choices?.[0]?.message?.content === "string" ? data.choices[0].message.content : "";
+  return { ok: true, content, ms, model };
+}
+
 export async function scoreTrace(
   id: string,
   dimension: TraceDimension,
@@ -151,49 +199,14 @@ export async function scoreTrace(
     if (!trace) return { ok: false, error: "trace_not_found" };
 
     const model = resolveJudgeModel();
-    const baseUrl = resolveJudgeProviderUrl();
-    const apiKey = resolveJudgeApiKey();
     const { system, user } = buildRubric(dimension, trace);
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), JUDGE_TIMEOUT_MS);
-    const started = Date.now();
-    let res: Response;
-    try {
-      res = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-          temperature: 0,
-          max_tokens: JUDGE_MAX_TOKENS,
-          response_format: { type: "json_object" },
-        }),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
+    const judge = await callJudge(system, user);
+    const ms = judge.ms ?? 0;
+    if (!judge.ok) {
+      return { ok: false, error: judge.error };
     }
-    const ms = Date.now() - started;
-
-    if (!res.ok) {
-      const text = (await res.text().catch(() => "")).substring(0, 300);
-      logger.warn({ module: "traceScorer", status: res.status, ms }, `judge HTTP ${res.status}`);
-      return { ok: false, error: `judge HTTP ${res.status}: ${text}` };
-    }
-
-    const data: any = await res.json().catch(() => null);
-    const content: string =
-      typeof data?.choices?.[0]?.message?.content === "string"
-        ? data.choices[0].message.content
-        : "";
+    const content = judge.content || "";
     const parsed = parseJudge(content);
     if (!parsed) {
       logger.warn({ module: "traceScorer", snippet: content.slice(0, 500) }, "judge returned unparseable JSON");

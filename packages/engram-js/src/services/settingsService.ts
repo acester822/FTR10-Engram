@@ -107,6 +107,15 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   // distribution buckets, suggestions, policy alerts, and the review loop.
   { key: "general.policy_good_threshold", env: "EG_POLICY_GOOD_THRESHOLD", type: "number", label: "Good Score Threshold", section: "policy" },
   { key: "general.policy_bad_threshold", env: "EG_POLICY_BAD_THRESHOLD", type: "number", label: "Bad Score Threshold", section: "policy" },
+  // Memory integrity engine (v4.4.0-integrity)
+  { key: "general.integrity_enabled", env: "EG_INTEGRITY_ENABLED", type: "bool", label: "Integrity Engine Enabled", section: "integrity" },
+  { key: "general.integrity_interval_ms", env: "EG_INTEGRITY_INTERVAL_MS", type: "number", label: "Integrity Interval (ms)", section: "integrity" },
+  { key: "general.integrity_min_calibration", env: "EG_INTEGRITY_MIN_CALIBRATION", type: "number", label: "Tier-2 Min Calibration", section: "integrity" },
+  { key: "general.integrity_max_mad", env: "EG_INTEGRITY_MAX_MAD", type: "number", label: "Tier-2 Max MAD", section: "integrity" },
+  { key: "general.integrity_sample_size", env: "EG_INTEGRITY_SAMPLE_SIZE", type: "number", label: "Tier-2 Sample Size", section: "integrity" },
+  { key: "general.integrity_delete_confidence", env: "EG_INTEGRITY_DELETE_CONFIDENCE", type: "number", label: "Delete Confidence (judge < x)", section: "integrity" },
+  { key: "general.integrity_tier2_action", env: "EG_INTEGRITY_TIER2_ACTION", type: "string", label: "Tier-2 Action (flag/delete/supersede)", section: "integrity" },
+  { key: "general.integrity_gate_max_age_days", env: "EG_INTEGRITY_GATE_MAX_AGE_DAYS", type: "number", label: "Gate Eval Max Age (days)", section: "integrity" },
 ];
 
 // ── Advanced (infra / secrets / misc) settings — shown in a warning-labeled table.

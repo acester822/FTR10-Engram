@@ -36,6 +36,8 @@ import { source_ingest_route } from "./sources/ingest/route";
 import { dashboard_route } from "./dashboard/route";
 import { dashboard_traces_route } from "./dashboard/traces/route";
 import { dashboard_judge_route } from "./dashboard/judge/route";
+import { dashboard_integrity_route } from "./dashboard/integrity/route";
+import { dashboard_memory_audit_route } from "./dashboard/memory-audit/route";
 import { settings_route } from "./settings/route";
 import { ide_routes } from "./ide/route";
 import { performance_llamaswap_route } from "./performance/llamaswap/route";
@@ -74,6 +76,8 @@ export function routes(app: any) {
   dashboard_route(app);
   dashboard_traces_route(app);
   dashboard_judge_route(app);
+  dashboard_integrity_route(app);
+  dashboard_memory_audit_route(app);
   settings_route(app);
   ide_routes(app, ctx);
   performance_llamaswap_route(app);

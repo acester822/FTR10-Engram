@@ -9,6 +9,7 @@ import { make_db as kit_make_db, run_async, all_async, transaction } from "../ap
 import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, normalizeSector } from "./memoryInjector";
 import { logger } from "../utils/logger";
 import { resolveGenerativeModel } from "../database/modelRegistry";
+import { hardDeleteMemories, updateMemoryContent } from "../durable/mutations";
 
 // ── Configuration ─────────────────────────────────────────────────────
 
@@ -392,8 +393,7 @@ If no actions are needed, return: {"actions": []}
               logger.warn({ module: 'consolidationEngine', action: action.action }, 'DELETE skipped — no valid UUID targets');
               continue;
             }
-            const placeholders = validIds.map((_, i) => `$${i + 1}`).join(",");
-            await db.query(`DELETE FROM "public"."memories" WHERE id IN (${placeholders})`, validIds);
+            await hardDeleteMemories(validIds, "consolidation", { action: "delete", reason: action.reason });
           }
           else if (action.action === "merge" || action.action === "update") {
             // For merge/update, new_content is REQUIRED. If LLM forgot it, synthesize from the source memories.
@@ -423,17 +423,15 @@ If no actions are needed, return: {"actions": []}
             const primaryId = validIds[0];
             const idsToDelete = validIds.slice(1);
 
-            await db.query(
-              `UPDATE "public"."memories"
-               SET content = $1,
-                   metadata = jsonb_set(jsonb_set(jsonb_set(metadata, '{sector}', to_jsonb($2::text)), '{is_genome}', to_jsonb($3::boolean)), '{decay_rate}', to_jsonb($4::numeric))
-               WHERE id = $5`,
-              [content, newSector, isGenome, decayRate, primaryId]
-            );
+            await updateMemoryContent(primaryId, content, "consolidation", {
+              sector: newSector,
+              is_genome: isGenome,
+              decay_rate: decayRate,
+              metadata: { action: action.action, reason: action.reason },
+            });
 
             if (idsToDelete.length > 0) {
-              const placeholders = idsToDelete.map((_, i) => `$${i + 1}`).join(",");
-              await db.query(`DELETE FROM "public"."memories" WHERE id IN (${placeholders})`, idsToDelete);
+              await hardDeleteMemories(idsToDelete, "consolidation", { action: action.action, reason: action.reason });
             }
           }
           else if (action.action === "promote") {
@@ -443,14 +441,13 @@ If no actions are needed, return: {"actions": []}
               const newSector = normalizeSector(action.new_sector || candidate?.sector || "semantic");
               const decayRate = DEFAULT_GENOME_DECAY_RATE;
 
-              await db.query(
-                `UPDATE "public"."memories"
-                 SET is_genome = true,
-                     metadata = jsonb_set(jsonb_set(metadata, '{is_genome}', 'true'::jsonb), '{sector}', to_jsonb($1::text)),
-                     decay_rate = $2::numeric
-                 WHERE id = $3`,
-                [newSector, decayRate, targetId]
-              );
+              await updateMemoryContent(targetId, candidate?.content ?? "", "consolidation", {
+                sector: newSector,
+                is_genome: true,
+                decay_rate: decayRate,
+                set_columns: true, // promote also updates the is_genome/decay_rate columns
+                metadata: { action: "promote", reason: action.reason },
+              });
 
               logger.info({ module: 'consolidationEngine', model: consolidationModel(), memoryId: targetId }, `Promoted memory to genome`);
             }

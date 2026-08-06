@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 
 // Local type alias — @types/react doesn't resolve in this monorepo setup with bundler moduleResolution
 type ReactNode = any;
-import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical, Share2, Download, ClipboardList, Flag, AlertTriangle } from "lucide-react";
+import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical, Share2, Download, ClipboardList, Flag, AlertTriangle, ClipboardCheck, History } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 const API_BASE = "/api/dashboard";
@@ -41,7 +41,7 @@ interface Stats {
   by_tier: Record<string, number>;
 }
 
-type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity" | "settings" | "mindmap" | "traces" | "governance";
+type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity" | "settings" | "mindmap" | "traces" | "governance" | "audit";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard" as Tab);
@@ -75,6 +75,22 @@ export default function App() {
   useEffect(() => {
     fetchStats();
   }, [fetchStats]);
+
+  // Integrity gate status — drives the flashing red banner when Tier 2 is locked.
+  const [gateStatus, setGateStatus] = useState(null as any);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch("/api/dashboard/integrity/status");
+        if (res.ok) setGateStatus(await res.json());
+      } catch {
+        // ignore
+      }
+    };
+    load();
+    const iv = setInterval(load, 30000);
+    return () => clearInterval(iv);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex">
@@ -150,6 +166,13 @@ export default function App() {
             Governance
           </NavButton>
           <NavButton
+            active={activeTab === "audit"}
+            onClick={() => setActiveTab("audit")}
+            icon={<ClipboardCheck size={20} />}
+          >
+            Memory Audit
+          </NavButton>
+          <NavButton
             active={activeTab === "settings"}
             onClick={() => setActiveTab("settings")}
             icon={<SettingsIcon size={20} />}
@@ -173,6 +196,14 @@ export default function App() {
 
       {/* Main Content */}
       <main className="ml-64 p-8 w-full min-h-screen">
+        {gateStatus && gateStatus.enabled && !gateStatus.gate.open && (
+          <div className="mb-6 px-4 py-3 rounded-lg bg-red-600 text-white text-sm font-medium animate-pulse flex items-center gap-2 shadow-lg">
+            <AlertTriangle size={16} />
+            <span>
+              Integrity gate CLOSED — Tier 2 auto-heal disabled: {(gateStatus.gate.reasons || []).join(" · ")}
+            </span>
+          </div>
+        )}
         {activeTab === "dashboard" && (
           <DashboardView stats={stats} onRefresh={fetchStats} />
         )}
@@ -184,6 +215,7 @@ export default function App() {
         {activeTab === "mindmap" && <MemoryGraphView />}
         {activeTab === "traces" && <TracesView />}
         {activeTab === "governance" && <GovernanceView />}
+        {activeTab === "audit" && <MemoryAuditView />}
         {activeTab === "settings" && <SettingsView />}
       </main>
     </div>
@@ -1043,6 +1075,19 @@ const GENERAL_GROUPS = [
     fields: [
       ["policy_good_threshold", "Good Score Threshold", "number"],
       ["policy_bad_threshold", "Bad Score Threshold", "number"],
+    ],
+  },
+  {
+    title: "Integrity",
+    fields: [
+      ["integrity_enabled", "Engine Enabled", "bool"],
+      ["integrity_interval_ms", "Interval (ms)", "number"],
+      ["integrity_min_calibration", "Tier-2 Min Calibration", "number"],
+      ["integrity_max_mad", "Tier-2 Max MAD", "number"],
+      ["integrity_sample_size", "Tier-2 Sample Size", "number"],
+      ["integrity_delete_confidence", "Delete Confidence", "number"],
+      ["integrity_tier2_action", "Tier-2 Action (flag/delete/supersede)", "string"],
+      ["integrity_gate_max_age_days", "Gate Eval Max Age (days)", "number"],
     ],
   },
 ];
@@ -2647,6 +2692,321 @@ function GovernanceView() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function MemoryAuditView() {
+  const [status, setStatus] = useState(null as any);
+  const [findings, setFindings] = useState([] as any[]);
+  const [auditEntries, setAuditEntries] = useState([] as any[]);
+  const [findingFilter, setFindingFilter] = useState("" as string);
+  const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState(null as any);
+  const [expandedFinding, setExpandedFinding] = useState(null as any);
+  const [expandedAudit, setExpandedAudit] = useState(null as any);
+
+  const load = useCallback(async () => {
+    try {
+      const [s, f, a] = await Promise.all([
+        fetch("/api/dashboard/integrity/status").then((r) => r.json()),
+        fetch("/api/dashboard/integrity/findings?limit=200").then((r) => r.json()),
+        fetch("/api/dashboard/memory-audit?limit=200").then((r) => r.json()),
+      ]);
+      setStatus(s);
+      setFindings(f.findings || []);
+      setAuditEntries(a.entries || []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const runNow = async () => {
+    setRunning(true);
+    setRunResult(null);
+    try {
+      const res = await fetch("/api/dashboard/integrity/run", { method: "POST" });
+      if (res.ok) setRunResult(await res.json());
+      load();
+    } catch {
+      // ignore
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const resolveFinding = async (id: string, action: string) => {
+    try {
+      await fetch(`/api/dashboard/integrity/findings/${id}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      load();
+    } catch {
+      // ignore
+    }
+  };
+
+  const fmtTs = (ts: string) => {
+    try {
+      return new Date(ts).toLocaleString();
+    } catch {
+      return ts;
+    }
+  };
+
+  const jsonBlock = (v: any) => {
+    if (v === null || v === undefined) return <span className="text-xs text-slate-400">—</span>;
+    let text: string;
+    try {
+      text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+    } catch {
+      text = String(v);
+    }
+    if (text.length > 60000) text = text.slice(0, 60000) + "\n… (truncated)";
+    return (
+      <pre className="text-xs text-slate-700 bg-slate-50 border border-gray-200 rounded-lg p-3 max-h-80 overflow-auto whitespace-pre-wrap break-all">
+        {text}
+      </pre>
+    );
+  };
+
+  const sevPill = (s: string) =>
+    s === "high" ? "bg-red-100 text-red-700" : s === "medium" ? "bg-yellow-100 text-yellow-700" : "bg-blue-100 text-blue-700";
+
+  const visibleFindings = findingFilter ? findings.filter((f: any) => f.status === findingFilter) : findings;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">Memory Audit</h2>
+          <p className="text-sm text-slate-500 mt-1">
+            Every memory change — auto-heal, consolidation, manual edits — with before/after state. Nothing silent.
+          </p>
+        </div>
+        <button
+          onClick={runNow}
+          disabled={running}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+        >
+          <RefreshCw size={14} className={running ? "animate-spin" : ""} />
+          {running ? "Running..." : "Run integrity check now"}
+        </button>
+      </div>
+
+      {runResult && (
+        <div className="px-4 py-3 rounded-lg bg-slate-50 border border-gray-200 text-sm">
+          {runResult.skipped ? (
+            <span className="text-amber-700">⚠ {runResult.reason}</span>
+          ) : (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${runResult.gate.open ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                  Tier 2 {runResult.gate.open ? "ENABLED" : "DISABLED"}
+                </span>
+                <span className="text-xs text-slate-500">calibration {runResult.gate.calibration ?? "—"} · MAD {runResult.gate.mad ?? "—"}</span>
+              </div>
+              <div className="text-xs text-slate-600">
+                {Object.entries(runResult.summary || {})
+                  .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+                  .join(" · ")}
+              </div>
+              {runResult.tier2 && (
+                <div className="text-xs text-slate-600">
+                  Tier 2 — sampled {runResult.tier2.sampled}, deleted {runResult.tier2.deleted}, superseded {runResult.tier2.superseded}, flagged {runResult.tier2.flagged}, errors {runResult.tier2.errors}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Gate status card */}
+      {status && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+          <h3 className="text-lg font-semibold text-slate-800">Tier 2 Gate (automatic)</h3>
+          <p className="text-xs text-slate-400 mb-3">
+            The gate reads the LATEST calibration + consistency results (persisted when you run them in Governance).
+            Calibration ≥ threshold opens it; below, it closes — and the red banner appears at the top of the app.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm">
+              <span className="text-xs text-slate-500 uppercase block">Engine</span>
+              <span className={`text-lg font-bold ${status.enabled ? "text-emerald-600" : "text-slate-400"}`}>
+                {status.enabled ? "ENABLED" : "disabled"}
+              </span>
+            </div>
+            <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm">
+              <span className="text-xs text-slate-500 uppercase block">Gate</span>
+              <span className={`text-lg font-bold ${status.gate.open ? "text-emerald-600" : "text-red-600"}`}>
+                {status.gate.open ? "OPEN" : "CLOSED"}
+              </span>
+            </div>
+            <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm">
+              <span className="text-xs text-slate-500 uppercase block">Calibration</span>
+              <span className="text-lg font-bold text-slate-800">{status.gate.calibration ?? "—"}</span>
+            </div>
+            <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm">
+              <span className="text-xs text-slate-500 uppercase block">MAD</span>
+              <span className="text-lg font-bold text-slate-800">{status.gate.mad ?? "—"}</span>
+            </div>
+            <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm">
+              <span className="text-xs text-slate-500 uppercase block">Open findings</span>
+              <span className="text-lg font-bold text-slate-800">{status.open_findings}</span>
+            </div>
+          </div>
+          {!status.gate.open && status.gate.reasons.length > 0 && (
+            <div className="mt-3 space-y-1">
+              {status.gate.reasons.map((r: string, i: number) => (
+                <div key={i} className="text-xs text-red-600 flex items-center gap-1">
+                  <AlertTriangle size={11} /> {r}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Findings ledger */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-3">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-semibold text-slate-800">Findings Ledger</h3>
+          <select
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            value={findingFilter}
+            onChange={(e: any) => setFindingFilter(e.target.value)}
+          >
+            <option value="">All statuses</option>
+            <option value="open">Open</option>
+            <option value="resolved">Resolved</option>
+            <option value="dismissed">Dismissed</option>
+          </select>
+        </div>
+        {findings.length === 0 ? (
+          <div className="text-sm text-slate-500">No findings yet — run an integrity check.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 border-b border-gray-200">
+                <th className="pb-2 pr-3">Check</th>
+                <th className="pb-2 pr-3">Severity</th>
+                <th className="pb-2 pr-3">Memory</th>
+                <th className="pb-2 pr-3">Action</th>
+                <th className="pb-2 pr-3">Status</th>
+                <th className="pb-2 pr-3">When</th>
+                <th className="pb-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleFindings.map((f: any) => (
+                <React.Fragment key={f.id}>
+                  <tr className="border-t border-gray-100 cursor-pointer hover:bg-slate-50" onClick={() => setExpandedFinding(expandedFinding === f.id ? null : f.id)}>
+                    <td className="py-2 pr-3 font-mono text-xs">{f.check_name}</td>
+                    <td className="py-2 pr-3">
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${sevPill(f.severity)}`}>{f.severity}</span>
+                    </td>
+                    <td className="py-2 pr-3 text-xs text-slate-600 max-w-xs truncate">{f.memory_content || (f.memory_id ? `deleted ${f.memory_id.slice(0, 8)}…` : "—")}</td>
+                    <td className="py-2 pr-3 text-xs">{f.action_taken}</td>
+                    <td className="py-2 pr-3 text-xs">{f.status}</td>
+                    <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{fmtTs(f.created_at)}</td>
+                    <td className="py-2 text-right whitespace-nowrap">
+                      {f.status === "open" && (
+                        <span className="flex gap-1">
+                          <button onClick={(e: any) => { e.stopPropagation(); resolveFinding(f.id, "apply"); }} className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-300 rounded text-xs hover:bg-blue-100">
+                            Apply
+                          </button>
+                          <button onClick={(e: any) => { e.stopPropagation(); resolveFinding(f.id, "dismiss"); }} className="px-2 py-1 bg-gray-100 text-gray-600 border border-gray-300 rounded text-xs hover:bg-gray-200">
+                            Dismiss
+                          </button>
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                  {expandedFinding === f.id && (
+                    <tr className="border-t border-gray-100 bg-slate-50">
+                      <td colSpan={7} className="px-3 py-3">
+                        <div className="text-xs text-slate-500 mb-1">
+                          memory_id: <code className="font-mono">{f.memory_id || "—"}</code>
+                          {f.memory_superseded_at && <span className="ml-2 text-amber-600">superseded {fmtTs(f.memory_superseded_at)}</span>}
+                        </div>
+                        {jsonBlock(f.detail)}
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Audit trail */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-3">
+        <h3 className="text-lg font-semibold text-slate-800">
+          <History size={16} className="inline mr-1 text-slate-400" /> Audit Trail
+        </h3>
+        <p className="text-xs text-slate-400">Every mutation to the memories table — auto-heal, consolidation, and manual GUI edits.</p>
+        {auditEntries.length === 0 ? (
+          <div className="text-sm text-slate-500">No audited mutations yet.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-slate-500 border-b border-gray-200">
+                <th className="pb-2 pr-3">When</th>
+                <th className="pb-2 pr-3">Actor</th>
+                <th className="pb-2 pr-3">Operation</th>
+                <th className="pb-2 pr-3">Target</th>
+                <th className="pb-2">Before → After</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditEntries.map((e: any) => (
+                <React.Fragment key={e.id}>
+                  <tr className="border-t border-gray-100 cursor-pointer hover:bg-slate-50" onClick={() => setExpandedAudit(expandedAudit === e.id ? null : e.id)}>
+                    <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{fmtTs(e.recorded_at)}</td>
+                    <td className="py-2 pr-3 text-xs">
+                      <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${e.actor_id === "auto-heal" ? "bg-purple-100 text-purple-700" : e.actor_id === "consolidation" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                        {e.actor_id}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-3 text-xs">{e.operation}</td>
+                    <td className="py-2 pr-3 font-mono text-xs text-slate-500">{e.target_id ? `${e.target_id.slice(0, 8)}…` : "—"}</td>
+                    <td className="py-2 text-xs text-slate-500">click to view JSON</td>
+                  </tr>
+                  {expandedAudit === e.id && (
+                    <tr className="border-t border-gray-100 bg-slate-50">
+                      <td colSpan={5} className="px-3 py-3">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Before</h4>
+                            {jsonBlock(e.before_state)}
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">After</h4>
+                            {jsonBlock(e.after_state)}
+                          </div>
+                        </div>
+                        {e.metadata && (
+                          <div className="mt-2">
+                            <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Why</h4>
+                            {jsonBlock(e.metadata)}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }

@@ -14,6 +14,26 @@ import { scoreTrace, autoScoreDimensionFor, TRACE_DIMENSIONS } from "./traceScor
 
 // ── Calibration set CRUD ────────────────────────────────────────────────
 
+/** Persisted judge eval results (the AUTOMATIC integrity Tier-2 gate reads the
+ *  latest of each kind). Written by runCalibration / runConsistency. */
+export async function persistJudgeEval(kind: "calibration" | "consistency", result: unknown): Promise<void> {
+  await pg_run(
+    `INSERT INTO public.judge_evals (kind, result) VALUES ($1, $2::jsonb)`,
+    [kind, JSON.stringify(result)],
+  ).catch((e: any) => {
+    // non-fatal — the gate treats missing evals as closed
+    console.warn("judge eval persist failed", e?.message);
+  });
+}
+
+export async function latestJudgeEval(kind: "calibration" | "consistency"): Promise<any | null> {
+  const rows = await pg_all(
+    `SELECT result, created_at FROM public.judge_evals WHERE kind = $1 ORDER BY created_at DESC LIMIT 1`,
+    [kind],
+  );
+  return rows[0] || null;
+}
+
 export async function listCalibration(): Promise<any[]> {
   return pg_all(
     `SELECT c.id, c.trace_id, c.dimension, c.expected_score, c.note, c.active, c.created_at,
@@ -120,13 +140,15 @@ export async function runCalibration(
       note: e.note ?? null,
     });
   }
-  return {
+  const result = {
     checked: results.length,
     agree,
     agree_rate: results.length ? Math.round((agree / results.length) * 100) / 100 : null,
     avg_abs_error: results.length ? Math.round((absErrSum / results.length) * 1000) / 1000 : null,
     entries: results,
   };
+  await persistJudgeEval("calibration", result);
+  return result;
 }
 
 // ── Consistency run: re-score a random sample N times, measure variance ──
@@ -177,10 +199,12 @@ export async function runConsistency(
       });
     }
   }
-  return {
+  const result = {
     checked: perTrace.length,
     repeats,
     overall_mean_abs_dev: n ? Math.round((sumMAD / n) * 1000) / 1000 : null,
     per_trace: perTrace,
   };
+  await persistJudgeEval("consistency", result);
+  return result;
 }

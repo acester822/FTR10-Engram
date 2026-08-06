@@ -92,6 +92,15 @@ export function redactSecrets(value: string): string {
   return out;
 }
 
+/** True when a string contains a credential-like pattern (integrity check). */
+export function containsSecret(value: string): boolean {
+  for (const re of SECRET_PATTERNS) {
+    re.lastIndex = 0; // /g patterns are stateful — reset before test
+    if (re.test(value)) return true;
+  }
+  return false;
+}
+
 export function redactPayload(value: unknown): unknown {
   if (typeof value === "string") return redactSecrets(value);
   if (Array.isArray(value)) return value.map(redactPayload);
