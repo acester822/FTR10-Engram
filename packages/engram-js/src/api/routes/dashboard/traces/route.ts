@@ -42,9 +42,14 @@ export const dashboard_traces_route = (app: any) => {
   app.get("/api/dashboard/traces/report", async (req: any, res: any) => {
     try {
       const q = req.query || {};
-      const days = q.days !== undefined ? Number(q.days) : 7;
-      const limit = q.limit !== undefined ? Number(q.limit) : 10;
-      const report = await traceReport(Number.isFinite(days) ? days : 7, Number.isFinite(limit) ? limit : 10);
+      const report = await traceReport({
+        days: q.days !== undefined ? Number(q.days) : 7,
+        from: typeof q.from === "string" && q.from ? q.from : undefined,
+        to: typeof q.to === "string" && q.to ? q.to : undefined,
+        route: typeof q.route === "string" && q.route ? q.route : undefined,
+        direction: typeof q.direction === "string" && q.direction ? q.direction : undefined,
+        limit: q.limit !== undefined ? Number(q.limit) : 10,
+      });
       res.json({ ok: true, report });
     } catch (e) {
       fail(res, "traces_report_failed", e);

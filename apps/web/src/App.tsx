@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 
 // Local type alias — @types/react doesn't resolve in this monorepo setup with bundler moduleResolution
 type ReactNode = any;
-import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical, Share2 } from "lucide-react";
+import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical, Share2, Download } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 const API_BASE = "/api/dashboard";
@@ -1114,10 +1114,13 @@ function TracesView() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [report, setReport] = useState(null as any);
   const [reportLoading, setReportLoading] = useState(false);
-  const [reportDays, setReportDays] = useState("7");
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportOpts, setReportOpts] = useState({ preset: "7", from: "", to: "", route: "", direction: "" });
 
-  const fetchTraces = useCallback(async () => {
-    setLoading(true);
+  const fetchTraces = useCallback(async (showLoading = false) => {
+    // showLoading=true on first load / filter change; background polls pass
+    // false so the list doesn't flash "Loading…" every 2.5s.
+    if (showLoading) setLoading(true);
     try {
       const params = new URLSearchParams();
       if (filter.route) params.set("route", filter.route);
@@ -1139,12 +1142,12 @@ function TracesView() {
   }, [filter]);
 
   useEffect(() => {
-    fetchTraces();
+    fetchTraces(true);
   }, [fetchTraces]);
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const interval = setInterval(fetchTraces, 2500);
+    const interval = setInterval(() => fetchTraces(false), 2500);
     return () => clearInterval(interval);
   }, [autoRefresh, fetchTraces]);
 
@@ -1223,11 +1226,22 @@ function TracesView() {
     }
   };
 
-  const handleReport = async () => {
+  const generateReport = async () => {
+    setReportOpen(false);
     setReportLoading(true);
     try {
-      const days = Number(reportDays) || 7;
-      const res = await fetch(`${API_BASE}/traces/report?days=${days}&limit=10`);
+      const p = new URLSearchParams();
+      if (reportOpts.preset === "custom") {
+        p.set("days", "365"); // wide default; from/to bound the window
+        if (reportOpts.from) p.set("from", `${reportOpts.from}T00:00:00`);
+        if (reportOpts.to) p.set("to", `${reportOpts.to}T23:59:59`);
+      } else {
+        p.set("days", reportOpts.preset);
+      }
+      if (reportOpts.route) p.set("route", reportOpts.route);
+      if (reportOpts.direction) p.set("direction", reportOpts.direction);
+      p.set("limit", "10");
+      const res = await fetch(`${API_BASE}/traces/report?${p.toString()}`);
       if (res.ok) {
         const data = await res.json();
         setReport(data.report);
@@ -1238,6 +1252,83 @@ function TracesView() {
       setReport(null);
     } finally {
       setReportLoading(false);
+    }
+  };
+
+  // ── PDF download (jsPDF vendored at public/vendor — local-first, no CDN) ──
+  const ensureJsPDF = () =>
+    new Promise((resolve) => {
+      const w = window as any;
+      if (w.jspdf) return resolve(w.jspdf);
+      const s = document.createElement("script");
+      s.src = "/vendor/jspdf.umd.min.js";
+      s.onload = () => resolve(w.jspdf);
+      document.head.appendChild(s);
+    });
+
+  const downloadReport = async () => {
+    if (!report) return;
+    try {
+      const jspdfMod: any = await ensureJsPDF();
+      const { jsPDF } = jspdfMod;
+      const doc = new jsPDF();
+      const W = doc.internal.pageSize.getWidth();
+      let y = 16;
+      const line = (txt: any, size = 10, bold = false, gap = 6) => {
+        if (y > 270) {
+          doc.addPage();
+          y = 16;
+        }
+        doc.setFontSize(size);
+        doc.setFont("helvetica", bold ? "bold" : "normal");
+        doc.text(String(txt ?? "").replace(/[^\x00-\xFF]/g, "?"), 14, y);
+        y += gap;
+      };
+      const hr = () => {
+        y += 2;
+        doc.setDrawColor(200);
+        doc.line(14, y, W - 14, y);
+        y += 6;
+      };
+
+      const windowLabel =
+        report.from && report.to
+          ? `${report.from.slice(0, 10)} → ${report.to.slice(0, 10)}`
+          : `last ${report.window_days} day${report.window_days === 1 ? "" : "s"}`;
+      line(`Engram Trace Report — ${windowLabel}`, 16, true, 9);
+      line(`Generated ${new Date().toLocaleString()}`, 9, false, 8);
+      hr();
+      line(`Traces: ${report.total}    Errors (>=400): ${report.errors}    Avg latency: ${report.avg_ms ?? "—"} ms`, 11, true, 7);
+      line(`Genome: ${report.breakdown_totals.genome}    Phenotype: ${report.breakdown_totals.phenotype}`, 10, false, 7);
+      line(`Judge: ${(report.judge_models || []).join(", ") || "—"}`, 9, false, 7);
+      hr();
+      line("By route:", 11, true);
+      Object.entries((report.by_route || {}) as any).forEach(([k, v]) => line(`  ${k}: ${v}`, 10));
+      line("By label:", 11, true);
+      Object.entries((report.by_label || {}) as any).forEach(([k, v]) => line(`  ${k}: ${v}`, 10));
+      if (Object.keys(report.breakdown_totals.sectors || {}).length) {
+        line("Sectors:", 11, true);
+        Object.entries((report.breakdown_totals.sectors || {}) as any).forEach(([k, v]) => line(`  ${k}: ${v}`, 10));
+      }
+      hr();
+      line("Scores by dimension:", 11, true);
+      const dims = Object.entries((report.score_stats || {}) as any);
+      if (!dims.length) line("  (none in window)", 10);
+      dims.forEach(([dim, st]: any) => line(`  ${dim}: avg ${st.avg} (n=${st.count}, min ${st.min}, max ${st.max})`, 10));
+      line(
+        `Distribution — good >=0.7: ${report.score_distribution.good}  medium 0.4-0.7: ${report.score_distribution.medium}  bad <0.4: ${report.score_distribution.bad}`,
+        9,
+      );
+      hr();
+      line("Lowest-scored traces (actionable):", 11, true);
+      if (!report.worst.length) line("  None scored below 0.4 in window", 10);
+      report.worst.forEach((w: any) => {
+        line(`  [${w.score}] ${w.route} (${w.dimension})`, 10);
+        line(`      ${w.reason}`, 9);
+      });
+      doc.save(`engram-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (e: any) {
+      alert(`PDF download failed: ${e?.message || e}`);
     }
   };
 
@@ -1302,14 +1393,8 @@ function TracesView() {
             <RefreshCw size={14} className={autoRefresh ? "animate-spin" : ""} />
             Auto-refresh
           </button>
-          <input
-            className="w-14 px-2 py-2 border border-gray-300 rounded-lg text-sm text-center"
-            value={reportDays}
-            onChange={(e: any) => setReportDays(e.target.value)}
-            title="Report window (days)"
-          />
           <button
-            onClick={handleReport}
+            onClick={() => setReportOpen(true)}
             disabled={reportLoading}
             className="px-3 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-900 disabled:opacity-50"
           >
@@ -1337,6 +1422,98 @@ function TracesView() {
         </div>
       </div>
 
+      {/* Report generator modal */}
+      {reportOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={() => setReportOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl p-6 w-96 space-y-4"
+            onClick={(e: any) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-slate-800">Generate Report</h3>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">Date range</label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                value={reportOpts.preset}
+                onChange={(e: any) => setReportOpts({ ...reportOpts, preset: e.target.value })}
+              >
+                <option value="1">Last 24 hours</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="custom">Custom range</option>
+              </select>
+            </div>
+            {reportOpts.preset === "custom" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">From</label>
+                  <input
+                    type="date"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={reportOpts.from}
+                    onChange={(e: any) => setReportOpts({ ...reportOpts, from: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">To</label>
+                  <input
+                    type="date"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={reportOpts.to}
+                    onChange={(e: any) => setReportOpts({ ...reportOpts, to: e.target.value })}
+                  />
+                </div>
+              </div>
+            )}
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">
+                Route (optional)
+              </label>
+              <input
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                placeholder="e.g. /recall"
+                value={reportOpts.route}
+                onChange={(e: any) => setReportOpts({ ...reportOpts, route: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-500 uppercase block mb-1">
+                Direction (optional)
+              </label>
+              <select
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                value={reportOpts.direction}
+                onChange={(e: any) => setReportOpts({ ...reportOpts, direction: e.target.value })}
+              >
+                <option value="">All</option>
+                <option value="in">IN (writes)</option>
+                <option value="out">OUT (reads)</option>
+                <option value="chat">Chat</option>
+                <option value="system">System</option>
+              </select>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setReportOpen(false)}
+                className="px-4 py-2 bg-gray-100 text-gray-600 border border-gray-300 rounded-lg text-sm hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={generateReport}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+              >
+                Generate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {bulkMsg && (
         <div
           className={`px-3 py-2 rounded-lg text-sm ${
@@ -1353,17 +1530,29 @@ function TracesView() {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 space-y-5">
           <div className="flex justify-between items-center">
             <h3 className="text-lg font-semibold text-slate-800">
-              Report — last {report.window_days} day{report.window_days === 1 ? "" : "s"}
+              Report —{" "}
+              {report.from && report.to
+                ? `${report.from.slice(0, 10)} → ${report.to.slice(0, 10)}`
+                : `last ${report.window_days} day${report.window_days === 1 ? "" : "s"}`}
               <span className="ml-2 text-xs font-normal text-slate-400">
                 judge: {(report.judge_models || []).join(", ") || "—"}
               </span>
             </h3>
-            <button
-              onClick={() => setReport(null)}
-              className="px-3 py-2 bg-gray-100 text-gray-600 border border-gray-300 rounded-lg text-sm hover:bg-gray-200"
-            >
-              Close
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={downloadReport}
+                title="Download report as PDF"
+                className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-700 border border-blue-300 rounded-lg text-sm hover:bg-blue-100 transition-colors"
+              >
+                <Download size={16} /> PDF
+              </button>
+              <button
+                onClick={() => setReport(null)}
+                className="px-3 py-2 bg-gray-100 text-gray-600 border border-gray-300 rounded-lg text-sm hover:bg-gray-200"
+              >
+                Close
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-4 gap-3">

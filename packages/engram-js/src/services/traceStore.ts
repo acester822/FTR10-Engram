@@ -232,8 +232,19 @@ export async function pruneTraces(days?: number): Promise<number> {
 
 // ── Report aggregation (real data, no LLM) ─────────────────────────────
 
+export interface TraceReportOptions {
+  days?: number;
+  from?: string; // ISO date-time
+  to?: string; // ISO date-time
+  route?: string;
+  direction?: string;
+  limit?: number;
+}
+
 export interface TraceReport {
   window_days: number;
+  from: string | null;
+  to: string | null;
   total: number;
   by_route: Record<string, number>;
   by_direction: Record<string, number>;
@@ -249,15 +260,35 @@ export interface TraceReport {
 
 /** Aggregate the trace store over a window — volume, errors, latency, score
  *  stats per dimension, good/medium/bad distribution, and the lowest-scored
- *  traces (the actionable signal). Pure SQL+JS, no LLM call. */
-export async function traceReport(days = 7, limit = 10): Promise<TraceReport> {
-  const d = Math.min(Math.max(Number(days) || 7, 1), 90);
+ *  traces (the actionable signal). Pure SQL+JS, no LLM call. Filters:
+ *  days (relative window, default 7), from/to (ISO bounds, override the
+ *  window floor), route, direction. */
+export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceReport> {
+  const d = Math.min(Math.max(Number(opts.days) || 7, 1), 365);
+  const where: string[] = [`ts >= now() - make_interval(days => $1)`];
+  const params: any[] = [d];
+  if (opts.from) {
+    params.push(new Date(opts.from).toISOString());
+    where.push(`ts >= $${params.length}`);
+  }
+  if (opts.to) {
+    params.push(new Date(opts.to).toISOString());
+    where.push(`ts <= $${params.length}`);
+  }
+  if (opts.route) {
+    params.push(opts.route);
+    where.push(`route = $${params.length}`);
+  }
+  if (opts.direction) {
+    params.push(opts.direction);
+    where.push(`direction = $${params.length}`);
+  }
   const rows = await pg_all(
     `SELECT ts, route, direction, label, status, ms, breakdown, scores
      FROM public.traces
-     WHERE ts >= now() - make_interval(days => $1)
+     WHERE ${where.join(" AND ")}
      ORDER BY ts DESC`,
-    [d],
+    params,
   );
 
   const byRoute: Record<string, number> = {};
@@ -319,7 +350,7 @@ export async function traceReport(days = 7, limit = 10): Promise<TraceReport> {
     }
   }
   worst.sort((a, b) => a.score - b.score);
-  const worstSlice = worst.slice(0, Math.min(Math.max(Number(limit) || 10, 1), 50));
+  const worstSlice = worst.slice(0, Math.min(Math.max(Number(opts.limit) || 10, 1), 50));
 
   const scoreStats: Record<string, { count: number; avg: number; min: number; max: number }> = {};
   for (const [k, v] of Object.entries(scoreByDim)) {
@@ -333,6 +364,8 @@ export async function traceReport(days = 7, limit = 10): Promise<TraceReport> {
 
   return {
     window_days: d,
+    from: opts.from ? new Date(opts.from).toISOString() : null,
+    to: opts.to ? new Date(opts.to).toISOString() : null,
     total: rows.length,
     by_route: byRoute,
     by_direction: byDirection,
