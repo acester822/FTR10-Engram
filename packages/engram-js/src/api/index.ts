@@ -103,7 +103,17 @@ export function createApp() {
                : (() => {
                    const results =
                      respJson?.results || respJson?.memories || [];
-                   return Array.isArray(results) ? results.length : undefined;
+                   if (Array.isArray(results)) return results.length;
+                   // Shaped cognitive-context response: count = genome + phenotype.
+                   if (
+                     typeof respJson?.genome_count === "number" ||
+                     typeof respJson?.phenotype_count === "number"
+                   )
+                     return (
+                       (Number(respJson?.genome_count) || 0) +
+                       (Number(respJson?.phenotype_count) || 0)
+                     );
+                   return undefined;
                  })(),
            breakdown: deriveBreakdown(cls, body, respJson),
            user_id: typeof body.user_id === "string" ? body.user_id : undefined,

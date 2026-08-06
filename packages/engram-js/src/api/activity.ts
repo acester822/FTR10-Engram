@@ -52,6 +52,17 @@ export function deriveBreakdown(
   if (!respJson || typeof respJson !== "object") return undefined;
 
   if (cls.kind === "read") {
+    // Shaped cognitive-context responses carry explicit counts instead of a results[].
+    if (
+      typeof respJson.genome_count === "number" ||
+      typeof respJson.phenotype_count === "number"
+    ) {
+      return {
+        genome: Number(respJson.genome_count) || 0,
+        phenotype: Number(respJson.phenotype_count) || 0,
+        sectors: {},
+      };
+    }
     const results = respJson.results || respJson.memories;
     if (!Array.isArray(results) || results.length === 0) return empty();
     const b = empty();
@@ -97,7 +108,10 @@ export function classifyActivity(method: string, url: string): ActivityClass | n
   )
     return { direction: "in", kind: "write", label: "ingest" };
   // Reads (memory being recalled/retrieved)
-  if (method === "POST" && (u === "/recall" || u === "/api/dashboard/recall"))
+  if (
+    method === "POST" &&
+    (u === "/recall" || u === "/api/dashboard/recall" || u === "/api/cognitive-context")
+  )
     return { direction: "out", kind: "read", label: "recall" };
   return null;
 }
