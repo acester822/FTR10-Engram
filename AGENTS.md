@@ -44,6 +44,8 @@ curl -X POST http://localhost:8098/api/dashboard/traces/report          # trace 
 curl -X POST http://localhost:8098/api/dashboard/judge/run-calibration  # judge vs human labels (agreement %)
 curl -X POST http://localhost:8098/api/dashboard/judge/consistency      # judge stability (N×R variance)
 curl -X POST http://localhost:8098/api/dashboard/memory-audit/<id>/undo # undo a mutation (supersede/delete/update/enrich)
+curl -X POST "http://localhost:8098/api/dashboard/coherence/link-backfill" # one-time legacy link backfill (idempotent, SQL-only)
+curl -X POST "http://localhost:8098/api/memories/bundle?topic=<topic>"      # composed, source-anchored knowledge bundle
 ```
 
 ## Project Flows:

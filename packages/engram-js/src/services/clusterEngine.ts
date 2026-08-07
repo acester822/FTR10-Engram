@@ -11,7 +11,7 @@
    for cost — the underlying memories are always re-read.
 */
 
-import { all_async as pg_all } from "../database/connection";
+import { all_async as pg_all, run_async as pg_run } from "../database/connection";
 import { embed, normalizeEmbedding } from "../embeddings/embed";
 import { callJudge, parseJudge } from "./traceScorer";
 import { logger } from "../utils/logger";
@@ -168,4 +168,57 @@ export async function composeBundle(topic: string): Promise<BundleResult | null>
 
 export function clearBundleCache(): void {
   bundleCache.clear();
+}
+
+// ── One-time legacy link backfill (SQL-only, no LLM) ─────────────────────
+// Creates `related_to` edges between ACTIVE semantic/procedural memories
+// with embedding similarity >= minSim — the honest retrofit: it computes
+// cluster structure from what already exists (embeddings), never invents
+// context. Idempotent (pairs with an existing edge of any type are
+// excluded), capped, ordered by similarity. No memory content is touched.
+
+export async function linkBackfill(opts: { limit?: number; minSim?: number } = {}): Promise<{
+  created: number;
+  pairs_considered: number;
+  limit: number;
+  min_sim: number;
+}> {
+  const limit = Math.min(opts.limit ?? 300, 1000);
+  const minSim = opts.minSim ?? 0.85;
+  const pairs = await pg_all(
+    `SELECT a.id AS a_id, b.id AS b_id, round((1 - (a.embedding <=> b.embedding))::numeric, 3) AS sim
+     FROM public.memories a JOIN public.memories b ON a.id < b.id
+     WHERE a.superseded_at IS NULL AND b.superseded_at IS NULL
+       AND a.embedding IS NOT NULL AND b.embedding IS NOT NULL
+       AND a.sector IN ('semantic', 'procedural') AND b.sector IN ('semantic', 'procedural')
+       AND (1 - (a.embedding <=> b.embedding)) >= ${minSim}
+       AND NOT EXISTS (
+         SELECT 1 FROM public.edges e
+         WHERE (e.source_memory_id = a.id AND e.target_memory_id = b.id)
+            OR (e.source_memory_id = b.id AND e.target_memory_id = a.id)
+       )
+     ORDER BY sim DESC LIMIT ${limit}`,
+    [],
+  );
+  let created = 0;
+  for (const p of pairs) {
+    try {
+      await pg_run(
+        `INSERT INTO public.edges (id, user_id, project_id, source_memory_id, target_memory_id, edge_type, weight, confidence, provenance, metadata, recorded_at)
+         VALUES (gen_random_uuid(), 'system', NULL, $1, $2, 'related_to', 1, $3, $4::jsonb, $5::jsonb, now())`,
+        [
+          p.a_id,
+          p.b_id,
+          Number(p.sim),
+          JSON.stringify({ source: "link_backfill", via: "coherence", similarity: Number(p.sim) }),
+          JSON.stringify({ link_backfill: true }),
+        ],
+      );
+      created++;
+    } catch {
+      /* skip failing pair — auxiliary */
+    }
+  }
+  logger.info({ module: "clusterEngine", created, pairs_considered: pairs.length }, "link backfill complete");
+  return { created, pairs_considered: pairs.length, limit, min_sim: minSim };
 }
