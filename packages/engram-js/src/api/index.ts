@@ -16,6 +16,7 @@ import { integrityEngine } from "../services/integrityEngine";
 import { enrichmentEngine } from "../services/enrichmentEngine";
 import { candidateProcessor } from "../services/candidateProcessor";
 import { recallGapEngine } from "../services/recallGapEngine";
+import { runCatchupScoring } from "../services/traceScorer";
 import { loadSettings, seedSettingsFromEnv } from "../services/settingsService";
 import { run_migrations } from "../database/migrate";
 import { logger } from "../utils/logger";
@@ -240,6 +241,9 @@ export async function startServer() {
   setTimeout(() => { candidateProcessor.start?.(); }, 45000);
   // 🔁 START THE RECALL-GAP ENGINE — low-recall traces -> enrichment proposals
   setTimeout(() => { recallGapEngine.start?.(); }, 60000);
+  // 🩹 CATCH-UP SCORER — retry judge-failed auto-scores (5 min in, every 15 min)
+  setTimeout(() => { runCatchupScoring().catch(() => {}); }, 5 * 60 * 1000);
+  setInterval(() => { runCatchupScoring().catch(() => {}); }, 15 * 60 * 1000);
 
   logger.info({ module: 'server', port: env.port }, `Starting on port ${env.port}`);
   app.listen(env.port, () => {

@@ -209,7 +209,7 @@ const QUESTION_RE =
 const QUESTION_OPENER_RE =
   /\b(what is|what are|whats|what's|how does|how do|how to|how can|why is|why does|when did|where is|which is|is there|are there|is it|does it|can you|could you|would you|tell me about|difference between)\b/i;
 
-function isKnowledgeQuery(q: string): boolean {
+export function isKnowledgeQuery(q: string): boolean {
   const t = q.trim();
   if (t.length < 8) return false;
   if (t.includes("?")) return true;

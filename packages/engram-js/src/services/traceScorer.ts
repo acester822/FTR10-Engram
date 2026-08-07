@@ -17,6 +17,7 @@ import {
 import { run_async as pg_run, all_async as pg_all } from "../database/connection";
 import { logger } from "../utils/logger";
 import { traceAutoScoreRate } from "./traceStore";
+import { isKnowledgeQuery } from "./traceStore";
 
 export type TraceDimension = "recall_relevance" | "extraction_fidelity" | "answer_quality";
 export const TRACE_DIMENSIONS: TraceDimension[] = [
@@ -242,6 +243,67 @@ export async function scoreTrace(
   } catch (e: any) {
     logger.warn({ module: "traceScorer", err: e?.message }, "scoreTrace failed");
     return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+// ── Catch-up scoring (v4.7.2): auto-drain eligible unscored traces ──
+// Auto-score fails silently when the judge call times out under load; this
+// scheduled pass retries them. Applies the SAME correctness filters as the
+// report stats: receipt-era ingests (no stored ids) and conversational
+// recalls are skipped — they can't produce a meaningful score, so they stay
+// honestly unscored rather than re-creating the artifact class.
+
+let catchupRunning = false;
+
+export async function runCatchupScoring(
+  max = 10,
+): Promise<{ attempted: number; scored: number; failed: number; skipped_ineligible: number; skipped_running?: boolean }> {
+  if (catchupRunning) return { attempted: 0, scored: 0, failed: 0, skipped_ineligible: 0, skipped_running: true };
+  catchupRunning = true;
+  try {
+    const rows = await pg_all(
+      `SELECT id, label, request_body, response_body FROM public.traces
+       WHERE (scores IS NULL OR jsonb_array_length(scores) = 0)
+         AND status < 400
+         AND label IN ('chat', 'ingest', 'remember', 'recall')
+       ORDER BY ts ASC LIMIT ${Math.min(Math.max(Number(max) || 10, 1), 50)}`,
+      [],
+    );
+    let attempted = 0;
+    let scored = 0;
+    let failed = 0;
+    let skipped = 0;
+    for (const t of rows) {
+      const dim = autoScoreDimensionFor(t);
+      if (!dim) {
+        skipped++;
+        continue;
+      }
+      if (dim === "extraction_fidelity") {
+        const ids = (t.response_body as any)?.stored_memory_ids;
+        if (!(Array.isArray(ids) && ids.length > 0)) {
+          skipped++; // receipt-era — no meaningful fidelity score possible
+          continue;
+        }
+      }
+      if (dim === "recall_relevance") {
+        const q = (t.request_body as any)?.query;
+        if (!isKnowledgeQuery(typeof q === "string" ? q : "")) {
+          skipped++; // conversational — not a knowledge query
+          continue;
+        }
+      }
+      attempted++;
+      const r = await scoreTrace(t.id, dim, { persist: true });
+      if (r.ok) scored++;
+      else failed++;
+    }
+    if (attempted > 0) {
+      logger.info({ module: "traceScorer", attempted, scored, failed, skipped }, `catch-up scoring pass done`);
+    }
+    return { attempted, scored, failed, skipped_ineligible: skipped };
+  } finally {
+    catchupRunning = false;
   }
 }
 
