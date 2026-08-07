@@ -119,3 +119,11 @@ Implemented + deployed. Open decisions resolved per user (edited in doc):
 
 ### Verification
 - Live run: sampled 5, 4 candidates enriched with sourced content (compaction-trigger memory gained the 167K-token detail from DeepWiki; Langfuse memory gained the data-model concepts), successors embedded, originals superseded, `enrich` audit rows with sources; undo round-trip verified; access-request path code-verified.
+
+### ⚠️ Contamination incident (2026-08-07) — user review found the enrichments wrong
+The user reviewed the first applied batch: **the enrichments were wrong** — (a) the compaction memory got details from **claude-md** (a different product), (b) another memory got polluted with a **DIFFERENT "Engram" project's** description (Go binary, SQLite+FTS5 — not FTR10-Engram), (c) others 100% wrong. Root causes + fixes:
+1. **Genome guardrail hole — ALL 6 targets had `metadata.is_genome = true`** (the genome flag lives in METADATA for these memories; the pool only filtered the COLUMN). FIXED: pool excludes `metadata->>'is_genome' = 'true'` AND column.
+2. **Intent/TODO/preference memories are not facts.** "The user wants to remember that X needs updating" is a TODO — enrichment cannot improve it and the web fills it with plausible wrong specifics. FIXED: deterministic `isIntentOrTodo` gate (user wants/needs updating/should/remind/important decision/check consistency/confirm whether...) excludes them before the judge.
+3. **Cross-project web sources passed validate** (topically adjacent ≠ same project). FIXED: a GROUNDING judge gate keeps only sources about the SAME project/tool/codebase, and the validate rubric now explicitly rejects cross-project imports.
+4. **Action default restored to `flag`** — the apply-default was decided when the risk looked like "slightly off + undoable"; the reality was "confidently wrong contamination". Gates + a clean reviewed batch before apply earns its way back (`EG_ENRICHMENT_ACTION`).
+- Cleanup: both contaminated successors undone via the audit trail (originals restored, `undo_enrich` rows); only the Langfuse enrichment (which recalled correctly) remains applied.

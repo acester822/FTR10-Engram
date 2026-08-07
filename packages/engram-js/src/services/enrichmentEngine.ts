@@ -29,7 +29,10 @@ export function enrichmentEnabled(): boolean {
   return ["1", "true", "yes", "on"].includes(String(process.env.EG_ENRICHMENT_ENABLED).toLowerCase());
 }
 export function enrichmentAction(): "apply" | "flag" {
-  return String(process.env.EG_ENRICHMENT_ACTION || "apply").toLowerCase() === "flag" ? "flag" : "apply";
+  // Default FLAG (restored after the 2026-08-07 contamination incident: 6/6
+  // applied enrichments violated the genome guardrail + cross-project web
+  // sources polluted memories. Gates + review before apply earns its way back.)
+  return String(process.env.EG_ENRICHMENT_ACTION || "flag").toLowerCase() === "apply" ? "apply" : "flag";
 }
 function poolSize(): number {
   const n = Number(process.env.EG_ENRICHMENT_POOL_SIZE);
@@ -61,7 +64,26 @@ function maxWebResults(): number {
 
 // ── Local helpers ─────────────────────────────────────────────────────────
 
-const STOP = new Set("the this that with from have your their about into would could should which these those what when where while after before against between through during without within along across behind beyond except inside near off onto upon under toward using also than then them they there were will over again any each few more most other some such only own same so too very just but not no nor or and of in on at by for to".split(" "));
+const STOP = new Set("the this that with from have your their about into would could should which these those what when where while after before against between through during without along across behind beyond except inside near off onto upon under toward using also than then them they there were will over again any each few more most other some such only own same so too very just but not no nor or of in on at by for to".split(" "));
+
+// Intent/TODO/preference memories are NOT facts — enrichment (web/codebase)
+// cannot improve them, and trying produced the "claude-md compaction" and
+// "other-Engram" contamination. Deterministic gate BEFORE the judge runs.
+const INTENT_PATTERNS = [
+  /\buser wants? to\b/i,
+  /\bneeds? (updating|to be (updated|fixed|changed|reviewed))\b/i,
+  /\bneeds? to (fix|update|change|add|remove|review|remember)\b/i,
+  /\b(should|must|please)\s+(update|fix|change|add|remove|remember|check)\b/i,
+  /\btodo\b/i,
+  /\bremind(er|ing)?\b/i,
+  /\bimportant decision\b/i,
+  /\bcheck (for|the) (consistency|alignment|discrepan)/i,
+  /\bconfirm whether\b/i,
+];
+
+export function isIntentOrTodo(content: string): boolean {
+  return INTENT_PATTERNS.some((re) => re.test(content));
+}
 
 function keyTerms(content: string): string[] {
   const tokens = content.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 5 && !STOP.has(t) && !/^\d+$/.test(t));
@@ -179,14 +201,18 @@ async function doRun(): Promise<any> {
     return { skipped: true, reason: "EG_ENRICHMENT_ENABLED is false — enable in Settings → General → Enrichment" };
   }
   const action = enrichmentAction();
-  const stats = { sampled: 0, candidates: 0, enriched: 0, flagged: 0, failed: 0, skipped_no_sources: 0, access_requests: 0 };
+  const stats = { sampled: 0, candidates: 0, enriched: 0, flagged: 0, failed: 0, skipped_no_sources: 0, skipped_intent: 0, access_requests: 0 };
   const started = Date.now();
 
   // 1. Selection — used-most first, deterministic filter to bound judge cost.
+  // Guardrails: genome (COLUMN or metadata.is_genome — the 2026-08-07 hole)
+  // and intent/TODO/preference content are NEVER enrichment targets.
   const pool = await pg_all(
     `SELECT id, content, sector, access_count FROM public.memories
      WHERE superseded_at IS NULL AND memory_tier <> 'archived' AND embedding IS NOT NULL
-       AND is_genome = false AND sector IN ('semantic', 'procedural')
+       AND is_genome = false
+       AND (metadata->>'is_genome') IS DISTINCT FROM 'true'
+       AND sector IN ('semantic', 'procedural')
        AND access_count >= $1
        AND NOT EXISTS (
          SELECT 1 FROM public.integrity_findings f
@@ -196,13 +222,15 @@ async function doRun(): Promise<any> {
      LIMIT $2`,
     [minUsage(), poolSize()],
   );
-  if (!pool.length) {
-    lastRun = { at: new Date().toISOString(), action, stats, ms: Date.now() - started, note: "no candidates meeting usage floor" };
+  const poolFacts = pool.filter((m: any) => !isIntentOrTodo(m.content));
+  stats.skipped_intent = pool.length - poolFacts.length;
+  if (!poolFacts.length) {
+    lastRun = { at: new Date().toISOString(), action, stats, ms: Date.now() - started, note: "no factual candidates meeting usage floor (intent/TODO/genome excluded)" };
     return lastRun;
   }
 
   // 2. Completeness rubric — judge-sample the batch.
-  const batch = pool.slice(0, batchSize());
+  const batch = poolFacts.slice(0, batchSize());
   const roots = searchRoots();
   const candidates: any[] = [];
   for (const mem of batch) {
@@ -262,6 +290,27 @@ async function doRun(): Promise<any> {
       sources.push(...web);
     }
 
+    // 3d. GROUNDING GATE — keep only sources about the SAME project/topic.
+    //     (The 2026-08-07 contamination: claude-md compaction + a DIFFERENT
+    //     Engram repo passed validate because they were topically adjacent.)
+    const memorySources = sources.filter((s) => s.type === "memory");
+    const externalSources = sources.filter((s) => s.type !== "memory");
+    if (externalSources.length) {
+      try {
+        const g = await callJudge(
+          `You are a source grounding filter. Given a MEMORY and numbered SOURCES, decide which sources are about the SAME project, tool, or codebase as the memory. A source about a DIFFERENT product or project is NOT usable even if it is topically adjacent. Respond ONLY with JSON: {"keep": [<indices>], "reasons": {"<n>": "<short reason>"}} — keep must be an array of the source numbers that are genuinely about the same project/topic.`,
+          `MEMORY:\n${cand.content.slice(0, 600)}\n\nSOURCES:\n${JSON.stringify(externalSources.map((s, i) => ({ n: i + 1, type: s.type, file: s.file, url: s.url, title: s.title, snippet: (s.snippet || s.excerpt || "").slice(0, 300) })), null, 1).slice(0, 7000)}`,
+        );
+        const gp = g.ok ? parseEnrichmentJson(g.content || "") : null;
+        const keep: number[] = Array.isArray(gp?.keep) ? gp.keep.map((n: any) => Number(n)) : [];
+        const kept = externalSources.filter((_: any, i: number) => keep.includes(i + 1));
+        sources.length = 0;
+        sources.push(...memorySources, ...kept);
+      } catch {
+        /* grounding judge failed — keep everything (validate still guards) */
+      }
+    }
+
     const realSources = sources.filter((s) => s.type !== "memory" || (s.content && s.content.length > 20));
     if (!realSources.length) {
       stats.skipped_no_sources++;
@@ -319,7 +368,7 @@ async function doRun(): Promise<any> {
     let valid = true;
     try {
       const v = await callJudge(
-        `You are a strict enrichment validator. Given ORIGINAL, ENRICHED, and SOURCES, judge whether ENRICHED preserves the original and adds ONLY facts supported by the sources (no hallucination, no off-topic drift). Respond ONLY with JSON: {"score": <0.0-1.0>, "reason": "<one sentence>"} where 0 = terrible and 1 = perfect.`,
+        `You are a strict enrichment validator. Given ORIGINAL, ENRICHED, and SOURCES, judge whether ENRICHED preserves the original and adds ONLY facts supported by the sources. REJECT (score 0) if: (a) any addition imports facts about a DIFFERENT project, tool, or codebase than the original memory; (b) any addition is not directly supported by a source; (c) the enrichment drifts off-topic or invents specifics. Respond ONLY with JSON: {"score": <0.0-1.0>, "reason": "<one sentence>"} where 0 = terrible and 1 = perfect.`,
         `ORIGINAL:\n${cand.content}\n\nENRICHED:\n${enriched}\n\nSOURCES:\n${JSON.stringify(realSources).slice(0, 6000)}`,
       );
       const parsed = v.ok ? parseJudge(v.content || "") : null;
