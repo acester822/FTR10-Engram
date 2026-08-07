@@ -50,8 +50,8 @@ function isKnowledgeQuery(q: string): boolean {
   return QUESTION_RE.test(t) || QUESTION_OPENER_RE.test(t);
 }
 
-export async function runRecallGap(): Promise<{ checked: number; answered_now: number; gaps: number; proposed: number; skipped_non_query: number; failed: number; skipped_running?: boolean }> {
-  if (running) return { checked: 0, answered_now: 0, gaps: 0, proposed: 0, skipped_non_query: 0, failed: 0, skipped_running: true };
+export async function runRecallGap(): Promise<{ checked: number; answered_now: number; gaps: number; proposed: number; skipped_non_query: number; skipped_dup_memory: number; failed: number; skipped_running?: boolean }> {
+  if (running) return { checked: 0, answered_now: 0, gaps: 0, proposed: 0, skipped_non_query: 0, skipped_dup_memory: 0, failed: 0, skipped_running: true };
   running = true;
   try {
     return await doRun();
@@ -62,8 +62,8 @@ export async function runRecallGap(): Promise<{ checked: number; answered_now: n
 
 let running = false;
 
-async function doRun(): Promise<{ checked: number; answered_now: number; gaps: number; proposed: number; skipped_non_query: number; failed: number }> {
-  const stats = { checked: 0, answered_now: 0, gaps: 0, proposed: 0, skipped_non_query: 0, failed: 0 };
+async function doRun(): Promise<{ checked: number; answered_now: number; gaps: number; proposed: number; skipped_non_query: number; skipped_dup_memory: number; failed: number }> {
+  const stats = { checked: 0, answered_now: 0, gaps: 0, proposed: 0, skipped_non_query: 0, skipped_dup_memory: 0, failed: 0 };
   if (!recallGapEnabled()) return stats;
   const bad = policyThresholds().bad;
 
@@ -132,6 +132,19 @@ async function doRun(): Promise<{ checked: number; answered_now: number; gaps: n
       if (!target) {
         // No memory to enrich — record the gap as informational.
         await writeGapFinding(t.id, query, null, null, null, llmResponse ? answerTraceId : null, llmResponse, false);
+        continue;
+      }
+
+      // MEMORY-LEVEL DEDUPE: two recall traces can propose the same memory
+      // (each guards its own trace_id) — one proposal per memory, ever.
+      // A dismissed proposal means the user decided; don't re-propose.
+      const dup = await pg_all(
+        `SELECT id FROM public.integrity_findings
+         WHERE check_name = 'recall_gap' AND memory_id = $1 LIMIT 1`,
+        [target.id],
+      ).catch(() => []);
+      if (dup.length) {
+        stats.skipped_dup_memory++;
         continue;
       }
 
