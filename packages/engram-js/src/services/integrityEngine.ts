@@ -16,7 +16,7 @@
 
 import crypto from "node:crypto";
 import { all_async as pg_all, run_async as pg_run } from "../database/connection";
-import { embed } from "../embeddings/embed";
+import { embed, normalizeEmbedding } from "../embeddings/embed";
 import { normalizeSector } from "./memoryInjector";
 import { callJudge, parseJudge } from "./traceScorer";
 import { latestJudgeEval } from "./traceGovernance";
@@ -25,9 +25,12 @@ import {
   supersedeMemories,
   reclassifyMemorySector,
   recordMemoryAudit,
+  enrichMemory,
 } from "../durable/mutations";
 import { containsSecret } from "./traceStore";
+import { saveSettings } from "./settingsService";
 import { logger } from "../utils/logger";
+import path from "node:path";
 
 const VALID_SECTORS = ["semantic", "procedural", "episodic", "emotional", "reflective"];
 
@@ -115,6 +118,18 @@ async function writeFinding(
 // ── Main run ────────────────────────────────────────────────────────────
 
 export async function runIntegrity(): Promise<any> {
+  if (integrityRunning) return { skipped: true, reason: "integrity run already in progress — skipped (manual + scheduled overlapped)" };
+  integrityRunning = true;
+  try {
+    return await doIntegrityRun();
+  } finally {
+    integrityRunning = false;
+  }
+}
+
+let integrityRunning = false;
+
+async function doIntegrityRun(): Promise<any> {
   if (!integrityEnabled()) {
     return { skipped: true, reason: "EG_INTEGRITY_ENABLED is false — enable it in Settings → General → Integrity" };
   }
@@ -146,9 +161,9 @@ export async function runIntegrity(): Promise<any> {
     let failed = 0;
     for (const r of rows) {
       try {
-        const vec = await embed(r.content);
+        const vec = normalizeEmbedding(await embed(r.content));
         if (vec && vec.length) {
-          await pg_run(`UPDATE public.memories SET embedding = $2::halfvec WHERE id = $1`, [r.id, vec]);
+          await pg_run(`UPDATE public.memories SET embedding = $2::halfvec WHERE id = $1`, [r.id, JSON.stringify(vec)]);
           await recordMemoryAudit({
             actor_id: "auto-heal",
             event_type: "integrity_repair",
@@ -182,11 +197,11 @@ export async function runIntegrity(): Promise<any> {
     summary.synthetic_embeddings = rows.length;
     for (const r of rows) {
       try {
-        const vec = await embed(r.content);
+        const vec = normalizeEmbedding(await embed(r.content));
         if (vec && vec.length) {
           await pg_run(
             `UPDATE public.memories SET embedding = $2::halfvec, embedding_synthetic = false WHERE id = $1`,
-            [r.id, vec],
+            [r.id, JSON.stringify(vec)],
           );
           await recordMemoryAudit({
             actor_id: "auto-heal",
@@ -296,12 +311,12 @@ export async function runIntegrity(): Promise<any> {
     const missed: string[] = [];
     for (const q of probes) {
       try {
-        const vec = await embed(q);
+        const vec = normalizeEmbedding(await embed(q));
         const res = await pg_all(
           `SELECT id FROM public.memories
            WHERE superseded_at IS NULL AND embedding IS NOT NULL
            ORDER BY embedding <=> $1::halfvec LIMIT 1`,
-          [vec],
+          [JSON.stringify(vec)],
         );
         if (!res.length) missed.push(q);
       } catch {
@@ -456,7 +471,34 @@ export async function resolveFinding(
   let actionTaken = f.action_taken;
   let appliedNote = note ?? "applied by user";
 
-  if (f.action_taken === "flag" && f.memory_id && f.check_name === "false_memory_sampling") {
+  // Enrichment access request — Apply = GRANT the directory (persisted),
+  // Dismiss = deny (default flow marks it dismissed).
+  if (f.check_name === "enrichment_access_request" && f.action_taken === "flag") {
+    const root = f.detail?.root;
+    if (typeof root === "string" && root) {
+      const current = String(process.env.EG_ENRICHMENT_SEARCH_ROOTS || "");
+      const list = current.split(",").map((s) => s.trim()).filter(Boolean);
+      if (!list.some((r) => path.resolve(r) === path.resolve(root))) {
+        list.push(root);
+        await saveSettings({ "general.enrichment_search_roots": list.join(",") });
+        appliedNote = `granted access to ${root}`;
+      } else {
+        appliedNote = `already granted: ${root}`;
+      }
+      actionTaken = "grant_access";
+    } else {
+      appliedNote = "no root in finding detail — nothing to grant";
+    }
+  } else if (f.check_name === "enrichment_candidate" && f.action_taken === "flag" && f.memory_id && f.detail?.new_content) {
+    // Deferred enrichment (only reachable in flag mode) — human click = approval.
+    const r = await enrichMemory(f.memory_id, f.detail.new_content, f.detail.sources ?? [], "user-apply");
+    if (r.ok) {
+      actionTaken = "enrich";
+      appliedNote = `applied by user (enrich) — successor ${r.new_id}`;
+    } else {
+      appliedNote = `enrichment failed: ${r.error}`;
+    }
+  } else if (f.action_taken === "flag" && f.memory_id && f.check_name === "false_memory_sampling") {
     const verdict = f.detail?.verdict;
     const stillThere = await pg_all(`SELECT id, superseded_at FROM public.memories WHERE id = $1`, [f.memory_id]);
     if (!stillThere.length) {

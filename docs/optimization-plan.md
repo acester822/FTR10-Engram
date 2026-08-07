@@ -84,13 +84,38 @@
 ## Open decisions
 
 - [DECIDE] Enrichment action default `flag` (same stance as Tier 2 — new rubric, no mutation authority until validated) — **leaning: yes**.
+    - No, with the system we have in place if something were to happen, it could be undone, still track 100%, but allow it to happen. At some point the agents must be trusted to make the right call, and if they don't I can click the undo button.
 - [DECIDE] Web enrichment default OFF; codebase + store-first only initially — **leaning: yes** (inward-first philosophy).
+    - Default to on. It is there for a reason, it should be used
 - [DECIDE] Default search roots `/home/ftr/Apps` — **leaning: yes** (project dirs; adjust via Settings).
+    - This one is trickier, the Apps directory is a good default, but what if it needs info that is in .ftr, or .hermes? Not everything is in the Apps folder, there needs to be a mechanism in place for this, perhaps a "review" for access to places not in Apps?
 - [DECIDE] Successor gets a fresh embedding via `embed()` — **leaning: yes** (otherwise the enriched memory recalls as the thin original).
+    - Yes, otherwise the entire process is for nothing
 - [DECIDE] Enrichment writes ONE audit row (operation `enrich`, before/after full rows) so undo is a single click — **leaning: yes**.
+    - 100% yes, it needs to be automatic, but restorable if there is a mishap
 
 ---
 
-## ✅ Implementation Summary
+## ✅ Implementation Summary (2026-08-07)
 
-*(append here when implemented — files changed, plan↔reality deviations, config flags, verification performed)*
+Implemented + deployed. Open decisions resolved per user (edited in doc):
+- **Action defaults `apply`** — agents are trusted; the audit + undo are the safety net. Verified: 4 real enrichments applied in the first run.
+- **Web ON by default** — searxNcrawl via the existing `AutoSearchEngine`; sources carry URLs (verified: DeepWiki + langfuse.com/docs snippets with `[src:N]` tags in the enriched text).
+- **Access-request mechanism** (user's idea): when codebase search finds no evidence in the allowed roots and `~/.hermes` / `~/.ftr` exist un-granted, a `enrichment_access_request` finding appears — **Apply = grant** (persists into `EG_ENRICHMENT_SEARCH_ROOTS` via `saveSettings`), Dismiss = deny.
+- Fresh embedding on successors. ✅ One audit row (`enrich`, before/after full rows) + one-click undo. ✅ (undo verified: successor removed, original restored, `undo_enrich` audit row written)
+
+### Files changed
+- `services/enrichmentEngine.ts` (NEW) — selection (used-most × completeness rubric), sources in order store → codebase (rg over allowlisted roots, file:line) → web, compose + validate judge calls, access-request findings, run lock.
+- `durable/mutations.ts` — `enrichMemory()` (successor + supersede + one audit row) + `undoAuditEntry` `enrich` branch.
+- `services/integrityEngine.ts` — `resolveFinding` handles `enrichment_access_request` (grant) + `enrichment_candidate` apply; run lock.
+- `embeddings/embed.ts` — `normalizeEmbedding()` (providers may return numeric strings).
+- `api/routes/dashboard/enrichment/route.ts` (NEW) + register + scheduler; settings `general.enrichment_*`.
+- `apps/web` — "Run enrichment now" button, Would-do: "Enrich memory (sourced)" / "Grant access to <root>", Enrichment settings group.
+
+### ⚠️ Bugs found & fixed during verification
+1. **`::halfvec` bind convention**: node-pg serializes JS arrays as `{"0.1","0.2"}` (quoted) which pgvector REJECTS ("invalid input syntax for type halfvec"). The codebase convention (repository `asVector`) is to bind embeddings as **JSON strings** (`[0.1,0.2]`). Every embed-fed bind in the new engines now uses `JSON.stringify(normalizeEmbedding(...))`. Also: the current embedding provider returns values as numeric STRINGS — normalize first.
+2. **Concurrent runs**: manual + scheduled runs overlapped → the same memory enriched twice (two successors). Fixed with an in-process run lock in BOTH engines (`{skipped: true, reason: "already in progress"}`). The redundant successor from the overlap was superseded manually.
+3. Config note: `env.vec_dim` (1536) ≠ column dim (halfvec(768)); when the embedding provider is down, the synthetic fallback (1536-dim) fails dim checks and enrichments skip gracefully — safe degrade.
+
+### Verification
+- Live run: sampled 5, 4 candidates enriched with sourced content (compaction-trigger memory gained the 167K-token detail from DeepWiki; Langfuse memory gained the data-model concepts), successors embedded, originals superseded, `enrich` audit rows with sources; undo round-trip verified; access-request path code-verified.

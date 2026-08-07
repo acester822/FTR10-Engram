@@ -10,6 +10,7 @@
 */
 
 import { all_async as pg_all, run_async as pg_run } from "../database/connection";
+import { embed, normalizeEmbedding } from "../embeddings/embed";
 import { logger } from "../utils/logger";
 import crypto from "node:crypto";
 
@@ -198,6 +199,77 @@ export async function reclassifyMemorySector(
   return true;
 }
 
+// ── Enrichment (rung 3 — optimization engine) ─────────────────────────────
+// Never rewrites: creates a sourced SUCCESSOR (fresh uuid + fresh embedding),
+// supersedes the original, ONE audit row (operation 'enrich') with both full
+// rows + sources so undo is a single click (delete successor, restore original).
+
+export async function enrichMemory(
+  oldId: string,
+  newContent: string,
+  sources: unknown,
+  actor = "enrichment",
+): Promise<{ ok: boolean; error?: string; old_id?: string; new_id?: string }> {
+  const before = await fetchRows([oldId]);
+  if (!before.length) return { ok: false, error: "memory not found" };
+  const old = before[0];
+  let vec: number[] | null = null;
+  try {
+    vec = normalizeEmbedding(await embed(newContent));
+  } catch (e: any) {
+    return { ok: false, error: `embed failed: ${e?.message || e}` };
+  }
+  if (!vec || !vec.length) return { ok: false, error: "embed returned empty vector" };
+  const newId = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const newRow = {
+    id: newId,
+    user_id: old.user_id,
+    project_id: old.project_id,
+    content: newContent,
+    sector: old.sector,
+    is_genome: false, // enrichment never creates genome
+    memory_tier: old.memory_tier ?? "active",
+    importance_tier: old.importance_tier,
+    importance_score: old.importance_score,
+    recorded_at: now,
+    superseded_at: null,
+    embedding: vec,
+    embedding_synthetic: false,
+    decay_rate: old.decay_rate ?? 0.1,
+    access_count: 0,
+    metadata: { ...(old.metadata ?? {}), enriched_from: oldId },
+  };
+  await pg_run(
+    `INSERT INTO public.memories
+       (id, user_id, project_id, content, sector, is_genome, memory_tier, importance_tier, importance_score,
+        recorded_at, superseded_at, embedding, embedding_synthetic, decay_rate, access_count, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::halfvec, $13, $14, $15, $16::jsonb)`,
+    [
+      newRow.id, newRow.user_id ?? "anonymous", newRow.project_id ?? null, newRow.content, newRow.sector,
+      newRow.is_genome, newRow.memory_tier, newRow.importance_tier, newRow.importance_score,
+      newRow.recorded_at, newRow.superseded_at,
+      // Codebase convention: bind embeddings as JSON STRINGS (asVector) —
+      // node-pg's raw array serialization is rejected by the halfvec parser.
+      JSON.stringify(vec),
+      newRow.embedding_synthetic,
+      newRow.decay_rate, newRow.access_count, JSON.stringify(newRow.metadata),
+    ],
+  );
+  await pg_run(`UPDATE public.memories SET superseded_at = now() WHERE id = $1`, [oldId]);
+  await recordMemoryAudit({
+    actor_id: actor,
+    event_type: "integrity_repair",
+    operation: "enrich",
+    target_table: "memories",
+    target_id: oldId,
+    before_state: old,
+    after_state: newRow,
+    metadata: { sources },
+  });
+  return { ok: true, old_id: oldId, new_id: newId };
+}
+
 // ── Undo ─────────────────────────────────────────────────────────────────
 // Reverses an audited mutation using its before_state. Supersede = clear
 // superseded_at (trivially reversible). Delete = re-insert the full row
@@ -275,6 +347,35 @@ export async function undoAuditEntry(
       metadata: { undo_of: auditId },
     });
     return { ok: true, message: "delete undone — memory restored" };
+  }
+
+  if (op === "enrich") {
+    // Reverse: delete the successor (after_state has the full new row) and
+    // restore the original (clear superseded_at).
+    const after = a.after_state ?? null;
+    if (!after || !after.id) return { ok: false, error: "after_state missing — cannot undo this enrichment" };
+    const succExists = await pg_all(`SELECT id FROM public.memories WHERE id = $1`, [after.id]);
+    if (succExists.length) {
+      await pg_run(`DELETE FROM public.memories WHERE id = $1`, [after.id]);
+    }
+    if (targetId) {
+      const orig = await pg_all(`SELECT id, superseded_at FROM public.memories WHERE id = $1`, [targetId]);
+      if (orig.length && orig[0].superseded_at) {
+        await pg_run(`UPDATE public.memories SET superseded_at = NULL WHERE id = $1`, [targetId]);
+      }
+    }
+    await recordMemoryAudit({
+      actor_id: "user",
+      actor_type: "user",
+      event_type: "memory_undo",
+      operation: "undo_enrich",
+      target_table: "memories",
+      target_id: targetId,
+      before_state: { successor_id: after.id },
+      after_state: { original_restored: true },
+      metadata: { undo_of: auditId },
+    });
+    return { ok: true, message: "enrichment undone — successor removed, original restored" };
   }
 
   if (op === "update" || op === "reclassify") {

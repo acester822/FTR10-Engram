@@ -1090,6 +1090,21 @@ const GENERAL_GROUPS = [
       ["integrity_gate_max_age_days", "Gate Eval Max Age (days)", "number"],
     ],
   },
+  {
+    title: "Enrichment",
+    fields: [
+      ["enrichment_enabled", "Engine Enabled", "bool"],
+      ["enrichment_action", "Action (apply/flag)", "string"],
+      ["enrichment_interval_ms", "Interval (ms)", "number"],
+      ["enrichment_pool_size", "Selection Pool Size", "number"],
+      ["enrichment_batch_size", "Judge Batch Size", "number"],
+      ["enrichment_min_incomplete", "Min Incomplete Score", "number"],
+      ["enrichment_min_usage", "Min Access Count", "number"],
+      ["enrichment_search_roots", "Search Roots (comma)", "string"],
+      ["enrichment_web_enabled", "Web Search Enabled", "bool"],
+      ["enrichment_max_web_results", "Max Web Results", "number"],
+    ],
+  },
 ];
 
 const ADVANCED_GROUPS = [
@@ -2703,6 +2718,8 @@ function MemoryAuditView() {
   const [findingFilter, setFindingFilter] = useState("" as string);
   const [running, setRunning] = useState(false);
   const [runResult, setRunResult] = useState(null as any);
+  const [enrRunning, setEnrRunning] = useState(false);
+  const [enrResult, setEnrResult] = useState(null as any);
   const [expandedFinding, setExpandedFinding] = useState(null as any);
   const [expandedAudit, setExpandedAudit] = useState(null as any);
   const [auditMsg, setAuditMsg] = useState(null as any);
@@ -2737,6 +2754,20 @@ function MemoryAuditView() {
       // ignore
     } finally {
       setRunning(false);
+    }
+  };
+
+  const runEnrichment = async () => {
+    setEnrRunning(true);
+    setEnrResult(null);
+    try {
+      const res = await fetch("/api/dashboard/enrichment/run", { method: "POST" });
+      if (res.ok) setEnrResult(await res.json());
+      load();
+    } catch {
+      // ignore
+    } finally {
+      setEnrRunning(false);
     }
   };
 
@@ -2814,15 +2845,37 @@ function MemoryAuditView() {
             Every memory change — auto-heal, consolidation, manual edits — with before/after state. Nothing silent.
           </p>
         </div>
-        <button
-          onClick={runNow}
-          disabled={running}
-          className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-        >
-          <RefreshCw size={14} className={running ? "animate-spin" : ""} />
-          {running ? "Running..." : "Run integrity check now"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={runEnrichment}
+            disabled={enrRunning}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            <RefreshCw size={14} className={enrRunning ? "animate-spin" : ""} />
+            {enrRunning ? "Enriching..." : "Run enrichment now"}
+          </button>
+          <button
+            onClick={runNow}
+            disabled={running}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            <RefreshCw size={14} className={running ? "animate-spin" : ""} />
+            {running ? "Running..." : "Run integrity check now"}
+          </button>
+        </div>
       </div>
+
+      {enrResult && (
+        <div className="px-4 py-3 rounded-lg bg-slate-50 border border-gray-200 text-sm">
+          {enrResult.skipped ? (
+            <span className="text-amber-700">⚠ {enrResult.reason}</span>
+          ) : (
+            <div className="text-xs text-slate-600">
+              <span className="font-semibold text-slate-700">Enrichment</span> (action: {enrResult.action}) — sampled {enrResult.stats.sampled}, candidates {enrResult.stats.candidates}, enriched {enrResult.stats.enriched}, flagged {enrResult.stats.flagged}, no-sources {enrResult.stats.skipped_no_sources}, access requests {enrResult.stats.access_requests}, failed {enrResult.stats.failed} · {enrResult.ms}ms
+            </div>
+          )}
+        </div>
+      )}
 
       {runResult && (
         <div className="px-4 py-3 rounded-lg bg-slate-50 border border-gray-200 text-sm">
@@ -2947,10 +3000,14 @@ function MemoryAuditView() {
                     <td className="py-2 pr-3 text-xs">{f.action_taken}</td>
                     <td className="py-2 pr-3 text-xs">
                       {f.status === "open" && f.action_taken === "flag" ? (
-                        f.verdict === "delete candidate" ? (
+                        f.check_name === "enrichment_access_request" ? (
+                          <span className="text-teal-600 font-medium">Grant access to {(f.detail || {}).root || "?"}</span>
+                        ) : f.verdict === "delete candidate" ? (
                           <span className="text-red-600 font-medium">Delete memory</span>
                         ) : f.verdict === "supersede candidate" ? (
                           <span className="text-amber-600 font-medium">Supersede (reversible)</span>
+                        ) : f.verdict === "enrich" ? (
+                          <span className="text-teal-600 font-medium">Enrich memory (sourced)</span>
                         ) : (
                           <span className="text-slate-500">{f.verdict || f.action_taken}</span>
                         )

@@ -116,6 +116,18 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.integrity_delete_confidence", env: "EG_INTEGRITY_DELETE_CONFIDENCE", type: "number", label: "Delete Confidence (judge < x)", section: "integrity" },
   { key: "general.integrity_tier2_action", env: "EG_INTEGRITY_TIER2_ACTION", type: "string", label: "Tier-2 Action (flag/delete/supersede)", section: "integrity" },
   { key: "general.integrity_gate_max_age_days", env: "EG_INTEGRITY_GATE_MAX_AGE_DAYS", type: "number", label: "Gate Eval Max Age (days)", section: "integrity" },
+  // Memory optimization engine (rung 3 — enrichment; user decisions Aug 2026:
+  // action defaults APPLY, web defaults ON, out-of-allowlist dirs via grant/deny)
+  { key: "general.enrichment_enabled", env: "EG_ENRICHMENT_ENABLED", type: "bool", label: "Enrichment Engine Enabled", section: "enrichment" },
+  { key: "general.enrichment_action", env: "EG_ENRICHMENT_ACTION", type: "string", label: "Enrichment Action (apply/flag)", section: "enrichment" },
+  { key: "general.enrichment_interval_ms", env: "EG_ENRICHMENT_INTERVAL_MS", type: "number", label: "Enrichment Interval (ms)", section: "enrichment" },
+  { key: "general.enrichment_pool_size", env: "EG_ENRICHMENT_POOL_SIZE", type: "number", label: "Selection Pool Size", section: "enrichment" },
+  { key: "general.enrichment_batch_size", env: "EG_ENRICHMENT_BATCH_SIZE", type: "number", label: "Judge Batch Size", section: "enrichment" },
+  { key: "general.enrichment_min_incomplete", env: "EG_ENRICHMENT_MIN_INCOMPLETE", type: "number", label: "Min Incomplete Score", section: "enrichment" },
+  { key: "general.enrichment_min_usage", env: "EG_ENRICHMENT_MIN_USAGE", type: "number", label: "Min Access Count", section: "enrichment" },
+  { key: "general.enrichment_search_roots", env: "EG_ENRICHMENT_SEARCH_ROOTS", type: "string", label: "Search Roots (comma-separated)", section: "enrichment" },
+  { key: "general.enrichment_web_enabled", env: "EG_ENRICHMENT_WEB_ENABLED", type: "bool", label: "Web Search Enabled", section: "enrichment" },
+  { key: "general.enrichment_max_web_results", env: "EG_ENRICHMENT_MAX_WEB_RESULTS", type: "number", label: "Max Web Results", section: "enrichment" },
 ];
 
 // ── Advanced (infra / secrets / misc) settings — shown in a warning-labeled table.

@@ -321,14 +321,14 @@ codebase.
 `.env` (copy `.env.example`) now holds ONLY the values that cannot be GUI-managed — read at
 startup before the settings store is available, or consumed by compose:
 
-| Variable                                                                               | Purpose                                                                 |
-| -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `EG_GENERATIVE_URL` / `EG_UPSTREAM_LLM_URL` / `EG_OPENAI_BASE_URL`                     | LLM-box base URLs (`http://10.10.10.41:8080/v1` in the live deployment) |
-| `EG_OPENAI_API_KEY`                                                                     | Provider auth key                                                       |
-| `EG_PG_HOST` / `EG_PG_PORT` / `EG_PG_DB` / `EG_PG_USER` / `EG_PG_PASSWORD` / `EG_PG_SCHEMA` / `EG_PG_SSL` | Postgres connection (startup)                       |
-| `EG_REDIS_URL`                                                                          | Redis connection (startup)                                              |
-| `EG_LOG_DIR` / `EG_LOG_MAX_LINES` / `LOG_LEVEL`                                        | Logging (logger reads at static import)                                 |
-| `EG_INTERNAL_API_KEY` / `NODE_ENV`                                                     | Internal auth / runtime mode                                            |
+| Variable                                                                                                  | Purpose                                                                 |
+| --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `EG_GENERATIVE_URL` / `EG_UPSTREAM_LLM_URL` / `EG_OPENAI_BASE_URL`                                        | LLM-box base URLs (`http://10.10.10.41:8080/v1` in the live deployment) |
+| `EG_OPENAI_API_KEY`                                                                                       | Provider auth key                                                       |
+| `EG_PG_HOST` / `EG_PG_PORT` / `EG_PG_DB` / `EG_PG_USER` / `EG_PG_PASSWORD` / `EG_PG_SCHEMA` / `EG_PG_SSL` | Postgres connection (startup)                                           |
+| `EG_REDIS_URL`                                                                                            | Redis connection (startup)                                              |
+| `EG_LOG_DIR` / `EG_LOG_MAX_LINES` / `LOG_LEVEL`                                                           | Logging (logger reads at static import)                                 |
+| `EG_INTERNAL_API_KEY` / `NODE_ENV`                                                                        | Internal auth / runtime mode                                            |
 
 Engram loads `.env` from the cwd and up to four ancestor directories **without overriding
 already-set process env**. A `docker compose restart` won't re-read a changed `.env` — use
@@ -347,7 +347,6 @@ All models resolve through `src/database/modelRegistry.ts`, in one order:
 1. **Settings tab** (Postgres `app_settings`) — per-task / per-facet / master values
 2. **Env override** (legacy vars above)
 3. **Fail** with a clear message (never a silent hardcoded model name)
-
 - **Generative** — `resolveGenerativeModel(task)` for `extraction`, `compaction`,
   `consolidation`, or `default` (master). A per-task setting beats the master model.
 - **Embedding** — `resolveEmbeddingModel(facet)` for `episodic`/`semantic`/`procedural`/
@@ -419,44 +418,44 @@ cd apps/web && npm run build
 
 The server exposes two families: **root-level API routes** (used by clients and the Hermes plugin) and **dashboard routes** (used by the Web GUI; nginx only forwards `/api/` to the container, which is why recall is duplicated under `/api/dashboard/recall`).
 
-| Endpoint                                                                                                                     | Method               | Description                                                             |
-| ---------------------------------------------------------------------------------------------------------------------------- | -------------------- | ----------------------------------------------------------------------- |
-| `/v1/chat/completions`                                                                                                       | POST                 | OpenAI-compatible chat endpoint with memory injection (the proxy)       |
-| `/health`                                                                                                                    | GET                  | Health check                                                            |
-| `/recall`                                                                                                                    | POST                 | Memory recall/search (embed query → hybrid recall)                      |
-| `/api/cognitive-context`                                                                                                     | POST                 | Shaped context block for the Hermes sidecar (genome + phenotype + gated outward web) |
-| `/memories`                                                                                                                  | GET/POST             | List / create memories                                                  |
-| `/memories/:id`                                                                                                              | GET / PATCH / DELETE | Read / update / delete a memory                                         |
-| `/memories/:id/explain`                                                                                                      | GET                  | Explain why a memory was recalled                                       |
-| `/memories/:id/reinforce`                                                                                                    | POST                 | Reinforce a memory (boosts salience)                                    |
-| `/memories/:id/tier`                                                                                                         | POST                 | Change memory tier (active/warm/cold/archived)                          |
-| `/contradictions`                                                                                                            | POST                 | Create a contradiction between memories                                 |
-| `/contradictions/:id/resolve`                                                                                                | POST                 | Resolve a contradiction                                                 |
-| `/consolidations` / `/consolidations/claim` / `/consolidations/:id/complete`                                                 | POST                 | Consolidation lifecycle endpoints                                       |
-| `/edges/execute`                                                                                                             | POST                 | Execute knowledge-graph edge operations                                 |
-| `/graph/temporal/query`                                                                                                      | POST                 | Temporal graph query for memory relationships                           |
-| `/ingest/conversation`                                                                                                       | POST                 | Ingest a full conversation turn (Hermes sidecar)                        |
-| `/ingest/document` / `/ingest/event` / `/ingest`                                                                             | POST                 | Document / event ingestion                                              |
-| `/ingest/candidates/:id/accept` / `/reject`                                                                                  | POST                 | Promote / reject extraction candidates                                  |
-| `/sources/:source/ingest`                                                                                                    | POST                 | Ingest from external sources (github, notion, googleDrive, onedrive, …) |
-| `/admin/decay/run`                                                                                                           | POST                 | Run the memory decay engine manually                                    |
-| `/stats/summary` / `/stats/timeseries`                                                                                       | GET                  | Memory statistics                                                       |
-| `/api/dashboard/stats`                                                                                                       | GET                  | Dashboard statistics (genome/phenotype breakdown)                       |
-| `/api/dashboard/memories`                                                                                                    | GET                  | List memories (paginated, searchable, sector filter)                    |
-| `/api/dashboard/memories/:id`                                                                                                | PUT/DELETE           | Update / delete a memory                                                |
-| `/api/dashboard/logs` / `/api/dashboard/log`                                                                                 | GET                  | Interaction logs / full Pino log file                                   |
-| `/api/dashboard/recall`                                                                                                      | POST                 | Recall engine (browser-reachable duplicate of `/recall`)                |
-| `/api/dashboard/consolidate`                                                                                                 | POST                 | Trigger consolidation (`?tier=recent` / `?tier=deep` / both)           |
-| `/api/dashboard/perf`                                                                                                        | GET                  | Server performance metrics                                              |
-| `/api/dashboard/activity`                                                                                                    | GET                  | Live memory activity feed (ring buffer)                                 |
-| `/api/dashboard/traces`                                                                                                      | GET                  | Persistent trace store — list (filters: route/direction/kind/status/scored) |
-| `/api/dashboard/traces/:id`                                                                                                  | GET                  | Full trace incl. request/response bodies                                |
+| Endpoint                                                                                                                     | Method               | Description                                                                              |
+| ---------------------------------------------------------------------------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------- |
+| `/v1/chat/completions`                                                                                                       | POST                 | OpenAI-compatible chat endpoint with memory injection (the proxy)                        |
+| `/health`                                                                                                                    | GET                  | Health check                                                                             |
+| `/recall`                                                                                                                    | POST                 | Memory recall/search (embed query → hybrid recall)                                       |
+| `/api/cognitive-context`                                                                                                     | POST                 | Shaped context block for the Hermes sidecar (genome + phenotype + gated outward web)     |
+| `/memories`                                                                                                                  | GET/POST             | List / create memories                                                                   |
+| `/memories/:id`                                                                                                              | GET / PATCH / DELETE | Read / update / delete a memory                                                          |
+| `/memories/:id/explain`                                                                                                      | GET                  | Explain why a memory was recalled                                                        |
+| `/memories/:id/reinforce`                                                                                                    | POST                 | Reinforce a memory (boosts salience)                                                     |
+| `/memories/:id/tier`                                                                                                         | POST                 | Change memory tier (active/warm/cold/archived)                                           |
+| `/contradictions`                                                                                                            | POST                 | Create a contradiction between memories                                                  |
+| `/contradictions/:id/resolve`                                                                                                | POST                 | Resolve a contradiction                                                                  |
+| `/consolidations` / `/consolidations/claim` / `/consolidations/:id/complete`                                                 | POST                 | Consolidation lifecycle endpoints                                                        |
+| `/edges/execute`                                                                                                             | POST                 | Execute knowledge-graph edge operations                                                  |
+| `/graph/temporal/query`                                                                                                      | POST                 | Temporal graph query for memory relationships                                            |
+| `/ingest/conversation`                                                                                                       | POST                 | Ingest a full conversation turn (Hermes sidecar)                                         |
+| `/ingest/document` / `/ingest/event` / `/ingest`                                                                             | POST                 | Document / event ingestion                                                               |
+| `/ingest/candidates/:id/accept` / `/reject`                                                                                  | POST                 | Promote / reject extraction candidates                                                   |
+| `/sources/:source/ingest`                                                                                                    | POST                 | Ingest from external sources (github, notion, googleDrive, onedrive, …)                  |
+| `/admin/decay/run`                                                                                                           | POST                 | Run the memory decay engine manually                                                     |
+| `/stats/summary` / `/stats/timeseries`                                                                                       | GET                  | Memory statistics                                                                        |
+| `/api/dashboard/stats`                                                                                                       | GET                  | Dashboard statistics (genome/phenotype breakdown)                                        |
+| `/api/dashboard/memories`                                                                                                    | GET                  | List memories (paginated, searchable, sector filter)                                     |
+| `/api/dashboard/memories/:id`                                                                                                | PUT/DELETE           | Update / delete a memory                                                                 |
+| `/api/dashboard/logs` / `/api/dashboard/log`                                                                                 | GET                  | Interaction logs / full Pino log file                                                    |
+| `/api/dashboard/recall`                                                                                                      | POST                 | Recall engine (browser-reachable duplicate of `/recall`)                                 |
+| `/api/dashboard/consolidate`                                                                                                 | POST                 | Trigger consolidation (`?tier=recent` / `?tier=deep` / both)                             |
+| `/api/dashboard/perf`                                                                                                        | GET                  | Server performance metrics                                                               |
+| `/api/dashboard/activity`                                                                                                    | GET                  | Live memory activity feed (ring buffer)                                                  |
+| `/api/dashboard/traces`                                                                                                      | GET                  | Persistent trace store — list (filters: route/direction/kind/status/scored)              |
+| `/api/dashboard/traces/:id`                                                                                                  | GET                  | Full trace incl. request/response bodies                                                 |
 | `/api/dashboard/traces/:id/score`                                                                                            | POST                 | LLM-as-judge scoring (`dimension=recall_relevance\|extraction_fidelity\|answer_quality`) |
-| `/api/dashboard/traces` / `/api/dashboard/traces/prune`                                                                      | DELETE               | Clear all traces / hard-delete older than retention (`?days=N`)          |
-| `/api/dashboard/activity/clear`                                                                                              | POST                 | Clear the activity feed                                                 |
-| `/api/performance/system`                                                                                                    | GET                  | System metrics (CPU, memory, disk, load, uptime)                        |
-| `/api/performance/llama-swap`                                                                                                | GET                  | Upstream llama-swap box metrics                                         |
-| `/api/ide/session/start` · `/api/ide/session/end` · `/api/ide/events` · `/api/ide/context` · `/api/ide/patterns/:session_id` | GET/POST             | VS Code extension integration endpoints                                 |
+| `/api/dashboard/traces` / `/api/dashboard/traces/prune`                                                                      | DELETE               | Clear all traces / hard-delete older than retention (`?days=N`)                          |
+| `/api/dashboard/activity/clear`                                                                                              | POST                 | Clear the activity feed                                                                  |
+| `/api/performance/system`                                                                                                    | GET                  | System metrics (CPU, memory, disk, load, uptime)                                         |
+| `/api/performance/llama-swap`                                                                                                | GET                  | Upstream llama-swap box metrics                                                          |
+| `/api/ide/session/start` · `/api/ide/session/end` · `/api/ide/events` · `/api/ide/context` · `/api/ide/patterns/:session_id` | GET/POST             | VS Code extension integration endpoints                                                  |
 
 ---
 

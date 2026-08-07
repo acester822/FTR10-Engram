@@ -430,6 +430,26 @@ const resize_vec = (v: number[], t: number) => {
 };
 
 export const embed = (text: string) => embedForFacet(text, "semantic");
+
+/** Coerce any provider response into a number[] (some OpenAI-compatible
+ *  servers return embedding values as NUMERIC STRINGS, which would break a
+ *  `::halfvec` bind — "invalid input syntax for type halfvec"). Also tolerates
+ *  JSON strings and Postgres array literals. */
+export function normalizeEmbedding(v: unknown): number[] {
+  if (Array.isArray(v)) return v.map((x) => Number(x));
+  if (typeof v === "string") {
+    const t = v.trim();
+    try {
+      const p = JSON.parse(t);
+      if (Array.isArray(p)) return p.map((x) => Number(x));
+    } catch {
+      /* fallthrough */
+    }
+    const m = t.match(/^\{(.*)\}$/s);
+    if (m) return m[1].split(",").map((s) => Number(s.trim()));
+  }
+  return [];
+}
 export const getEmbeddingProvider = () => env.emb_kind;
 
 /**
