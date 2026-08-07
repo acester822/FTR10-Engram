@@ -14,6 +14,7 @@ import { createHttpApp } from "./httpApp";
 import { consolidationEngine } from "../services/consolidationEngine";
 import { integrityEngine } from "../services/integrityEngine";
 import { enrichmentEngine } from "../services/enrichmentEngine";
+import { candidateProcessor } from "../services/candidateProcessor";
 import { loadSettings, seedSettingsFromEnv } from "../services/settingsService";
 import { run_migrations } from "../database/migrate";
 import { logger } from "../utils/logger";
@@ -234,6 +235,8 @@ export async function startServer() {
   setTimeout(() => { integrityEngine.start?.(); }, 4000);
   // ✨ START THE ENRICHMENT ENGINE — memory optimization (respects EG_ENRICHMENT_ENABLED)
   setTimeout(() => { enrichmentEngine.start?.(); }, 6000);
+  // 🧹 START THE CANDIDATE PROCESSOR — drains the extraction-candidates queue
+  setTimeout(() => { candidateProcessor.start?.(); }, 45000);
 
   logger.info({ module: 'server', port: env.port }, `Starting on port ${env.port}`);
   app.listen(env.port, () => {

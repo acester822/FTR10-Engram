@@ -123,7 +123,7 @@ class _EngramClient:
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
         req = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
         try:
-            with urllib.request.urlopen(req, timeout=20) as resp:
+            with urllib.request.urlopen(req, timeout=90) as resp:
                 raw = resp.read().decode("utf-8")
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as e:
@@ -223,7 +223,14 @@ class _EngramClient:
         res = self._post("/ingest/conversation", payload)
         if res is not None:
             return res
-        # Fallback: raw event (creates an extraction candidate, queued).
+        # One retry: extraction is a 30-60s LLM call on a busy local box and the
+        # first attempt can hit a transient connection timeout — don't degrade a
+        # real conversation to a parked candidate over a single hiccup.
+        res = self._post("/ingest/conversation", payload)
+        if res is not None:
+            return res
+        # Fallback: raw event (creates an extraction candidate, queued and
+        # drained by Engram's candidateProcessor — no longer a black hole).
         fallback = {
             "source": {"kind": "hermes", "uri": "hermes://conversation",
                        "content_type": "text/plain"},

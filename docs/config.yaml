@@ -1,0 +1,221 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/mostlygeek/llama-swap/refs/heads/main/config-schema.json
+
+
+healthCheckTimeout: 300
+prometheusPath: /metrics
+logLevel: debug
+startPort: 10001
+globalTTL: 30000
+
+performance:
+  every: 5s
+
+
+metricsMaxInMemory: 1000
+
+
+models:
+  # ===== QWEN 3.6 28B REAP20 =====
+  "Qwen3.6-28B-REAP20":
+    cmd: >
+      C:\llama\raider\llama.cpp\llama-server.exe
+      -m C:\llama\raider\models\Qwen3.6-28B-REAP20-A3B-Q4_K_M.gguf
+      --host 0.0.0.0
+      --port ${PORT}
+
+      # ==========================================
+      # MEMORY & GPU
+      # ==========================================
+        --n-gpu-layers -1
+        --n-cpu-moe 0
+      # ==========================================
+      # CONTEXT & PERFORMANCE
+      # ==========================================
+        --ctx-size 262144
+        --ctx-checkpoints 128
+        --batch-size 1024
+        --ubatch-size 512
+        --parallel 1
+        --flash-attn on
+        --no-mmap
+      # ==========================================
+      # KV CACHE
+      # ==========================================
+        --cache-type-k q4_0
+        --cache-type-v q4_0
+        --cache-ram 16384
+        --kv-unified
+      # ==========================================
+      # SAMPLING / GENERATION
+      # ==========================================
+        --temp 0.5
+        --top-k 50
+        --top-p 0.95
+        --min-p 0.05
+        --repeat-penalty 1.1
+      # ==========================================
+      # REASONING
+      # ==========================================
+        --reasoning off
+        --reasoning-budget 0
+      # ==========================================
+      # LOGGING & METRICS
+      # ==========================================
+        --metrics
+        --log-file C:\llama\raider\logs\qwen3.6-28b-reap20.log
+    aliases:
+      - reap20
+    cmdStop: >
+      cmd /c taskkill /F /T /PID ${PID}
+
+  # ===== GEMMA 4 12B NO THINKING =====
+  "Gemma-4-12B-no-thinking":
+    cmd: >
+      C:\llama\raider\llama.cpp\llama-server.exe
+      -m C:\llama\raider\models\gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
+      --host 0.0.0.0
+      --port ${PORT}
+
+
+      # ==========================================
+      # MEMORY & GPU
+      # ==========================================
+        --n-gpu-layers -1
+        --no-mmap
+      # ==========================================
+      # CONTEXT & PERFORMANCE
+      # ==========================================
+        --ctx-size 131072
+        --ctx-checkpoints 128
+        --flash-attn on
+        --parallel 1
+        --batch-size 1024
+        --ubatch-size 512
+      # ==========================================
+      # VISION & SPECULATIVE DECODING
+      # ==========================================
+        --mmproj C:\llama\raider\models\mmproj-gemma-4-12b-BF16.gguf
+        --model-draft C:\llama\raider\models\mtp-gemma-4-12B-it.gguf
+        --spec-type draft-mtp
+        --spec-draft-n-max 1
+      # ==========================================
+      # KV CACHE
+      # ==========================================
+        --cache-type-k q4_0
+        --cache-type-v q4_0
+      # ==========================================
+      # SAMPLING / GENERATION
+      # ==========================================
+        --temp 1.0
+        --top-k 64
+        --top-p 0.95
+        --min-p 0.05
+      # ==========================================
+      # REASONING & CHAT TEMPLATE
+      # ==========================================
+        --reasoning off
+        --reasoning-budget 0
+      # ==========================================
+      # LOGGING & METRICS
+      # ==========================================
+        --metrics
+        --log-file logs\gemma4-12b-no-thinking.log
+    aliases:
+      - gemma4-12b
+    cmdStop: >
+      cmd /c taskkill /F /T /PID ${PID}
+
+  # ===== LFM2.5-1.2B-Instruct =====
+  "LFM2.5-1.2B-Instruct":
+    cmd: >
+      C:\llama\raider\llama.cpp\llama-server.exe
+      -m C:\llama\raider\models\LFM2.5-1.2B-Instruct-UD-Q4_K_XL.gguf
+      --host 0.0.0.0
+      --port ${PORT}
+
+      # ==========================================
+      # MEMORY & GPU
+      # ==========================================
+        --n-gpu-layers -1
+        --no-mmap
+      # ==========================================
+      # CONTEXT & PERFORMANCE
+      # ==========================================
+        --ctx-size 128000
+        --flash-attn on
+        --parallel 1
+        --batch-size 2048
+        --ubatch-size 1024
+      # ==========================================
+      # KV CACHE
+      # ==========================================
+        --cache-type-k q4_0
+        --cache-type-v q4_0
+      # ==========================================
+      # SAMPLING / GENERATION
+      # ==========================================
+        --temp 0.2
+        --top-p 0.95
+        --min-p 0.05
+        --repeat-penalty 1.05
+      # ==========================================
+      # LOGGING & METRICS
+      # ==========================================
+        --metrics
+        --log-file C:\llama\raider\logs\LFM2.5-1.2B-Instruct.log
+    aliases:
+      - fastcontext
+      - fc-4b
+    cmdStop: >
+      cmd /c taskkill /F /T /PID ${PID}
+
+  # ===== NOMIC EMBED TEXT V1.5 =====
+  "Nomic-Embed-Text-v1.5":
+    cmd: >
+      C:\llama\raider\llama.cpp\llama-server.exe
+      -m C:\llama\raider\models\nomic-embed-text-v1.5.Q8_0.gguf
+      --host 0.0.0.0
+      --port ${PORT}
+
+      # ==========================================
+      # MEMORY & GPU
+      # ==========================================
+        --n-gpu-layers -1
+        --no-mmap
+      # ==========================================
+      # CONTEXT & PERFORMANCE
+      # ==========================================
+        --ctx-size 8192
+        --batch-size 512
+      # ==========================================
+      # EMBEDDING MODE
+      # ==========================================
+        --embedding
+      # ==========================================
+      # LOGGING & METRICS
+      # ==========================================
+        --metrics
+        --log-file C:\llama\raider\logs\nomic-embed-text-v1.5.log
+    concurrencyLimit: 32
+    aliases:
+      - nomic-embed-text-v1.5
+    cmdStop: >
+      cmd /c taskkill /F /T /PID ${PID}
+
+groups:
+  persistent:
+    swap: false
+    exclusive: false
+    members:
+      - "Qwen3.6-28B-REAP20"
+      - "Gemma-4-12B-no-thinking"
+      - "LFM2.5-1.2B-Instruct"
+      - "Nomic-Embed-Text-v1.5"      
+
+
+hooks:
+  on_startup:
+    preload:
+      - "Gemma-4-12B-no-thinking"
+      - "Nomic-Embed-Text-v1.5"
+      - "LFM2.5-1.2B-Instruct"
