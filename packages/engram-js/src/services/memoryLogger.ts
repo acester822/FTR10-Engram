@@ -133,8 +133,8 @@ export async function logInteractionAsync(
   sessionId?: string,
   projectId?: string,
   allowGenome: boolean = true,
-): Promise<{ storedCount: number; sectors: Record<string, number> }> {
-  const empty = () => ({ storedCount: 0, sectors: {} as Record<string, number> });
+): Promise<{ storedCount: number; sectors: Record<string, number>; storedMemoryIds: string[] }> {
+  const empty = () => ({ storedCount: 0, sectors: {} as Record<string, number>, storedMemoryIds: [] as string[] });
   try {
     // Throttle: skip if extraction ran recently
     const now = Date.now();
@@ -484,7 +484,9 @@ AI Response: ${truncatedResponse}
       }
 
       logger.info({ module: 'memoryLogger', model: genModel(), count: storedCount }, `Saved ${storedCount} new memories`);
-      return { storedCount, sectors };
+      // True extraction-fidelity scoring (v4.7.0): expose WHAT was stored so
+      // the judge can grade the extraction output, not the response receipt.
+      return { storedCount, sectors, storedMemoryIds: storedIds.filter(Boolean) };
     } finally {
       clearTimeout(timeoutId);
     }

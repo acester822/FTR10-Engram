@@ -255,6 +255,7 @@ export async function listTraces(f: TraceFilter = {}): Promise<any[]> {
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   return pg_all(
     `SELECT id, ts, route, method, status, ms, direction, kind, label, model, breakdown, injection, scores, error, reviewed_at,
+       response_body->'stored_memory_ids' AS stored_memory_ids,
        (${needsReviewSql(policy.bad)}) AS needs_review
      FROM public.traces ${whereSql}
      ORDER BY ts DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,

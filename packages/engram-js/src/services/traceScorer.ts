@@ -91,9 +91,11 @@ const RUBRICS: Record<TraceDimension, { system: string; user: (ctx: any) => stri
   },
   extraction_fidelity: {
     system:
-      "You are a strict evaluator of a memory extraction pipeline. Given a conversation turn and the extraction summary (count + sector distribution of facts stored), judge whether extraction captured the durable facts correctly: did it store what was worth remembering, and does the sector distribution look right? Respond ONLY with JSON: {\"score\": <0.0-1.0>, \"reason\": \"<one sentence>\"}. Missing durable facts, or storing noise, must score low.",
+      "You are a strict evaluator of a memory extraction pipeline. Given a conversation turn and the memories that were ACTUALLY STORED from it, judge extraction fidelity: (a) did extraction capture the durable facts present in the conversation? (b) are the stored memories SPECIFIC and self-contained (not vague announcements like 'important decision: restructure X')? (c) are they correct vs. the conversation, with no invented content? Respond ONLY with JSON: {\"score\": <0.0-1.0>, \"reason\": \"<one sentence>\"}. Missing durable facts, storing noise, or vague announcements must score low.",
     user: (c: any) =>
-      `CONVERSATION TURN:\n${c.request}\n\nEXTRACTION SUMMARY:\n${c.response || "(none)"}\n\nScore extraction fidelity 0.0-1.0.`,
+      c.stored
+        ? `CONVERSATION TURN:\n${c.request}\n\nSTORED MEMORIES (extraction output):\n${c.stored}\n\nScore extraction fidelity 0.0-1.0.`
+        : `CONVERSATION TURN:\n${c.request}\n\nEXTRACTION SUMMARY:\n${c.response || "(none)"}\n\nScore extraction fidelity 0.0-1.0.`,
   },
   answer_quality: {
     system:
@@ -103,19 +105,27 @@ const RUBRICS: Record<TraceDimension, { system: string; user: (ctx: any) => stri
   },
 };
 
-function buildRubric(dimension: TraceDimension, trace: any): { system: string; user: string } {
-  const request =
-    dimension === "answer_quality"
-      ? bodyText(trace.request_body) // messages array
-      : bodyText(trace.request_body);
+async function buildRubric(dimension: TraceDimension, trace: any): Promise<{ system: string; user: string }> {
+  const request = bodyText(trace.request_body);
   let response = bodyText(trace.response_body);
   if (dimension === "answer_quality" && typeof trace.response_body === "object") {
     const raw = (trace.response_body as any)?.raw;
     if (typeof raw === "string" && raw.includes("data:")) response = sseAssistantText(raw);
   }
   const injection = trace.injection ? JSON.stringify(trace.injection) : "n/a";
+  // True extraction-fidelity (v4.7.0): grade the STORED output, not the receipt.
+  let stored: string | null = null;
+  if (dimension === "extraction_fidelity") {
+    const ids = (trace.response_body as any)?.stored_memory_ids;
+    if (Array.isArray(ids) && ids.length) {
+      const rows = await pg_all(`SELECT content, sector FROM public.memories WHERE id = ANY($1)`, [ids]).catch(() => []);
+      if (rows.length) {
+        stored = rows.map((r: any) => `[${r.sector ?? "?"}] ${r.content}`).join("\n");
+      }
+    }
+  }
   const r = RUBRICS[dimension];
-  return { system: r.system, user: r.user({ request, response, injection }) };
+  return { system: r.system, user: r.user({ request, response, injection, stored }) };
 }
 
 // ── Tolerant JSON parse (fences anywhere, outermost object, log raw) ──
@@ -199,7 +209,7 @@ export async function scoreTrace(
     if (!trace) return { ok: false, error: "trace_not_found" };
 
     const model = resolveJudgeModel();
-    const { system, user } = buildRubric(dimension, trace);
+    const { system, user } = await buildRubric(dimension, trace);
 
     const judge = await callJudge(system, user);
     const ms = judge.ms ?? 0;

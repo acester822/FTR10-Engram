@@ -37,6 +37,8 @@ export const ingest_conversation_route = (app: any, ctx: route_ctx) => {
           stored_count: r.storedCount,
           sectors: r.sectors || {},
         },
+        // True extraction-fidelity scoring: the judge grades WHAT was stored.
+        stored_memory_ids: r.storedMemoryIds || [],
       });
     } catch (e: unknown) {
       fail(res, "ingest_conversation_failed", e);

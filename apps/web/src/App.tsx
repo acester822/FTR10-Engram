@@ -2020,6 +2020,14 @@ function TracesView() {
                         <Flag size={10} /> needs review
                       </span>
                     )}
+                    {Array.isArray(t.stored_memory_ids) && t.stored_memory_ids.length > 0 && (
+                      <span
+                        className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold border border-blue-200"
+                        title={`Stored ${t.stored_memory_ids.length} memories: ${t.stored_memory_ids.join(", ")}`}
+                      >
+                        → {t.stored_memory_ids.length} stored
+                      </span>
+                    )}
                   </td>
                   <td className="py-2 pr-2 text-slate-300 text-right">›</td>
                 </tr>

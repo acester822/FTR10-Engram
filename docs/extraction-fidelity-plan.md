@@ -33,13 +33,13 @@ The rubric's INPUT changed, so existing `judge_calibration` entries for `extract
 
 ### Files changed (planned)
 
-| File | Change |
-|---|---|
-| `services/memoryLogger.ts` | return `storedMemoryIds` (already collected for links) |
-| `api/routes/ingest/conversation/route.ts` | include `stored_memory_ids` in the response |
-| `services/traceScorer.ts` | new extraction_fidelity rubric: fetch stored rows + conversation → judge; fallback to receipt-grading |
-| `apps/web/src/App.tsx` | stored → memory link chip on ingest trace rows |
-| `readme.md` / `AGENTS.md` | scoring-model note |
+| File                                      | Change                                                                                                |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `services/memoryLogger.ts`                | return `storedMemoryIds` (already collected for links)                                                |
+| `api/routes/ingest/conversation/route.ts` | include `stored_memory_ids` in the response                                                           |
+| `services/traceScorer.ts`                 | new extraction_fidelity rubric: fetch stored rows + conversation → judge; fallback to receipt-grading |
+| `apps/web/src/App.tsx`                    | stored → memory link chip on ingest trace rows                                                        |
+| `readme.md` / `AGENTS.md`                 | scoring-model note                                                                                    |
 
 ### Verification plan
 
@@ -52,14 +52,37 @@ The rubric's INPUT changed, so existing `judge_calibration` entries for `extract
 ## Open decisions
 
 - [DECIDE] Store the ids in `response_body.stored_memory_ids` (zero capture changes) vs a dedicated `breakdown` field — **leaning: response_body** (already persisted verbatim; the breakdown is for injection stats).
+  - response_body
 - [DECIDE] Score asynchronously via the existing auto-score pipeline (no ingest-latency cost) vs synchronously at extraction — **leaning: async** (matches every other dimension; extraction is already slow on a loaded box).
+  - async
 - [DECIDE] Old traces: keep receipt scores (ids don't exist historically) — **leaning: yes**, note it; a timestamp+content heuristic re-score is fragile and not worth it.
+  - yes
 - [DECIDE] Re-seed the `extraction_fidelity` calibration entries — **leaning: yes** (rubric input changed; stale labels would corrupt the agreement metric).
+  - yes
 - [DECIDE] Include compaction-sourced facts in scoring scope — **leaning: no** (they aren't conversation-traced; out of scope for v1).
+  - no
 - [DECIDE] GUI link chip (trace → stored memories) — **leaning: yes**, small and makes the loop visible.
+  - yes
 
 ---
 
-## ✅ Implementation Summary
+## ✅ Implementation Summary (2026-08-07)
 
-*(append here when implemented — files changed, plan↔reality deviations, verification performed)*
+Implemented + deployed (v4.7.0). Decisions per user (all confirmed as written): response_body ids, async scoring, old traces keep receipt scores, calibration re-seeded, no compaction scope, GUI chip yes.
+
+### Files changed
+- `services/memoryLogger.ts` — `logInteractionAsync` returns `storedMemoryIds` (already collected for coherence links).
+- `api/routes/ingest/conversation/route.ts` — response includes `stored_memory_ids` → lands on the trace via existing verbatim response capture (zero capture changes).
+- `services/traceScorer.ts` — `buildRubric` now async; for `extraction_fidelity` with ids present it fetches the stored rows and hands the judge the ACTUAL extraction output (conversation + stored memories); new rubric (specific/correct/no-invention); receipt-grading remains the fallback for legacy traces.
+- `services/traceStore.ts` — list view exposes `stored_memory_ids`.
+- `apps/web` — "→ N stored" chip on ingest trace rows (title = ids).
+- `judge_calibration` — old `extraction_fidelity` labels deleted; re-seeded with the verified trace (expected 0.8).
+
+### Verification
+- Scripted fact-rich conversation → 5 memories stored → trace carries 5 ids → judge scored **0.85** with an actionable reason ("captures all durable technical facts accurately and specifically, but fails to store the assistant's contribution regarding the judge model Qwen3.6-28B-REAP20…") — impossible under the old receipt rubric.
+- Calibration run under the new rubric: 6 checked, **5 agree (0.83), avg abs error 0.142** — the new entry agrees (0.85 vs 0.8, within tolerance).
+- Fallback path (old traces, no ids): unchanged receipt grading; no crashes.
+
+### Plan↔reality notes
+- Old traces keep their receipt-era scores (per decision); their low scores are already filtered from needs-review by the noise-class exclusions.
+- The GUI chip is informational (count + ids in tooltip); clicking a row already opens the trace detail where the ids + full bodies live.
