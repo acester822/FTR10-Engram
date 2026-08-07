@@ -175,17 +175,33 @@ genuinely help a future session.
 - Literal secrets, passwords, API keys, or tokens — NEVER extract credentials.
 
 ### OUTPUT SCHEMA ###
-Return ONLY a valid JSON array of objects. Each object MUST have "content" and "sector".
-- "content": a single self-contained, atomic fact written in third person (no "I"/"we"/"the user said"). 15–250 chars. No diffs, no timestamps, no file paths unless the path IS the fact.
-- "sector": exactly one of: "semantic", "procedural", "episodic", "emotional", "reflective". If unsure, use "semantic".
-- "is_genome": true ONLY for permanent standing rules/explicit save requests; otherwise omit (defaults to false).
-Do NOT invent other fields. If nothing meets the bar, return [].
+Return ONLY valid JSON with this shape:
+{
+  "context": { "project": "<project name or \"\">", "module": "<module/area or \"\">", "file": "<file path or \"\">", "topic": "<one-line topic or \"\">" },
+  "facts": [
+    { "content": "<self-contained fact>", "sector": "semantic|procedural|episodic|emotional|reflective", "is_genome": <true ONLY for standing rules / explicit save requests; otherwise omit> }
+  ],
+  "links": [
+    { "from": <fact index>, "to": <fact index>, "type": "part_of|derives_from|related_to" }
+  ]
+}
+- "context" is the frame this conversation belongs to (which project/module/file/topic was being discussed). Empty strings when unknown. Attached to every fact.
+- "facts": each fact is ATOMIC and SELF-CONTAINED — it must make complete sense with no reference to this conversation. 15–400 chars, third person, no timestamps, no diffs, no paths unless the path IS the fact.
+- SPECIFICS OR NOTHING (hard rule): a fact that would be meaningless without this conversation is NOT a fact. A decision/conclusion MUST include the concrete what, where, and why (component, file, rationale). Vague announcements like "Important decision: restructure X" are REJECTED — either include the specifics or do not extract.
+- "links": connect facts about the same topic into a cluster — the overview/decision fact is the anchor; satellites use "part_of" (detail of the anchor), "derives_from" (follows from another fact), or "related_to" (loose association). Links are OPTIONAL. If a fact cannot be linked with these three types, leave it unlinked — NEVER drop a memory because it cannot be linked.
+Do NOT invent other fields. If nothing meets the bar, return {"context": {}, "facts": [], "links": []}.
 
 Example of CORRECT output:
-[
-  { "content": "The user prefers TypeScript over JavaScript", "sector": "semantic" },
-  { "content": "Always run tests before committing", "sector": "procedural" }
-]
+{
+  "context": { "project": "Engram", "module": "traceStore", "file": "services/traceStore.ts", "topic": "trace retention policy" },
+  "facts": [
+    { "content": "Trace retention defaults to 7 days and is pruned by hard DELETE", "sector": "semantic" },
+    { "content": "The user decided trace retention must be configurable via EG_TRACE_RETENTION_DAYS, defaulting to 7", "sector": "procedural" }
+  ],
+  "links": [
+    { "from": 1, "to": 0, "type": "derives_from" }
+  ]
+}
 
 ### INPUT DATA ###
 User Prompt: ${truncatedPrompt}
@@ -324,8 +340,14 @@ AI Response: ${truncatedResponse}
         return empty();
       }
 
-      // Normalize: if LLM returned a single object instead of an array, wrap it
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      // Normalize: accept the new {context, facts, links} object OR the legacy array.
+      let ctx: any = {};
+      let links: any[] = [];
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Array.isArray(parsed.facts)) {
+        ctx = parsed.context && typeof parsed.context === 'object' ? parsed.context : {};
+        links = Array.isArray(parsed.links) ? parsed.links : [];
+        extractedMemories = parsed.facts;
+      } else if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         logger.info(
           { module: 'memoryLogger', model: genModel() },
           `LLM returned single object, wrapping as array`
@@ -344,13 +366,17 @@ AI Response: ${truncatedResponse}
       if (extractedMemories.length > MAX_FACTS_PER_TURN) {
         logger.info({ module: 'memoryLogger', model: genModel(), total: extractedMemories.length, capped: MAX_FACTS_PER_TURN }, 'Capping extracted facts');
         extractedMemories = extractedMemories.slice(0, MAX_FACTS_PER_TURN);
+        links = links.filter((l) => l.from < MAX_FACTS_PER_TURN && l.to < MAX_FACTS_PER_TURN);
       }
 
       // Quality gate: drop anything that isn't worth persisting long-term.
       const beforeGate = extractedMemories.length;
-      extractedMemories = extractedMemories.filter((mem) =>
-        mem?.content && typeof mem.content === 'string' && isWorthRemembering(mem.content),
-      );
+      const survivedIndex: number[] = [];
+      extractedMemories = extractedMemories.filter((mem, i) => {
+        const keep = mem?.content && typeof mem.content === 'string' && isWorthRemembering(mem.content);
+        if (keep) survivedIndex.push(i);
+        return keep;
+      });
       if (extractedMemories.length < beforeGate) {
         logger.info({ module: 'memoryLogger', model: genModel(), dropped: beforeGate - extractedMemories.length }, 'Quality gate dropped low-value candidates');
       }
@@ -364,6 +390,7 @@ AI Response: ${truncatedResponse}
       const db = kit_make_db(run_async, all_async);
       let storedCount = 0;
       const sectors: Record<string, number> = {};
+      const storedIds: string[] = []; // parallel to extractedMemories (survivors)
       for (const mem of extractedMemories) {
         const content = typeof mem.content === 'string' ? mem.content.trim() : '';
         if (content.length < 5) continue;
@@ -378,10 +405,12 @@ AI Response: ${truncatedResponse}
         );
         if (dedupResult.rows?.length) {
           logger.debug({ module: 'memoryLogger', content: content.substring(0, 60) }, 'Skipping duplicate memory');
+          storedIds.push(""); // keep index alignment with extractedMemories
           continue;
         }
         if (await isNearDuplicate(db, content)) {
           logger.debug({ module: 'memoryLogger', content: content.substring(0, 60) }, 'Skipping near-duplicate memory');
+          storedIds.push("");
           continue;
         }
 
@@ -390,17 +419,68 @@ AI Response: ${truncatedResponse}
         else if (sector === "episodic") decayRate = 0.15;
         else if (["semantic", "procedural"].includes(sector)) decayRate = 0.05;
 
-        await rememberDurableMemory(db, {
+        const result = await rememberDurableMemory(db, {
           content,
           user_id: "system",
           project_id: projectId,
           embedding: await embed(content),
-          metadata: { sector, decay_rate: decayRate, is_genome: Boolean(mem.is_genome && allowGenome) },
+          metadata: {
+            sector,
+            decay_rate: decayRate,
+            is_genome: Boolean(mem.is_genome && allowGenome),
+            // Coherence rung (v4.6.0): the context frame from extraction —
+            // every fact knows which project/module/file/topic it belongs to.
+            ...(ctx.project || ctx.module || ctx.file || ctx.topic
+              ? { context: { project: ctx.project || null, module: ctx.module || null, file: ctx.file || null, topic: ctx.topic || null } }
+              : {}),
+          },
         });
 
+        storedIds.push(result.id);
         storedCount++;
         sectors[sector] = (sectors[sector] || 0) + 1;
         logger.info({ module: 'memoryLogger', model: genModel(), sector, content: content.substring(0, 60) }, `Saved ${sector} memory`);
+      }
+
+      // Coherence rung: materialize extraction-proposed links as graph edges.
+      // Links reference fact indices; storedIds[i] is the memory for fact i
+      // ("" when dedup skipped it). Links are auxiliary — an edge failure
+      // never rolls back stored memories. Unsupported link types surface as
+      // cluster_link_evaluation findings for judge/user (never dropped).
+      const WRITABLE_LINK_TYPES = new Set(["part_of", "derives_from", "related_to"]);
+      for (const link of links) {
+        // Links reference ORIGINAL fact indices; remap through survivedIndex
+        // (survivor position i = original index survivedIndex[i]) to storedIds.
+        const fromPos = typeof link.from === "number" ? survivedIndex.indexOf(link.from) : -1;
+        const toPos = typeof link.to === "number" ? survivedIndex.indexOf(link.to) : -1;
+        const fromId = fromPos >= 0 ? storedIds[fromPos] : "";
+        const toId = toPos >= 0 ? storedIds[toPos] : "";
+        if (!fromId || !toId || fromId === toId) continue;
+        if (!WRITABLE_LINK_TYPES.has(link.type)) {
+          try {
+            await db.query(
+              `insert into "public"."integrity_findings"
+                 (run_id, check_name, severity, action_taken, detail, status)
+               values ((select id from "public"."integrity_runs" order by started_at desc limit 1),
+                       'cluster_link_evaluation', 'info', 'flag', $1::jsonb, 'open')`,
+              [JSON.stringify({ source_memory_id: fromId, target_memory_id: toId, proposed_type: link.type, reason: "extraction proposed a link type outside part_of/derives_from/related_to" })],
+            );
+          } catch {
+            /* findings need an integrity_runs row; silently skip if none yet */
+          }
+          continue;
+        }
+        try {
+          await db.query(
+            `insert into "public"."edges"
+               (id, user_id, project_id, source_memory_id, target_memory_id, edge_type, weight, confidence, provenance, metadata, recorded_at)
+             values (gen_random_uuid(), 'system', $1, $2, $3, $4, 1, 0.9, $5::jsonb, $6::jsonb, now())`,
+            [projectId ?? null, fromId, toId, link.type, JSON.stringify({ source: "extraction", via: "coherence" }), JSON.stringify({ extraction_link: true })],
+          );
+          logger.debug({ module: 'memoryLogger', from: fromId.slice(0, 8), to: toId.slice(0, 8), type: link.type }, 'Created extraction link edge');
+        } catch (e: any) {
+          logger.warn({ module: 'memoryLogger', err: e?.message }, 'Edge creation failed (auxiliary — ignored)');
+        }
       }
 
       logger.info({ module: 'memoryLogger', model: genModel(), count: storedCount }, `Saved ${storedCount} new memories`);

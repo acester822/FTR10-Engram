@@ -10,6 +10,7 @@
 - docs/governance-plan.md - Judge calibration/consistency/policy/review design (implemented v4.3.0)
 - docs/memory-integrity-plan.md - Integrity engine (auto-heal) design (implemented v4.4.0)
 - docs/optimization-plan.md - Enrichment engine (auto-optimization) design + contamination incident post-mortem (implemented v4.5.0)
+- docs/coherence-plan.md - Memory coherence design (context frames, linked clusters, sourced bundles — implemented v4.6.0)
 - docs/changelog-2026-08-04-05.md - Recent build changelog
 - docs/todo.md - Implementation plans (kept as historical reference)
 - docs/archive/ - Superseded design/plan documents (Langfuse plans, original plan.md, rebrand notes, etc.)
@@ -202,6 +203,17 @@ Supported embedding providers: `openai`, `gemini`, `aws`, `siray`, `local`.
 
 [AUDIT + UNDO] (every mutation → audit_log with before/after full rows incl. embedding)
    └─ Memory Audit tab: undo supersede/delete/update/reclassify/enrich; REVERTED badges on reverted findings
+
+[COHERENCE ENGINE] (rung 4 — context frames + linked clusters + sourced bundles)
+   ├─ 1. EXTRACT: {context, facts[], links[]} — context frame (project/module/file/topic) on
+   │        every fact; SPECIFICS-OR-NOTHING (hard); links part_of/derives_from/related_to
+   ├─ 2. WRITE: metadata.context persisted; links → edges (same batch); unsupported link
+   │        types → cluster_link_evaluation finding (memories never dropped for being unlinked)
+   ├─ 3. BUNDLE: /api/memories/bundle?topic=X — anchor (top recall) → BFS edges → sim ≥ 0.75
+   │        neighbors → compose (architecture→state→conventions→pitfalls, [src:N] anchored)
+   │        → validate (≥0.6, no cross-project drift) → injected into /api/cognitive-context
+   │        on "working on X" detection (read-only, 5-min TTL)
+   └─ 4. HYGIENE: integrity check #9 broken_links (edges → superseded memories flagged)
 ```
 
 ## Intended Operation
@@ -223,8 +235,9 @@ Supported embedding providers: `openai`, `gemini`, `aws`, `siray`, `local`.
 - **Settings tab (single source of truth)**: providers, generative/embedding/judge models, general tuning, and read-only advanced values — persisted in Postgres `app_settings` (schema `4.4.0-integrity`), no hardcoded model defaults
 - **Trace store (v4.2.0-traces)**: every request captured with full bodies (secrets regex-redacted), genome/phenotype breakdown, LLM-judge scores — Traces tab (`/api/dashboard/traces*`), retention-pruned
 - **Judge governance (v4.3.0-governance)**: calibration set + run-calibration (agreement %), consistency check (N×R variance), live policy thresholds (0.7/0.4), needs-review loop — Governance tab
-- **Integrity engine (v4.4.0-integrity)**: 8 deterministic checks + judged false-memory sampling, flag-first Tier-2, automatic calibration gate (flashing red banner when closed) — Memory Audit tab
+- **Integrity engine (v4.4.0-integrity)**: 9 deterministic checks (incl. broken_links from v4.6.0) + judged false-memory sampling, flag-first Tier-2, automatic calibration gate (flashing red banner when closed) — Memory Audit tab
 - **Enrichment engine (v4.5.0-optimization)**: used-most × completeness → sourced successors (store/codebase/web), genome+intent guardrails, grounding gate, **flag-first default** after the 2026-08-07 contamination incident
+- **Coherence (v4.6.0-coherence)**: extraction context frames + specifics-or-nothing + linked clusters (edges); bundle composer ("the living skill") at `/api/memories/bundle` + `/api/cognitive-context` topic detection; integrity check #9 broken_links
 - **Audit trail + undo**: every mutation writes audit_log (before/after full rows); supersede/delete/update/enrich one-click undoable; REVERTED markers on reverted findings
 - **Model registry**: `modelRegistry.ts` resolves every model via Settings → env → fail (incl. the independent Judge model)
 - **Auto-search**: Web search via searxNcrawl MCP server (configurable, disabled by default)

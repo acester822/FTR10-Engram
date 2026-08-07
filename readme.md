@@ -40,8 +40,9 @@ Engram is a hand-rolled Node.js/TypeScript HTTP server — no Express/Fastify �
 6. **Integrity engine (auto-heal)** — deterministic store checks + LLM-judged false-memory detection, with a gated Tier-2 that supersedes/deletes noise; everything lands in a findings ledger first.
 7. **Enrichment engine (auto-optimization)** — the memories you use most that are weakest get *sourced* enrichment from the store itself, the codebase (rg, `file:line`), and the web — as reversible superseding successors, never in-place rewrites.
 8. **Audit trail + undo** — every mutation (extraction, consolidation, integrity, enrichment, manual edits) writes a before/after audit row; supersedes, deletes, updates, and enrichments are one-click undoable from the GUI.
+9. **Memory coherence (the "living skill")** — extraction attaches a **context frame** (project/module/file/topic) to every fact and **links related facts** into graph clusters (`part_of` / `derives_from` / `related_to` edges); on recall, a **bundle composer** assembles the cluster into a dense, ordered, source-anchored knowledge bundle — *"when I say I'm working on Engram, Engram gives me the Engram skill, auto-maintained."*
 
-The whole system is organized as a **three-engine trust ladder**: *calibration → integrity (validity) → optimization (enrichment)* — no engine mutates memories until the judge it depends on is calibrated, and every mutation is audited and reversible.
+The whole system is organized as a **four-rung trust ladder**: *calibration → integrity (validity) → optimization (enrichment) → coherence (context)* — no engine mutates memories until the judge it depends on is calibrated, and every mutation is audited and reversible.
 
 It can run in **two deployment modes**:
 
@@ -121,7 +122,7 @@ The "trust the judge" checkpoint — no score-driven mutation happens until the 
 
 ### Integrity engine (auto-heal, v4.4.0-integrity)
 
-A background scheduler (default 24h, `EG_INTEGRITY_INTERVAL_MS`) that runs **8 deterministic checks** (duplicate content, empty content, missing embeddings, synthetic embeddings, null sectors, archive-eligible, near-dupes, secret leakage) plus an **LLM-judged false-memory sampler**:
+A background scheduler (default 24h, `EG_INTEGRITY_INTERVAL_MS`) that runs **9 deterministic checks** (duplicate content, empty content, missing embeddings, synthetic embeddings, null sectors, archive-eligible, near-dupes, secret leakage, broken links) plus an **LLM-judged false-memory sampler**:
 
 - **Tier 1 (deterministic)** — acts immediately, audited (`actor: auto-heal`): deletes empty-content memories, supersedes near-identical duplicates (>0.92 sim), re-embeds nulls when the embed box is up.
 - **Tier 2 (LLM-judged)** — samples the oldest never-accessed memories (skipping any with an *open* finding), asks the judge if each is a real fact, and acts per `EG_INTEGRITY_TIER2_ACTION`: `flag` (default — findings only), `supersede`, or `delete` (both gated on judge calibration + a confidence floor, `EG_INTEGRITY_DELETE_CONFIDENCE`).
@@ -149,6 +150,16 @@ Every mutation to the memories table — extraction, consolidation actions, inte
 | `enrich` | removes the enriched successor, restores the original (finding gets a red **REVERTED** badge) |
 
 Undos write their own `memory_undo` audit row and are never themselves undoable. Reverted enrichments are stamped `reverted_at` on their finding so the ledger never claims a reverted enrichment still stands.
+
+### Memory coherence engine ("the living skill", v4.6.0-coherence)
+
+The rung that fixes the *"Important decision: restructure conditional rendering…"* class — memories that are context-free because extraction dropped the specifics. Two halves:
+
+1. **Extraction (root cause)** — the extraction output schema is now `{context, facts[], links[]}`:
+   - **Context frame** — every fact from a turn carries `metadata.context = {project, module, file, topic}`, so no fact is ever a floating fragment.
+   - **Specifics or nothing (hard rule)** — a fact that would be meaningless without the conversation is rejected; a decision must include the concrete what/where/why. Measured via the existing `extraction_fidelity` judge dimension.
+   - **Links** — extraction emits `links: [{from, to, type}]` (`part_of` / `derives_from` / `related_to` only); the write path materializes them as `edges` rows. Unsupported link types → `cluster_link_evaluation` findings for judge/user (a memory is **never dropped** because it couldn't be linked — new projects start unlinked clusters, which is fine).
+2. **Recall (the bundle)** — `POST /api/memories/bundle?topic=X` (and auto-detection in `/api/cognitive-context` for "working on X" phrases): `clusterEngine` finds the anchor (top vector recall) → BFS over coherence edges (depth 2) → similarity neighbors (≥ 0.75), then **composes a dense, ordered bundle** (architecture → current state → conventions → pitfalls) with every statement tagged `[src:N]`, validated against hallucination/cross-project drift (≥ 0.6). **Read-only**: bundles never write to the store, cache ≤ 5 min per topic, and the memories stay the authority. The integrity engine gained check #9 `broken_links` (edges whose endpoint memory is superseded — the graph can't rot silently).
 
 ### Memory decay engine
 
@@ -481,7 +492,7 @@ The web interface (React/Vite SPA on port 8099) is the primary dashboard:
 - **Performance Monitor** — CPU, memory, disk, and llama-swap metrics
 - **Memory Recall** — test the real recall engine (`POST /api/dashboard/recall`)
 - **Activity** — live memory read/write traffic (`/api/dashboard/activity`)
-- **Mindmap** — visual knowledge-graph view of memories
+- **Mindmap** — visual knowledge-graph view of memories (clusters appear automatically once coherence edges exist)
 - **Traces** — persistent request history with full bodies (secrets redacted), genome/phenotype breakdown, LLM-judge score pills, needs-review flags, filters, **Generate Report** (aggregates + deterministic remediation suggestions + policy alerts, PDF export), and per-trace score/delete/add-to-calibration actions
 - **Governance** — judge calibration set (add any trace with your expected score, run calibration → agreement %, edit/delete), consistency check (N traces × R repeats → variance), and the needs-review queue
 - **Memory Audit** — integrity findings ledger ("Would do" verdicts, Apply/Dismiss), the full **audit trail** (every mutation with before/after JSON), **undo buttons**, and **Run integrity check / Run enrichment now** triggers
@@ -512,6 +523,7 @@ The server exposes two families: **root-level API routes** (used by clients and 
 | `/memories/:id/explain`                                                                                                      | GET                  | Explain why a memory was recalled                                                        |
 | `/memories/:id/reinforce`                                                                                                    | POST                 | Reinforce a memory (boosts salience)                                                     |
 | `/memories/:id/tier`                                                                                                         | POST                 | Change memory tier (active/warm/cold/archived)                                           |
+| `/memories/bundle`                                                                                                           | POST                 | Coherence bundle for a topic — composed, source-anchored, read-only (`?topic=X`)         |
 | `/contradictions`                                                                                                            | POST                 | Create a contradiction between memories                                                  |
 | `/contradictions/:id/resolve`                                                                                                | POST                 | Resolve a contradiction                                                                  |
 | `/consolidations` / `/consolidations/claim` / `/consolidations/:id/complete`                                                 | POST                 | Consolidation lifecycle endpoints                                                        |

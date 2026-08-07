@@ -30,6 +30,7 @@ import { memory_list_route } from "./memories/list/route";
 import { memory_reinforce_route } from "./memories/reinforce/route";
 import { memory_tier_route } from "./memories/tier/route";
 import { memory_update_route } from "./memories/update/route";
+import { memories_bundle_route } from "./memories/bundle/route";
 import { recall_route } from "./recall/route";
 import { cognitive_context_route } from "./cognitive-context/route";
 import { source_ingest_route } from "./sources/ingest/route";
@@ -56,6 +57,7 @@ export function routes(app: any) {
   memory_reinforce_route(app, ctx);
   memory_tier_route(app, ctx);
   memory_delete_route(app, ctx);
+  memories_bundle_route(app);
   contradiction_create_route(app, ctx);
   contradiction_resolve_route(app, ctx);
   consolidation_create_route(app, ctx);

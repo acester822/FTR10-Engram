@@ -23,6 +23,7 @@ import type { route_ctx } from "../_kit";
 import { recallDurableMemories } from "../../../durable/repository";
 import { embed } from "../../../embeddings/embed";
 import { genomeCache } from "../../../services/genomeCache";
+import { composeBundle } from "../../../services/clusterEngine";
 import { autoSearch } from "../../../services/autoSearch";
 import { env } from "../../../configuration";
 
@@ -183,9 +184,32 @@ export const cognitive_context_route = (app: any, ctx: route_ctx) => {
         webContextBlock,
       );
 
+      // ── Coherence rung (v4.6.0): project-context bundle — "the skill, but
+      //    better". Detected topic (explicit body.topic or a project-phrase in
+      //    the query) → composed, source-anchored bundle. Optional + guarded:
+      //    a bundle failure NEVER breaks the context block. ──
+      let bundleBlock = "";
+      let bundleTopic =
+        typeof body.topic === "string" && body.topic.trim()
+          ? body.topic.trim()
+          : detectTopic(query);
+      if (bundleTopic) {
+        try {
+          const bundle = await composeBundle(bundleTopic);
+          if (bundle) {
+            bundleBlock = `\n### PROJECT CONTEXT (${bundleTopic}) ###\n${bundle.bundle}\n`;
+          }
+        } catch {
+          /* bundle is optional — never break the context */
+        }
+      }
+      const finalContext = bundleBlock ? bundleBlock + "\n" + context : context;
+
       return res.json({
-        context,
+        context: finalContext,
         web_used: webUsed,
+        bundle_used: Boolean(bundleBlock),
+        bundle_topic: bundleTopic ?? null,
         genome_count: genomeMemories.length,
         phenotype_count: phenotypeMemories.length,
         shaped: true,
@@ -204,4 +228,17 @@ function logger_warn(where: string, msg?: string) {
   } catch {
     /* swallow */
   }
+}
+
+const TOPIC_STOP = new Set(["the", "a", "an", "this", "that", "my", "our", "your", "it", "them", "there", "here", "some", "any"]);
+
+/** Conservative project-topic detection for "I'm working on Engram" style
+ *  queries. Explicit body.topic always wins; this is the fallback. */
+function detectTopic(query: string): string | null {
+  const m = query.match(/(?:working on|working with|working in|work on|work with|about the|for the|in the)\s+(?:the\s+)?([A-Za-z][A-Za-z0-9_.-]{2,})/i);
+  const t = m?.[1];
+  if (!t) return null;
+  const lower = t.toLowerCase();
+  if (TOPIC_STOP.has(lower)) return null;
+  return t;
 }

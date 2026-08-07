@@ -329,6 +329,32 @@ async function doIntegrityRun(): Promise<any> {
     }
   }
 
+  // 9. broken_links → edges whose endpoint memory is superseded or gone
+  //    (coherence rung v4.6.0 — the graph cannot rot silently). Deleted
+  //    endpoints vanish via ON DELETE CASCADE, so this catches the soft-dead
+  //    (superseded) side. Flag only — pruning waits for Tier-2 authority.
+  {
+    const rows = await pg_all(
+      `SELECT e.id AS edge_id, e.edge_type, e.source_memory_id, e.target_memory_id,
+              (s.superseded_at IS NOT NULL) AS source_superseded, (t.superseded_at IS NOT NULL) AS target_superseded
+       FROM public.edges e
+       LEFT JOIN public.memories s ON s.id = e.source_memory_id
+       LEFT JOIN public.memories t ON t.id = e.target_memory_id
+       WHERE (s.superseded_at IS NOT NULL OR t.superseded_at IS NOT NULL)
+       LIMIT 200`,
+      [],
+    );
+    summary.broken_links = rows.length;
+    for (const r of rows) {
+      await writeFinding(runId, "broken_links", {
+        memoryId: r.target_superseded ? r.target_memory_id : r.source_memory_id,
+        severity: "low",
+        actionTaken: "flag",
+        detail: { edge_id: r.edge_id, edge_type: r.edge_type, source_superseded: r.source_superseded, target_superseded: r.target_superseded },
+      });
+    }
+  }
+
   // ── Tier 2: gated judge sampling ──
   if (gate.open) {
     const conf = deleteConfidence();

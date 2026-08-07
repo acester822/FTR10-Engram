@@ -71,14 +71,42 @@ New `clusterEngine.ts`:
 ## Open decisions
 
 - [DECIDE] Specifics-or-nothing: hard reject vs soft (context-anchor only) — **leaning: hard, with a fidelity metric; relax if `extraction_fidelity` drops**.
+    - Hard Reject
 - [DECIDE] Write-time edge types restricted to `part_of` / `derives_from` / `related_to` — **leaning: yes**.
+    - Yes, but this needs to be done carefully, so if the memory does does not fit into `part_of` / `derives_from` / `related_to`, it is flagged for judge/user to evaluate, what I am worried about is I start a new random project, and because there are no related memories it gets dumped. If I am not thinking about this correctly then disregard. 
 - [DECIDE] Bundle = LLM-composed (dense, ordered, anchored, validated) vs verbatim concatenation — **leaning: LLM-composed** (it's read-only context; validation covers the risk).
+    - LLM-composed
 - [DECIDE] Bundle TTL ≤ 5 min cache by topic — **leaning: yes** (cost only; store always re-read).
+    - Yes
 - [DECIDE] Topic detection: plugin passes topic when it knows it; fallback = project anchor of the top recall hit — **leaning: yes** (no fragile classifier in v1).
+    - Yes, but this needs tested to make sure it works
 - [DECIDE] Cluster anchor computed on the fly (degree + age), no persisted column — **leaning: yes** (no write-path maintenance).
-
+    - Yes
 ---
 
-## ✅ Implementation Summary
+## ✅ Implementation Summary (2026-08-07)
 
-*(append here when implemented — files changed, plan↔reality deviations, verification performed)*
+Implemented + deployed (v4.6.0-coherence). Open decisions resolved per user (edited in doc):
+- **Specifics-or-nothing: HARD reject** ✅ — verified live: a scripted "decision" conversation stored *"UserProfileCard.tsx handles undefined user data by rendering a SkeletonLoader instead of allowing a crash"* (procedural) + *"The data table in UserProfileCard.tsx is restricted to rendering only when userData.items is a non-empty array"* (semantic) — the vague "Important decision: …" class did NOT regenerate, and both facts carry `metadata.context.file = UserProfileCard.tsx`.
+- **Links restricted to part_of/derives_from/related_to + safety valve** ✅ — unsupported link types write a `cluster_link_evaluation` finding; a memory is NEVER dropped for being unlinked (new projects start unlinked clusters, stored normally).
+- **Bundle LLM-composed, TTL 5 min, anchor computed on the fly** ✅.
+- **Topic detection tested** ✅ — "I am working on the dashboard app" → `/api/cognitive-context` returned `bundle_used: true, bundle_topic: dashboard` with a `### PROJECT CONTEXT (dashboard) ###` block.
+
+### Files changed
+- `services/memoryLogger.ts` — extraction output schema `{context, facts[], links[]}`; context frame on every fact; specifics-or-nothing directive; link → edges materialization + `cluster_link_evaluation` findings.
+- `services/clusterEngine.ts` (NEW) — cluster discovery (top-recall anchor → BFS over coherence edges depth 2 → sim ≥ 0.75 neighbors, ≤ 40), bundle compose + validate rubrics (callJudge), 5-min per-topic TTL cache, read-only.
+- `api/routes/memories/bundle/route.ts` (NEW) — `POST /api/memories/bundle?topic=X`.
+- `api/routes/cognitive-context/route.ts` — bundle block + conservative `detectTopic()` ("working on X" phrases), guarded (bundle failure never breaks the context).
+- `services/integrityEngine.ts` — check #9 `broken_links` (edges → superseded endpoints flagged, low severity; deleted endpoints vanish via ON DELETE CASCADE).
+- `readme.md` / `AGENTS.md` — rung 4 docs (9 capabilities, 4-rung ladder, coherence section, bundle endpoint, Mindmap note, 9-check integrity).
+
+### Plan↔reality deviations
+- No schema changes needed (edges + metadata only) — schema stays `4.4.0-integrity`.
+- Intra-batch edges are written in a follow-up batch after the memories (edges are auxiliary — a failed edge never rolls back stored memories; the plan's "same transaction" ideal traded for resilience).
+- Hermes plugin needs no change: topic detection is server-side in `/api/cognitive-context` (explicit `body.topic` also supported).
+
+### Verification
+- P1: scripted decision conversation → specific facts + context frames + 1 `part_of` edge (`provenance.via = coherence`).
+- P2: bundle for a dashboard topic → composed with `[src:N]` anchors; cognitive-context topic detection injected the PROJECT CONTEXT block.
+- P3: superseded a linked memory → manual integrity run reported `broken_links: 1` → finding `broken_links | low | open | target_superseded: True` → memory restored, finding dismissed (test artifacts removed).
+- Observational note: under a flaky embedding provider the scheduled integrity run takes ~10-30 min (50 re-embed calls × 30s timeouts in the synthetic_embeddings check) — bounded, not wedged; the run lock correctly rejects overlapping manual runs.
