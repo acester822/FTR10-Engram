@@ -201,6 +201,21 @@ export interface TraceFilter {
   offset?: string | number;
 }
 
+/** Knowledge-question filter — shared with the recall-gap engine's logic:
+ *  conversational messages are not knowledge queries, so their recall scores
+ *  are excluded from the stats. */
+const QUESTION_RE =
+  /^(\bwhat\b|\bwhats\b|\bhow\b|\bwhy\b|\bwhen\b|\bwhere\b|\bwhich\b|\bwho\b|\bdoes\b|\bdo\b|\bcan\b|\bcould\b|\bwould\b|\bshould\b|\bexplain\b|\bdefine\b|\bdescribe\b)/i;
+const QUESTION_OPENER_RE =
+  /\b(what is|what are|whats|what's|how does|how do|how to|how can|why is|why does|when did|where is|which is|is there|are there|is it|does it|can you|could you|would you|tell me about|difference between)\b/i;
+
+function isKnowledgeQuery(q: string): boolean {
+  const t = q.trim();
+  if (t.length < 8) return false;
+  if (t.includes("?")) return true;
+  return QUESTION_RE.test(t) || QUESTION_OPENER_RE.test(t);
+}
+
 /** A trace "needs review" when it carries a low score AND is not one of the
  *  known-noise classes: conversational (non-question) /recall traces, ingest
  *  receipts where facts WERE stored (the judge grades the receipt, not the
@@ -338,6 +353,7 @@ export interface TraceReport {
   avg_ms: number | null;
   score_stats: Record<string, { count: number; avg: number; min: number; max: number }>;
   score_distribution: { good: number; medium: number; bad: number };
+  excluded_scores: { invalid_trace: number; mis_dimensioned: number; receipt_era: number; conversational: number };
   worst: Array<{ ts: string; route: string; dimension: string; score: number; reason: string; judge_model: string }>;
   breakdown_totals: { genome: number; phenotype: number; sectors: Record<string, number> };
   judge_models: string[];
@@ -375,10 +391,10 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
     where.push(`status = $${params.length}`);
   }
   const rows = await pg_all(
-    `SELECT ts, route, direction, label, status, ms, breakdown, scores
-     FROM public.traces
-     WHERE ${where.join(" AND ")}
-     ORDER BY ts DESC`,
+    `SELECT ts, route, direction, label, status, ms, breakdown, scores, request_body, response_body
+    FROM public.traces
+    WHERE ${where.join(" AND ")}
+    ORDER BY ts DESC`,
     params,
   );
 
@@ -398,6 +414,8 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
   let errors = 0;
   let msSum = 0;
   let msN = 0;
+  // Honest accounting: scores excluded from the stats and WHY (v4.7.1).
+  const excluded = { invalid_trace: 0, mis_dimensioned: 0, receipt_era: 0, conversational: 0 };
 
   for (const t of rows) {
     byRoute[t.route] = (byRoute[t.route] || 0) + 1;
@@ -418,6 +436,36 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
     }
     for (const s of t.scores || []) {
       const dim = s.dimension || "unknown";
+      // ── CORRECTNESS FILTERS (v4.7.1 — "the numbers must be correct").
+      // The score stats must reflect what the metrics claim to measure:
+      //   1. No scores from failed requests (status >= 400).
+      //   2. The score dimension must match the trace's OWN type — an
+      //      answer_quality score on a /recall trace is a category error
+      //      (the judge graded retrieval JSON as if it were an answer).
+      //   3. extraction_fidelity counts ONLY stored-rubric scores (traces
+      //      whose extraction output is linked via stored_memory_ids) —
+      //      receipt-era scores graded the response receipt, not the facts.
+      //   4. recall_relevance counts ONLY knowledge-query recalls —
+      //      conversational messages ("yes please") aren't knowledge gaps.
+      const tDim = t.label === "chat" ? "answer_quality" : t.label === "ingest" || t.label === "remember" ? "extraction_fidelity" : t.label === "recall" ? "recall_relevance" : null;
+      const storedIds = (t.response_body as any)?.stored_memory_ids;
+      const query = (t.request_body as any)?.query;
+      if (typeof t.status === "number" && t.status >= 400) {
+        excluded.invalid_trace++;
+        continue;
+      }
+      if (tDim && dim !== tDim) {
+        excluded.mis_dimensioned++;
+        continue;
+      }
+      if (dim === "extraction_fidelity" && !(Array.isArray(storedIds) && storedIds.length > 0)) {
+        excluded.receipt_era++;
+        continue;
+      }
+      if (dim === "recall_relevance" && !isKnowledgeQuery(typeof query === "string" ? query : "")) {
+        excluded.conversational++;
+        continue;
+      }
       const st = scoreByDim[dim] || { count: 0, sum: 0, min: Infinity, max: -Infinity };
       st.count++;
       st.sum += Number(s.score) || 0;
@@ -492,6 +540,7 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
     avg_ms: msN ? Math.round(msSum / msN) : null,
     score_stats: scoreStats,
     score_distribution: dist,
+    excluded_scores: excluded,
     worst: worstSlice,
     breakdown_totals: bdTotals,
     judge_models: Array.from(judgeSet),

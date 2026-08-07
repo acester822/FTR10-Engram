@@ -1500,7 +1500,7 @@ function TracesView() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(null as any);
   const [filter, setFilter] = useState({ route: "", direction: "", kind: "", status: "", scored: "", limit: "100" });
-  const [dimension, setDimension] = useState("answer_quality" as string);
+  const [dimension, setDimension] = useState("recall_relevance" as string);
   const [scoring, setScoring] = useState(false);
   const [scoreMsg, setScoreMsg] = useState(null as any);
   const [scoringAll, setScoringAll] = useState(false);
@@ -1579,6 +1579,12 @@ function TracesView() {
       if (res.ok) {
         const data = await res.json();
         setSelected(data.trace);
+        // Score-now default follows the trace's OWN dimension (never suggest
+        // answer_quality on a /recall trace — that was the mis-scoring source).
+        const lbl = data.trace?.label;
+        setDimension(
+          lbl === "chat" ? "answer_quality" : lbl === "ingest" || lbl === "remember" ? "extraction_fidelity" : "recall_relevance",
+        );
         // Review loop: opening an unreviewed low-scored trace clears its flag.
         if (data.trace && data.trace.needs_review) {
           fetch(`${API_BASE}/traces/${id}/review`, { method: "POST" }).catch(() => {});
