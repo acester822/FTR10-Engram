@@ -2785,7 +2785,7 @@ function MemoryAuditView() {
   };
 
   const canUndo = (e: any) =>
-    ["supersede", "delete", "update", "reclassify"].includes(e.operation) &&
+    ["supersede", "delete", "update", "reclassify", "enrich"].includes(e.operation) &&
     e.event_type !== "memory_undo" &&
     !!e.before_state;
 
@@ -2795,6 +2795,8 @@ function MemoryAuditView() {
         ? "un-supersede this memory (make it active again)"
         : e.operation === "delete"
         ? "restore the deleted memory (full row, incl. embedding)"
+        : e.operation === "enrich"
+        ? "remove the enriched successor and restore the original memory"
         : "restore the fields from before the change";
     if (!confirm(`Undo this ${e.operation}? This will ${what}.`)) return;
     try {
@@ -3014,6 +3016,15 @@ function MemoryAuditView() {
                       ) : (
                         <span className="text-slate-600">{f.action_taken}</span>
                       )}
+                      {(f.detail || {}).reverted_at ? (
+                        <span className="ml-1 px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold" title={`Reverted ${(f.detail || {}).reverted_at}`}>
+                          REVERTED
+                        </span>
+                      ) : f.check_name === "enrichment_candidate" && f.successor_live === false && f.action_taken === "enrich" ? (
+                        <span className="ml-1 px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-semibold" title="The enriched successor no longer exists">
+                          successor deleted
+                        </span>
+                      ) : null}
                     </td>
                     <td className="py-2 pr-3 text-xs">{f.status}</td>
                     <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{fmtTs(f.created_at)}</td>
@@ -3083,7 +3094,15 @@ function MemoryAuditView() {
                         {e.actor_id}
                       </span>
                     </td>
-                    <td className="py-2 pr-3 text-xs">{e.operation}</td>
+                    <td className="py-2 pr-3 text-xs">
+                      {e.event_type === "memory_undo" ? (
+                        <span className="inline-flex items-center gap-1 text-red-600">
+                          <Undo2 size={11} /> {e.operation}
+                        </span>
+                      ) : (
+                        e.operation
+                      )}
+                    </td>
                     <td className="py-2 pr-3 font-mono text-xs text-slate-500">{e.target_id ? `${e.target_id.slice(0, 8)}…` : "—"}</td>
                     <td className="py-2 pr-3 text-xs text-slate-500">click to view JSON</td>
                     <td className="py-2 text-right">

@@ -429,7 +429,10 @@ export async function listFindings(f: { status?: string; severity?: string; limi
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   const rows = await pg_all(
     `SELECT f.id, f.check_name, f.memory_id, f.severity, f.action_taken, f.detail, f.status, f.created_at, f.resolved_at,
-            m.content AS memory_content, m.sector AS memory_sector, m.superseded_at AS memory_superseded_at
+            m.content AS memory_content, m.sector AS memory_sector, m.superseded_at AS memory_superseded_at,
+            CASE WHEN f.detail->>'new_memory_id' IS NULL THEN NULL
+                 ELSE EXISTS (SELECT 1 FROM public.memories s WHERE s.id = (f.detail->>'new_memory_id')::uuid AND s.superseded_at IS NULL)
+            END AS successor_live
      FROM public.integrity_findings f
      LEFT JOIN public.memories m ON m.id = f.memory_id
      ${whereSql}

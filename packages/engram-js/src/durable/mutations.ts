@@ -354,14 +354,20 @@ export async function undoAuditEntry(
     // restore the original (clear superseded_at).
     const after = a.after_state ?? null;
     if (!after || !after.id) return { ok: false, error: "after_state missing — cannot undo this enrichment" };
-    const succExists = await pg_all(`SELECT id FROM public.memories WHERE id = $1`, [after.id]);
-    if (succExists.length) {
+    let didAnything = false;
+    const succExists = await pg_all(`SELECT id, superseded_at FROM public.memories WHERE id = $1`, [after.id]);
+    if (succExists.length && !succExists[0].superseded_at) {
       await pg_run(`DELETE FROM public.memories WHERE id = $1`, [after.id]);
+      didAnything = true;
+    } else if (succExists.length) {
+      await pg_run(`DELETE FROM public.memories WHERE id = $1`, [after.id]); // superseded successor — remove it too
+      didAnything = true;
     }
     if (targetId) {
       const orig = await pg_all(`SELECT id, superseded_at FROM public.memories WHERE id = $1`, [targetId]);
       if (orig.length && orig[0].superseded_at) {
         await pg_run(`UPDATE public.memories SET superseded_at = NULL WHERE id = $1`, [targetId]);
+        didAnything = true;
       }
     }
     await recordMemoryAudit({
@@ -372,10 +378,22 @@ export async function undoAuditEntry(
       target_table: "memories",
       target_id: targetId,
       before_state: { successor_id: after.id },
-      after_state: { original_restored: true },
+      after_state: { original_restored: didAnything },
       metadata: { undo_of: auditId },
     });
-    return { ok: true, message: "enrichment undone — successor removed, original restored" };
+    // Reflect the revert in the findings ledger: the enrichment_candidate
+    // finding that produced this successor gets a reverted_at marker so the
+    // GUI can show "REVERTED" instead of looking like the enrichment stands.
+    await pg_run(
+      `UPDATE public.integrity_findings
+       SET detail = jsonb_set(coalesce(detail, '{}'::jsonb), '{reverted_at}', to_jsonb(now()::text)),
+           status = 'resolved'
+       WHERE check_name = 'enrichment_candidate'
+         AND detail->>'new_memory_id' = $1
+         AND detail->>'reverted_at' IS NULL`,
+      [after.id],
+    ).catch((e: any) => logger.warn({ module: "mutations", err: e?.message }, "finding revert marker failed"));
+    return { ok: true, message: didAnything ? "enrichment undone — successor removed, original restored" : "already reverted — nothing to undo" };
   }
 
   if (op === "update" || op === "reclassify") {
