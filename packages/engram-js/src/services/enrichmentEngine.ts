@@ -88,6 +88,10 @@ const INTENT_PATTERNS = [
   /\bcheck (for|the) (consistency|alignment|discrepan)/i,
   /\bconfirm whether\b/i,
   /\bfix requires\b/i,
+  // Generic imperative standing rules ("Ensure X", "Make sure Y", "Always Z")
+  // are NOT enrichable — web content can only add generic best-practice noise.
+  /\b(ensure|make sure)\b/i,
+  /\balways\s+(run|test|check|verify|use|commit|validate|ensure)\b/i,
 ];
 
 export function isIntentOrTodo(content: string): boolean {
