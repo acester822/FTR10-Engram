@@ -434,6 +434,7 @@ export async function integrityStatus(): Promise<any> {
   );
   return {
     enabled: integrityEnabled(),
+    action: tier2Action(),
     gate,
     last_run: runs[0] || null,
     open_findings: openFindings[0]?.n || 0,

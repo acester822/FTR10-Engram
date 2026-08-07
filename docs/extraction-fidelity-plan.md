@@ -71,6 +71,7 @@ The rubric's INPUT changed, so existing `judge_calibration` entries for `extract
 Implemented + deployed (v4.7.0). Decisions per user (all confirmed as written): response_body ids, async scoring, old traces keep receipt scores, calibration re-seeded, no compaction scope, GUI chip yes.
 
 ### Files changed
+
 - `services/memoryLogger.ts` — `logInteractionAsync` returns `storedMemoryIds` (already collected for coherence links).
 - `api/routes/ingest/conversation/route.ts` — response includes `stored_memory_ids` → lands on the trace via existing verbatim response capture (zero capture changes).
 - `services/traceScorer.ts` — `buildRubric` now async; for `extraction_fidelity` with ids present it fetches the stored rows and hands the judge the ACTUAL extraction output (conversation + stored memories); new rubric (specific/correct/no-invention); receipt-grading remains the fallback for legacy traces.
@@ -79,10 +80,12 @@ Implemented + deployed (v4.7.0). Decisions per user (all confirmed as written): 
 - `judge_calibration` — old `extraction_fidelity` labels deleted; re-seeded with the verified trace (expected 0.8).
 
 ### Verification
+
 - Scripted fact-rich conversation → 5 memories stored → trace carries 5 ids → judge scored **0.85** with an actionable reason ("captures all durable technical facts accurately and specifically, but fails to store the assistant's contribution regarding the judge model Qwen3.6-28B-REAP20…") — impossible under the old receipt rubric.
 - Calibration run under the new rubric: 6 checked, **5 agree (0.83), avg abs error 0.142** — the new entry agrees (0.85 vs 0.8, within tolerance).
 - Fallback path (old traces, no ids): unchanged receipt grading; no crashes.
 
 ### Plan↔reality notes
+
 - Old traces keep their receipt-era scores (per decision); their low scores are already filtered from needs-review by the noise-class exclusions.
 - The GUI chip is informational (count + ids in tooltip); clicking a row already opens the trace detail where the ids + full bodies live.

@@ -259,6 +259,47 @@ function DashboardView({
 }) {
   const [consolidating, setConsolidating] = useState("" as string);
   const [consolidateMsg, setConsolidateMsg] = useState("");
+  const [report, setReport] = useState(null as any);
+  const [facets, setFacets] = useState({ policy: { good: 0.7, bad: 0.4 } } as any);
+  const [integrity, setIntegrity] = useState(null as any);
+  const [enrichment, setEnrichment] = useState(null as any);
+  const [findings, setFindings] = useState([] as any[]);
+  const [audit, setAudit] = useState([] as any[]);
+
+  const load = async () => {
+    try {
+      const [r, f, i, e, a, fa] = await Promise.all([
+        fetch(`${API_BASE}/traces/report?days=7`).then((x) => (x.ok ? x.json() : null)),
+        fetch(`${API_BASE}/integrity/findings?limit=60`).then((x) => (x.ok ? x.json() : null)),
+        fetch(`${API_BASE}/integrity/status`).then((x) => (x.ok ? x.json() : null)),
+        fetch(`${API_BASE}/enrichment/status`).then((x) => (x.ok ? x.json() : null)),
+        fetch(`${API_BASE}/memory-audit?limit=8`).then((x) => (x.ok ? x.json() : null)),
+        fetch(`${API_BASE}/traces/facets`).then((x) => (x.ok ? x.json() : null)),
+      ]);
+      if (r) setReport(r.report || r);
+      if (f) setFindings(f.findings || []);
+      if (i) setIntegrity(i);
+      if (e) setEnrichment(e);
+      if (a) setAudit(a.entries || []);
+      if (fa) setFacets(fa);
+    } catch {
+      /* dashboard panels are best-effort */
+    }
+  };
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fmtTs = (ts: string) => {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime())
+      ? ts
+      : d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  };
 
   const triggerConsolidation = async (tier: string) => {
     setConsolidating(tier);
@@ -277,12 +318,44 @@ function DashboardView({
   if (!stats) return <div className="text-slate-500">Loading cognitive stats...</div>;
 
   const total = stats.total_memories || 1;
+  const openFindings = findings.filter((f: any) => f.status === "open");
+  const highFindings = openFindings.filter((f: any) => f.severity === "high").length;
+  const mediumFindings = openFindings.filter((f: any) => f.severity === "medium").length;
+  const lowFindings = openFindings.filter((f: any) => f.severity === "low").length;
+  const scoreStats = report?.score_stats || {};
+  const dist = report?.score_distribution || { good: 0, medium: 0, bad: 0 };
+  const worst = report?.worst || [];
+  const policy = facets.policy || { good: 0.7, bad: 0.4 };
+  const intRun = integrity?.last_run || null;
+  const enrRun = enrichment?.last_run || null;
+  const gateOpen = integrity?.gate ? integrity.gate.open : null;
+
+  const sevCls = (s: string) =>
+    s === "high" ? "bg-red-100 text-red-700" : s === "medium" ? "bg-amber-100 text-amber-700" : "bg-slate-200 text-slate-600";
+
+  const wouldDo = (f: any) => {
+    if (f.check_name === "enrichment_access_request") return `Grant access to ${(f.detail || {}).root || "?"}`;
+    if (f.verdict === "delete candidate") return "Delete memory";
+    if (f.verdict === "supersede candidate") return "Supersede (reversible)";
+    if (f.verdict === "enrich") return "Enrich memory (sourced)";
+    return f.verdict || f.action_taken;
+  };
 
   return (
     <div className="space-y-8">
+      {/* Header */}
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-slate-800">Cognitive Overview</h2>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">Cognitive Overview</h2>
+          <p className="text-xs text-slate-400 mt-1">System health · judge scoring · engines · findings — refreshed every 30s</p>
+        </div>
         <div className="flex gap-2">
+          <button
+            onClick={load}
+            className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-slate-600 px-3 py-2 rounded-lg text-sm transition-colors"
+          >
+            <RefreshCw size={15} /> Refresh
+          </button>
           <button
             onClick={() => triggerConsolidation("recent")}
             disabled={!!consolidating}
@@ -310,56 +383,299 @@ function DashboardView({
         </p>
       )}
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Policy alerts — the "something is not right" surface */}
+      {report?.policy_alerts && report.policy_alerts.length > 0 && (
+        <div className="space-y-2">
+          {report.policy_alerts.map((a: any, i: number) => (
+            <div
+              key={i}
+              className={`flex items-start gap-2 px-3 py-2 rounded-lg border text-sm ${
+                a.severity === "high" ? "bg-red-50 border-red-200" : "bg-yellow-50 border-yellow-200"
+              }`}
+            >
+              <span className={`mt-0.5 ${a.severity === "high" ? "text-red-500" : "text-yellow-500"}`}>⚠</span>
+              <div>
+                <span className="text-[10px] uppercase font-semibold text-slate-500">Policy alert</span>
+                {a.dimension && (
+                  <span className="ml-1 text-[10px] uppercase text-slate-400 bg-white px-1.5 py-0.5 rounded border border-gray-200">
+                    {a.dimension}
+                  </span>
+                )}
+                <p className="text-xs text-slate-600 mt-0.5">{a.message}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Gate banner */}
+      {gateOpen === false && (
+        <div className="px-4 py-3 rounded-lg bg-red-600 text-white text-sm font-medium animate-pulse">
+          ⛔ Judge calibration gate CLOSED — Tier-2 integrity mutations are suspended until calibration recovers.
+        </div>
+      )}
+
+      {/* Headline stat cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <StatCard title="Total Memories" value={stats.total_memories} icon={<Database className="text-blue-500" />} />
-        <StatCard title="Genome (Immutable)" value={stats.genome_count} icon={<Skull className="text-amber-500" />} />
-        <StatCard title="Phenotype (Decaying)" value={stats.phenotype_count} icon={<Activity className="text-emerald-500" />} />
+        <StatCard title="Genome" value={stats.genome_count} icon={<Skull className="text-amber-500" />} />
+        <StatCard title="Phenotype" value={stats.phenotype_count} icon={<Activity className="text-emerald-500" />} />
+        <StatCard
+          title="Open Findings"
+          value={openFindings.length}
+          icon={<Flag className={openFindings.length ? "text-red-500" : "text-slate-400"} />}
+        />
+        <StatCard title="Traces (7d)" value={report?.total ?? "—"} icon={<FileText className="text-indigo-500" />} />
+        <StatCard
+          title="Traces / Errors (7d)"
+          value={report?.errors ?? "—"}
+          icon={<Zap className={(report?.errors || 0) > 0 ? "text-red-500" : "text-slate-400"} />}
+        />
       </div>
 
-      {/* Sector Breakdown */}
-      {Object.keys(stats.by_sector).length > 0 ? (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <h3 className="text-lg font-semibold mb-4">Memory Distribution by Sector</h3>
-          <div className="space-y-4">
-            {Object.entries(stats.by_sector)
-              .sort((a, b) => b[1] - a[1])
-              .map(([sector, count]) => (
-                <div key={sector} className="flex items-center gap-4">
-                  <span className="w-24 text-sm font-medium capitalize text-slate-600">{sector}</span>
+      {/* Score health + engine status */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold">Judge Score Health</h3>
+            <span className="text-xs text-slate-400">7-day window · {report?.total ?? 0} traces</span>
+          </div>
+          {Object.keys(scoreStats).length ? (
+            <div className="space-y-3">
+              {Object.entries(scoreStats).map(([dim, st]: any) => (
+                <div key={dim} className="flex items-center gap-3">
+                  <span className="font-mono text-xs text-slate-600 w-48">{dim}</span>
                   <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                      className={`h-full rounded-full ${st.avg >= policy.good ? "bg-emerald-500" : st.avg >= policy.bad ? "bg-yellow-400" : "bg-red-500"}`}
+                      style={{ width: `${Math.round(st.avg * 100)}%` }}
+                    />
+                  </div>
+                  <ScorePill score={st.avg} good={policy.good} bad={policy.bad} />
+                  <span className="text-xs text-slate-400 w-16 text-right">{st.count} scored</span>
+                </div>
+              ))}
+              <div className="flex gap-3 pt-2 text-xs text-slate-500 border-t border-gray-100">
+                <span className="text-emerald-600">● {dist.good} good</span>
+                <span className="text-yellow-500">● {dist.medium} medium</span>
+                <span className="text-red-500">● {dist.bad} bad</span>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">No scored traces in the window yet.</p>
+          )}
+          {worst.length > 0 && (
+            <div className="mt-4">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Worst scored traces</h4>
+              <div className="space-y-2">
+                {worst.slice(0, 3).map((w: any, i: number) => (
+                  <div key={i} className="flex items-start gap-2 text-xs bg-slate-50 border border-gray-200 rounded-lg p-2">
+                    <ScorePill score={w.score} good={policy.good} bad={policy.bad} />
+                    <div>
+                      <span className="font-mono text-slate-500">{w.route}</span>
+                      <span className="text-slate-300 mx-1">·</span>
+                      <span className="text-slate-500">{w.dimension}</span>
+                      <span className="text-slate-300 mx-1">·</span>
+                      <span className="text-slate-400">{fmtTs(w.ts)}</span>
+                      <p className="text-slate-600 mt-0.5">{w.reason}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Engine status */}
+        <div className="space-y-4">
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-sm font-semibold text-slate-700">🛡 Integrity Engine</h3>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${integrity?.enabled ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                {integrity?.enabled ? "enabled" : "off"}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mb-2">
+              Tier-2 action: <span className="font-mono">{integrity?.action || "—"}</span>
+              {gateOpen !== null && (
+                <span className={`ml-2 font-semibold ${gateOpen ? "text-emerald-600" : "text-red-600"}`}>
+                  gate {gateOpen ? "open" : "closed"}
+                </span>
+              )}
+            </p>
+            {intRun?.completed_at ? (
+              <div className="text-xs text-slate-500 space-y-1">
+                <p>Last run: {fmtTs(intRun.completed_at)}</p>
+                {intRun.summary && Object.keys(intRun.summary).length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {Object.entries(intRun.summary)
+                      .filter(([, v]: any) => Number(v) > 0 && typeof v !== "object")
+                      .slice(0, 6)
+                      .map(([k, v]: any) => (
+                        <span key={k} className="px-1.5 py-0.5 bg-slate-100 rounded text-[10px]">
+                          {k}: {v}
+                        </span>
+                      ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">No completed run yet.</p>
+            )}
+          </div>
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-sm font-semibold text-slate-700">✨ Enrichment Engine</h3>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${enrichment?.enabled ? "bg-teal-100 text-teal-700" : "bg-slate-100 text-slate-500"}`}>
+                {enrichment?.enabled ? "enabled" : "off"}
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mb-2">
+              Action: <span className="font-mono">{enrichment?.action || "—"}</span>
+              <span className="ml-2 text-slate-400">(flag-first)</span>
+            </p>
+            {enrRun?.at ? (
+              <div className="text-xs text-slate-500 space-y-1">
+                <p>Last run: {fmtTs(enrRun.at)}</p>
+                {enrRun.stats && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {Object.entries(enrRun.stats)
+                      .filter(([, v]: any) => Number(v) > 0)
+                      .map(([k, v]: any) => (
+                        <span key={k} className="px-1.5 py-0.5 bg-teal-50 text-teal-700 rounded text-[10px]">
+                          {k}: {v}
+                        </span>
+                      ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400">No completed run yet.</p>
+            )}
+          </div>
+
+          <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+            <h3 className="text-sm font-semibold text-slate-700 mb-2">📊 Scoring Coverage</h3>
+            <div className="text-xs text-slate-500 space-y-1">
+              <p>Dimensions scored: {Object.keys(scoreStats).join(", ") || "—"}</p>
+              <p>Thresholds: good ≥ {policy.good} · bad &lt; {policy.bad}</p>
+              <p className="text-slate-400">Judge: {report?.worst?.[0]?.judge_model || "—"}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Findings + Recent mutations */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-lg font-semibold">Findings Ledger</h3>
+            <div className="flex gap-1 text-[10px]">
+              <span className="px-2 py-0.5 rounded bg-red-100 text-red-700 font-semibold">{highFindings} high</span>
+              <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">{mediumFindings} med</span>
+              <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-600 font-semibold">{lowFindings} low</span>
+            </div>
+          </div>
+          {openFindings.length ? (
+            <div className="space-y-2">
+              {openFindings.slice(0, 5).map((f: any) => (
+                <div key={f.id} className="flex items-start gap-2 text-xs bg-slate-50 border border-gray-200 rounded-lg p-2">
+                  <span className={`px-1.5 py-0.5 rounded font-semibold whitespace-nowrap ${sevCls(f.severity)}`}>{f.severity}</span>
+                  <div className="min-w-0">
+                    <p className="text-slate-700 font-medium">{f.check_name}</p>
+                    <p className="text-slate-500 truncate">{(f.memory_content || (f.detail || {}).query || "").slice(0, 110)}</p>
+                    <p className="text-slate-400">
+                      <span className="text-teal-600 font-medium">{wouldDo(f)}</span>
+                      <span className="mx-1">·</span>
+                      {fmtTs(f.created_at)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {openFindings.length > 5 && (
+                <p className="text-xs text-slate-400 text-right">+{openFindings.length - 5} more — see Memory Audit tab</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">No open findings. The ledger is clean. 🎉</p>
+          )}
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+          <h3 className="text-lg font-semibold mb-3">Recent Mutations</h3>
+          {audit.length ? (
+            <div className="space-y-2">
+              {audit.map((e: any) => (
+                <div key={e.id} className="flex items-center gap-2 text-xs bg-slate-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <span
+                    className={`px-1.5 py-0.5 rounded font-mono font-semibold whitespace-nowrap ${
+                      e.event_type === "memory_undo"
+                        ? "bg-red-100 text-red-700"
+                        : e.operation === "enrich"
+                        ? "bg-teal-100 text-teal-700"
+                        : "bg-blue-100 text-blue-700"
+                    }`}
+                  >
+                    {e.operation}
+                  </span>
+                  <span className="text-slate-500">{e.actor_id}</span>
+                  <span className="text-slate-300">·</span>
+                  <span className="font-mono text-slate-400">{e.target_id ? `${e.target_id.slice(0, 8)}…` : "—"}</span>
+                  <span className="ml-auto text-slate-400 whitespace-nowrap">{fmtTs(e.recorded_at)}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">No recent mutations recorded.</p>
+          )}
+        </div>
+      </div>
+
+      {/* Sector + Tier distribution */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {Object.keys(stats.by_sector).length > 0 && (
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <h3 className="text-lg font-semibold mb-4">Memory Distribution by Sector</h3>
+            <div className="space-y-4">
+              {Object.entries(stats.by_sector)
+                .sort((a, b) => b[1] - a[1])
+                .map(([sector, count]) => (
+                  <div key={sector} className="flex items-center gap-4">
+                    <span className="w-24 text-sm font-medium capitalize text-slate-600">{sector}</span>
+                    <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                        style={{ width: `${(count / total) * 100}%` }}
+                      />
+                    </div>
+                    <span className="w-12 text-sm text-slate-500 text-right">{count}</span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {Object.keys(stats.by_tier).length > 0 && (
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <h3 className="text-lg font-semibold mb-4">Memory Distribution by Tier</h3>
+            <div className="space-y-4">
+              {Object.entries(stats.by_tier).map(([tier, count]) => (
+                <div key={tier} className="flex items-center gap-4">
+                  <span className="w-20 text-sm font-medium capitalize text-slate-600">{tier}</span>
+                  <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 rounded-full transition-all duration-500"
                       style={{ width: `${(count / total) * 100}%` }}
                     />
                   </div>
                   <span className="w-12 text-sm text-slate-500 text-right">{count}</span>
                 </div>
               ))}
+            </div>
           </div>
-        </div>
-      ) : null}
-
-      {/* Tier Breakdown */}
-      {Object.keys(stats.by_tier).length > 0 ? (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <h3 className="text-lg font-semibold mb-4">Memory Distribution by Tier</h3>
-          <div className="space-y-4">
-            {Object.entries(stats.by_tier).map(([tier, count]) => (
-              <div key={tier} className="flex items-center gap-4">
-                <span className="w-20 text-sm font-medium capitalize text-slate-600">{tier}</span>
-                <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-                    style={{ width: `${(count / total) * 100}%` }}
-                  />
-                </div>
-                <span className="w-12 text-sm text-slate-500 text-right">{count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
+        )}
+      </div>
     </div>
   );
 }
