@@ -73,7 +73,9 @@ async function doRun(): Promise<{ checked: number; answered_now: number; gaps: n
      WHERE t.route IN ('/recall', '/api/recall', '/api/dashboard/recall')
        AND t.ts > now() - ($1::int * interval '1 day')
        AND t.scores IS NOT NULL
-       AND EXISTS (SELECT 1 FROM jsonb_array_elements(t.scores) s WHERE (s->>'score')::float < $2)
+       AND EXISTS (SELECT 1 FROM jsonb_array_elements(t.scores) s
+         WHERE (s->>'coverage')::int = 0
+            OR ((s->>'coverage') IS NULL AND (s->>'score')::float < $2))
        AND NOT EXISTS (
          SELECT 1 FROM public.integrity_findings f
          WHERE f.check_name = 'recall_gap' AND f.detail->>'trace_id' = t.id::text

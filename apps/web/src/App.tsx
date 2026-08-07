@@ -453,6 +453,11 @@ function DashboardView({
                   </div>
                   <ScorePill score={st.avg} good={policy.good} bad={policy.bad} />
                   <span className="text-xs text-slate-400 w-16 text-right">{st.count} scored</span>
+                  {dim === "recall_relevance" && report?.coverage?.recall?.total > 0 && (
+                    <span className="text-xs text-slate-500 ml-2 whitespace-nowrap">
+                      · {report.coverage.recall.answered}/{report.coverage.recall.total} answered from store
+                    </span>
+                  )}
                 </div>
               ))}
               <div className="flex gap-3 pt-2 text-xs text-slate-500 border-t border-gray-100">
@@ -3031,6 +3036,15 @@ function GovernanceView() {
                       <span className="text-slate-400 ml-2">
                         {x.judge_model} · {fmtTs(x.ts)}
                       </span>
+                      {x.coverage !== undefined && (
+                        <span
+                          className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                            x.coverage === 1 ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          {x.coverage === 1 ? "✓ store answered" : "no answer in store"}
+                        </span>
+                      )}
                       <p className="text-slate-600 mt-0.5">{x.reason}</p>
                     </div>
                   </div>

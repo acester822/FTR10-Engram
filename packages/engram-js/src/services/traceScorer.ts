@@ -41,7 +41,11 @@ function bodyText(body: unknown): string {
     if (typeof obj.content === "string") return obj.content;
     if (Array.isArray(obj.results)) {
       return obj.results
-        .map((r: any) => (typeof r === "string" ? r : r?.content ?? ""))
+        .map((r: any) =>
+          typeof r === "string"
+            ? r
+            : `${r?.score !== undefined ? String(Number(r.score).toFixed(3)) + " | " : ""}${r?.content ?? ""}`,
+        )
         .filter(Boolean)
         .join("\n");
     }
@@ -86,9 +90,9 @@ function sseAssistantText(raw: unknown): string {
 const RUBRICS: Record<TraceDimension, { system: string; user: (ctx: any) => string }> = {
   recall_relevance: {
     system:
-      "You are a strict evaluator of a memory retrieval system. Given a query and the memories the system retrieved/injected, score how RELEVANT the retrieved memories are to the query. Respond ONLY with JSON: {\"score\": <0.0-1.0>, \"reason\": \"<one sentence>\"}. Be harsh: irrelevant or off-topic injections must score low.",
+      "You are a strict evaluator of a memory retrieval system. Given a query and the memories the system retrieved, judge TWO axes: RELEVANCE — how relevant and useful is the retrieved set to the query, graded against what was retrieved (on-topic context counts as relevant even when it does not fully answer; do NOT penalize the retrieval for the store lacking the answer — that is a COVERAGE miss, not a relevance failure); COVERAGE — did the store actually contain the answer to the query (1) or not (0)? Respond ONLY with a JSON object of EXACTLY this shape: {\\\"relevance\\\": <0.0-1.0>, \\\"coverage\\\": <0 or 1>, \\\"reason\\\": \\\"<one sentence>\\\"} — e.g. {\\\"relevance\\\": 0.6, \\\"coverage\\\": 0, \\\"reason\\\": \\\"Right topic, but the store lacks the answer.\\\"}. The field is \\\"relevance\\\", NOT \\\"score\\\". Off-topic retrievals must score low relevance; retrievals that find the right topic but not the answer are relevant but coverage 0.",
     user: (c: any) =>
-      `QUERY:\n${c.request}\n\nMEMORIES RETRIEVED (scores shown):\n${c.response || "(none)"}\n\nINJECTION STATS:\n${c.injection}\n\nScore recall relevance 0.0-1.0.`,
+      `QUERY:\n${c.request}\n\nMEMORIES RETRIEVED (scores shown):\n${c.response || "(none)"}\n\nINJECTION STATS:\n${c.injection}\n\nJudge relevance 0.0-1.0 and coverage 0/1.`,
   },
   extraction_fidelity: {
     system:
@@ -131,17 +135,20 @@ async function buildRubric(dimension: TraceDimension, trace: any): Promise<{ sys
 
 // ── Tolerant JSON parse (fences anywhere, outermost object, log raw) ──
 
-export function parseJudge(content: string): { score: number; reason: string } | null {
+export function parseJudge(content: string): { score: number; reason: string; coverage?: number } | null {
   let text = content.trim().replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) return null;
   try {
     const obj = JSON.parse(m[0]);
-    const score = Number(obj.score);
+    let score = Number(obj.score);
+    if (!Number.isFinite(score)) score = Number(obj.relevance); // two-axis rubric field
     if (!Number.isFinite(score) || score < 0 || score > 1) return null;
+    const coverage = obj.coverage === undefined ? undefined : Number(obj.coverage) ? 1 : 0;
     return {
       score: Math.round(score * 100) / 100,
       reason: typeof obj.reason === "string" ? obj.reason.slice(0, 500) : "",
+      ...(coverage !== undefined ? { coverage } : {}),
     };
   } catch {
     return null;
@@ -231,6 +238,7 @@ export async function scoreTrace(
       judge_model: model,
       ms,
       ts: new Date().toISOString(),
+      ...(parsed.coverage !== undefined ? { coverage: parsed.coverage } : {}),
     };
     if (persist) {
       const scores = Array.isArray(trace.scores) ? trace.scores : [];

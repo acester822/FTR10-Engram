@@ -226,7 +226,11 @@ function needsReviewSql(bad: number): string {
   return `(
     reviewed_at IS NULL
     AND status < 400
-    AND EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(scores, '[]'::jsonb)) s WHERE (s->>'score')::numeric < ${bad})
+    AND EXISTS (
+      SELECT 1 FROM jsonb_array_elements(coalesce(scores, '[]'::jsonb)) s
+      WHERE (s->>'score')::numeric < ${bad}
+        AND (s->>'coverage' IS NULL OR (s->>'coverage')::int = 1)
+    )
     AND NOT (
       route LIKE '/recall%'
       AND (request_body->>'query' IS NULL OR request_body->>'query' !~* '\\?|^(what|how|why|when|where|which|who|does|do|can|could|would|should|explain|define|describe)')
@@ -354,6 +358,7 @@ export interface TraceReport {
   score_stats: Record<string, { count: number; avg: number; min: number; max: number }>;
   score_distribution: { good: number; medium: number; bad: number };
   excluded_scores: { invalid_trace: number; mis_dimensioned: number; receipt_era: number; conversational: number };
+  coverage: { recall: { total: number; answered: number } };
   worst: Array<{ ts: string; route: string; dimension: string; score: number; reason: string; judge_model: string }>;
   breakdown_totals: { genome: number; phenotype: number; sectors: Record<string, number> };
   judge_models: string[];
@@ -416,6 +421,7 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
   let msN = 0;
   // Honest accounting: scores excluded from the stats and WHY (v4.7.1).
   const excluded = { invalid_trace: 0, mis_dimensioned: 0, receipt_era: 0, conversational: 0 };
+  const coverage = { recall: { total: 0, answered: 0 } };
 
   for (const t of rows) {
     byRoute[t.route] = (byRoute[t.route] || 0) + 1;
@@ -465,6 +471,12 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
       if (dim === "recall_relevance" && !isKnowledgeQuery(typeof query === "string" ? query : "")) {
         excluded.conversational++;
         continue;
+      }
+      // Coverage accounting (two-axis rubric): how often did the store
+      // actually contain the answer? — the honest store-gap number.
+      if (dim === "recall_relevance" && s.coverage !== undefined) {
+        coverage.recall.total++;
+        if (Number(s.coverage) === 1) coverage.recall.answered++;
       }
       const st = scoreByDim[dim] || { count: 0, sum: 0, min: Infinity, max: -Infinity };
       st.count++;
@@ -541,6 +553,7 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
     score_stats: scoreStats,
     score_distribution: dist,
     excluded_scores: excluded,
+    coverage,
     worst: worstSlice,
     breakdown_totals: bdTotals,
     judge_models: Array.from(judgeSet),
