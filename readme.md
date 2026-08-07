@@ -30,13 +30,18 @@ A **cognitive memory proxy** that gives LLMs persistent, project-aware context a
 
 ## What Engram Is
 
-Engram is a hand-rolled Node.js/TypeScript HTTP server — no Express/Fastify — that acts as an intelligent proxy between clients and an LLM. It is biologically inspired (genome/phenotype memory model, Ebbinghaus decay, a "hippocampus" consolidation cron) and built around five capabilities:
+Engram is a hand-rolled Node.js/TypeScript HTTP server — no Express/Fastify — that acts as an intelligent proxy between clients and an LLM. It is biologically inspired (genome/phenotype memory model, Ebbinghaus decay, a "hippocampus" consolidation cron) and built around eight capabilities:
 
 1. **Memory recall & injection** — every request is embedded, vector-searched against a PostgreSQL + pgvector store, and enriched with a `[ENGRAM COGNITIVE CONTEXT]` block before being forwarded upstream.
 2. **Generative extraction** — after each conversation, a configurable generative model extracts new durable facts from the transcript and stores them (with quality gates, dedup, and embedding).
 3. **Compaction engine** — long conversations are summarized in-place so context windows never grow unbounded.
 4. **Consolidation cron ("the hippocampus")** — a two-tier background job that merges, promotes, and prunes memories to keep the knowledge base healthy.
-5. **Memory decay** — temporal salience with access-based reinforcement and exponential decay.
+5. **Trace observability** — every request/response is captured to a persistent `traces` store (credentials redacted on capture) and auto-scored by a **dedicated LLM judge** (recall relevance / extraction fidelity / answer quality), with calibration, consistency checks, policy thresholds, and a review loop.
+6. **Integrity engine (auto-heal)** — deterministic store checks + LLM-judged false-memory detection, with a gated Tier-2 that supersedes/deletes noise; everything lands in a findings ledger first.
+7. **Enrichment engine (auto-optimization)** — the memories you use most that are weakest get *sourced* enrichment from the store itself, the codebase (rg, `file:line`), and the web — as reversible superseding successors, never in-place rewrites.
+8. **Audit trail + undo** — every mutation (extraction, consolidation, integrity, enrichment, manual edits) writes a before/after audit row; supersedes, deletes, updates, and enrichments are one-click undoable from the GUI.
+
+The whole system is organized as a **three-engine trust ladder**: *calibration → integrity (validity) → optimization (enrichment)* — no engine mutates memories until the judge it depends on is calibrated, and every mutation is audited and reversible.
 
 It can run in **two deployment modes**:
 
@@ -95,6 +100,55 @@ A background cron (started 2s after boot) with **two env-overridable tiers**:
 | **DEEP**   | `EG_CONSOLIDATION_DEEP_INTERVAL_MS` (24h)  | up to `…_DEEP_MAX_AGE_DAYS` (30d) | 3         | Long-window cleanup (requires `access_count >= 1`)     |
 
 Each cycle groups non-archived memories by `consolidation_hash` (max 15 groups), sends each group (chunked to ≤150 memories per call) to the generative model, and applies the returned `merge | update | promote | delete` actions in **one transaction** — any error rolls back the whole batch. If the LLM omits `new_content` for a merge/update, the consolidation model synthesizes it. Manual trigger: `POST /api/dashboard/consolidate` (`?tier=recent` / `?tier=deep` / default = both tiers).
+
+### Trace observability (v4.2.0-traces)
+
+Every request that flows through Engram is captured to a persistent `traces` table — route, status, latency, direction (in/out), model, genome/phenotype injection breakdown, and the full request/response bodies (**credential-like patterns regex-redacted on capture**; body capture capped by `EG_TRACE_MAX_BODY_CHARS`). Traces are kept for `EG_TRACE_RETENTION_DAYS` (pruned automatically) and browsed in the GUI **Traces** tab:
+
+- **Auto-scoring** — eligible traces (chat/ingest/recall, `status < 400`) are scored by a **dedicated, fully independent judge model** (Settings → Judge; observed live: `Qwen3.6-28B-REAP20` on the llama-swap box), one dimension per trace type: chat → `answer_quality`, ingest → `extraction_fidelity`, recall → `recall_relevance`. Rate: `EG_TRACE_AUTO_SCORE_RATE` (default 1 = every eligible trace).
+- **Score pills + needs-review flags** — low-scored traces (< policy `bad` threshold) are flagged `needs review` until opened (or marked reviewed); the review loop is the human-in-the-loop for judge output.
+- **Report** — `POST /api/dashboard/traces/report` aggregates the window (distribution by route/direction/label, score stats per dimension, worst traces) and generates **deterministic remediation suggestions** from live model resolution (never hardcoded historical defaults), plus **policy alerts** when a dimension's average falls below the good/bad thresholds.
+- **PDF export** — the report renders to pixel-perfect PDF via vendored `html2canvas-pro` + `jsPDF` (local-first, no CDN at runtime).
+
+### Judge governance (v4.3.0-governance)
+
+The "trust the judge" checkpoint — no score-driven mutation happens until the judge itself is calibrated and stable:
+
+- **Calibration set** — curated traces with human-labeled expected scores (`judge_calibration` table; the GUI lets you add any trace with your expected score). `POST /api/dashboard/judge/run-calibration` re-scores each entry and reports agreement rate + mean absolute error. Observed: 83% agreement, avg abs error 0.067 on the first seed set.
+- **Consistency check** — `POST /api/dashboard/judge/consistency` re-scores a random sample N× (non-persisting) and reports per-trace mean/MAD. Observed: MAD = 0 (deterministic judge).
+- **Policy thresholds** — good/bad score thresholds (`EG_POLICY_GOOD_THRESHOLD` / `EG_POLICY_BAD_THRESHOLD`, defaults 0.7/0.4) drive ScorePill colors, the needs-review flag, report distributions, and the suggestions engine — all resolved **live**, never hardcoded.
+- **Automatic gate** — a judge-calibration gate (min calibration agreement + max MAD, `EG_INTEGRITY_MIN_CALIBRATION` / `EG_INTEGRITY_MAX_MAD`) opens/closes Tier-2 mutation authority; a closed gate shows a **flashing red banner** in the GUI.
+
+### Integrity engine (auto-heal, v4.4.0-integrity)
+
+A background scheduler (default 24h, `EG_INTEGRITY_INTERVAL_MS`) that runs **8 deterministic checks** (duplicate content, empty content, missing embeddings, synthetic embeddings, null sectors, archive-eligible, near-dupes, secret leakage) plus an **LLM-judged false-memory sampler**:
+
+- **Tier 1 (deterministic)** — acts immediately, audited (`actor: auto-heal`): deletes empty-content memories, supersedes near-identical duplicates (>0.92 sim), re-embeds nulls when the embed box is up.
+- **Tier 2 (LLM-judged)** — samples the oldest never-accessed memories (skipping any with an *open* finding), asks the judge if each is a real fact, and acts per `EG_INTEGRITY_TIER2_ACTION`: `flag` (default — findings only), `supersede`, or `delete` (both gated on judge calibration + a confidence floor, `EG_INTEGRITY_DELETE_CONFIDENCE`).
+- **Findings ledger** — every Tier-2 result lands in `integrity_findings` (open → resolved/dismissed) with the verdict (delete/supersede candidate), the judge's score and reason, and the memory content; the GUI's **Memory Audit** tab shows what *would* happen before you click.
+- **Apply / Dismiss** — Apply performs the deferred repair through the shared audited mutation layer (delete = hard delete with before-state; supersede = reversible); Dismiss closes the finding untouched. Access-grant findings for out-of-allowlist enrichment directories work the same way (Apply = grant).
+
+### Enrichment engine (auto-optimization, v4.5.0-optimization)
+
+The third rung: it takes the memories the user actually uses that are weakest and **improves them with sourced evidence**, never rewriting in place:
+
+1. **Selection** — pool = semantic/procedural, active, embedded, **never genome (column OR `metadata.is_genome`)** and **never intent/TODO/preference content** (deterministic `isIntentOrTodo` gate — "user wants to…", "needs updating", "should…", "remind…"), ordered by usage; a **completeness-rubric judge** call scores the batch (0 = complete, 1 = critically incomplete).
+2. **Sources, in order** — (a) the store itself (related memories ≥ 0.85 sim), (b) **codebase** — `rg` over the allowlisted roots (`EG_ENRICHMENT_SEARCH_ROOTS`, default `~/Apps`; directories outside it surface **grant/deny access-request findings** — Apply persists the root), (c) **web** — searxNcrawl (default on), technical facts only. A **grounding judge gate** drops any source about a different project/tool before compose.
+3. **Compose + validate** — a compose rubric keeps the original verbatim and appends sourced additions tagged `[src:N]`; a validate rubric rejects cross-project drift, unsupported additions, and hallucination (score ≥ 0.6 required).
+4. **Mutate** — `enrichMemory()` creates a **successor** (fresh uuid, fresh embedding, `metadata.enriched_from`) and supersedes the original: one audit row, one undo click. Action: `EG_ENRICHMENT_ACTION` — **`flag` (default since the 2026-08-07 contamination incident; a clean reviewed batch earns `apply` back)** or `apply`.
+
+### Audit trail + undo (v4.4.0)
+
+Every mutation to the memories table — extraction, consolidation actions, integrity repairs, enrichment, manual GUI edits — writes an `audit_log` row with **before_state and after_state** (embedding included, so even a hard delete is faithfully restorable). The Memory Audit tab renders the trail; **undo** (one click per row) reverses:
+
+| Operation | Undo does |
+|---|---|
+| `supersede` | clears `superseded_at` — memory active again |
+| `delete` | re-inserts the full row including its embedding |
+| `update` / `reclassify` | restores the captured before-fields |
+| `enrich` | removes the enriched successor, restores the original (finding gets a red **REVERTED** badge) |
+
+Undos write their own `memory_undo` audit row and are never themselves undoable. Reverted enrichments are stamped `reverted_at` on their finding so the ledger never claims a reverted enrichment still stands.
 
 ### Memory decay engine
 
@@ -164,7 +218,8 @@ flowchart TD
     subgraph DB["🗄️ PostgreSQL + pgvector (engram db)"]
         T1["memories · memory_windows · memory_versions"]:::db
         T2["provenance · entities · edges · contradictions"]:::db
-        T3["audit_log · consolidations · extraction_candidates"]:::db
+        T3["audit_log · traces · judge_calibration · judge_evals"]:::db
+        T4["integrity_runs · integrity_findings · app_settings"]:::db
     end
 
     subgraph UP["🚀 Upstream LLM box (llama-swap / OpenAI)"]
@@ -173,9 +228,12 @@ flowchart TD
         U3["generative model (extract/compact/consolidate)"]:::up
     end
 
-    subgraph BG["⚙️ Background"]
+    subgraph BG["⚙️ Background engines (trust ladder)"]
         B1["Consolidation cron (RECENT 4h / DEEP 24h)"]:::bg
-        B2["Decay job · activity ring buffer"]:::bg
+        B2["Trace capture + judge auto-score"]:::bg
+        B3["Integrity engine (auto-heal, gated Tier-2)"]:::bg
+        B4["Enrichment engine (sourced successors)"]:::bg
+        B5["Decay job · activity ring buffer"]:::bg
     end
 
     U -->|"POST /v1/chat/completions"| E1
@@ -190,8 +248,13 @@ flowchart TD
     E9 --> T2
     E9 --> T3
     B1 --> T3
-    B2 --> T1
-    B2 -.->|"web GUI :8099"| U
+    B2 --> T3
+    B3 --> T3
+    B3 --> T4
+    B4 --> T3
+    B4 --> T4
+    B5 --> T1
+    B5 -.->|"web GUI :8099"| U
 ```
 
 ---
@@ -208,11 +271,12 @@ Engram/
 │           ├── api/            # Hand-rolled HTTP app + middleware + routes
 │           │   └── routes/     #   chat/completions (the proxy), recall, memories/*, ingest/*,
 │           │                   #   dashboard/*, ide/*, consolidations, contradictions, admin, stats, sources
-│           ├── durable/        # schema.ts (15 tables, idempotent SQL), repository.ts (write/read
-│           │                   #   chokepoints), scoring.ts (hybrid recall scoring)
-│           ├── embeddings/     # embed.ts (6 providers + synthetic fallback), facets.ts (per-sector config)
+│           ├── durable/        # schema.ts (31 tables, idempotent SQL), repository.ts (write/read
+│           │                   #   chokepoints), mutations.ts (shared audited mutations + undo), scoring.ts
+│           ├── embeddings/     # embed.ts (6 providers + synthetic fallback + normalizeEmbedding), facets.ts
 │           ├── services/       # memoryInjector, memoryLogger, compactionEngine, consolidationEngine,
-│           │                   #   hybridSearch, autoSearch, windowedEmbedder, importanceCalculator, ...
+│           │                   #   traceStore, traceScorer, traceGovernance, integrityEngine,
+│           │                   #   enrichmentEngine, hybridSearch, autoSearch, windowedEmbedder, ...
 │           ├── database/       # connection (pg pool), migrate.ts (idempotent boot migrations), models.ts
 │           ├── configuration/  # env loading + parsing (envFile.ts, index.ts)
 │           └── mcp/            # MCP server/client surface (engram_store, engram_search, ...)
@@ -225,7 +289,9 @@ Engram/
 │   ├── searxNcrawl/            # Auto-search service (git submodule) — Python FastMCP server on :9555
 │   │                           #   exposing crawl / crawl_site / search; SearXNG sidecar config
 │   └── hermes-plugin/          # Hermes memory-provider plugin ("Option B" sidecar; stdlib urllib only)
-├── docs/                       # model-config-audit.md (config reference), model-breakdowns.md, todo.md, archive/ (superseded plans)
+├── docs/                       # model-config-audit.md (config reference), model-breakdowns.md,
+│   │                           #   trace-observability-plan.md, governance-plan.md,
+│   │                           #   memory-integrity-plan.md, optimization-plan.md, todo.md, archive/
 ├── scripts/                    # recall-eval (recall@k harness), backfill_embeddings.py,
 │   │                           #   backfillEmbeddingProvenance.ts, store-hygiene purge scripts (DRY-RUN by default)
 ├── docker/                     # postgres init scripts (databases, vector/halfvec extensions)
@@ -263,7 +329,7 @@ docker compose logs -f engram
 
 All services share the `ftr10-engram` bridge network; named volumes `postgres_data`, `redis_data`, `server_data` persist data. There is **no bundled Ollama service** — Engram expects models to be reachable via env-configured URLs (in the live deployment a LAN llama-swap box serves embeddings, the generative model, and the upstream chat model; see [Configuration](#configuration)).
 
-> **Observability:** Langfuse was removed from the stack (its SDK remains a dormant dependency, gated by `EG_LANGFUSE_ENABLED`, default off). The built-in **Engram Web GUI** (port 8099) is the primary dashboard — live server logs, memory activity, recall, and performance metrics.
+> **Observability:** Langfuse was wired in, then removed as dead weight (its SDK remains a dormant dependency, gated by `EG_LANGFUSE_ENABLED`, default off). It was replaced by the in-house **trace store + LLM judge** (Traces tab, Governance tab) and the **Memory Audit** tab (integrity findings + audit trail + undo) — the Web GUI (port 8099) is the primary dashboard: live server logs, memory activity, recall, performance metrics, traces with scores, governance, and the audit trail.
 
 ### Stop & Clean
 
@@ -313,10 +379,12 @@ When wired into [Hermes Agent](https://github.com/NousResearch/Hermes) as a nati
 
 **The web GUI Settings tab is the single source of truth** for providers, models, and tuning
 (see [Web GUI](#web-gui)). It is persisted in Postgres (`app_settings` table, schema
-`4.1.0-settings`) and applied at boot — settings win over `.env`. The API is
+`4.4.0-integrity`) and applied at boot — settings win over `.env`. The API is
 `GET/PUT /api/settings` plus `POST /api/settings/test` (saves all settings, then live-tests a
 section against the provider). There are **no hardcoded model-name defaults anywhere** in the
-codebase.
+codebase. Settings are organized into thirteen groups (Provider, Generative, Embedding,
+Judge, Server, Rate Limit, Compaction, Consolidation, Auto-Search, Traces, Policy, Integrity,
+Enrichment) — see [Web GUI](#web-gui).
 
 `.env` (copy `.env.example`) now holds ONLY the values that cannot be GUI-managed — read at
 startup before the settings store is available, or consumed by compose:
@@ -349,6 +417,10 @@ All models resolve through `src/database/modelRegistry.ts`, in one order:
 3. **Fail** with a clear message (never a silent hardcoded model name)
 - **Generative** — `resolveGenerativeModel(task)` for `extraction`, `compaction`,
   `consolidation`, or `default` (master). A per-task setting beats the master model.
+- **Judge** — a **fully independent model/provider** (`resolveJudgeModel`), deliberately
+  separate from the generative chain: `EG_JUDGE_MODEL` / `EG_JUDGE_URL` / `EG_JUDGE_API_KEY`
+  fallbacks. Used for trace scoring, false-memory sampling, and the enrichment
+  completeness/grounding/compose/validate rubrics.
 - **Embedding** — `resolveEmbeddingModel(facet)` for `episodic`/`semantic`/`procedural`/
   `emotional`/`reflective`; per-facet beats the master embedding model.
 - **Provider URL** — `resolveProviderUrl(section)`; a per-section provider override beats the
@@ -356,12 +428,20 @@ All models resolve through `src/database/modelRegistry.ts`, in one order:
   `http://host:port/v1`). `EG_EMBEDDINGS` (provider kind) is derived from the provider type.
 - **Embedding failure** — if every provider fails, a deterministic **synthetic hashing
   embedding** (feature-hashed tokens + n-grams, L2-normalized to `EG_VEC_DIM`) is used, so
-  writes never hard-fail on embedding (flagged `embedding_synthetic`).
+  writes never hard-fail on embedding (flagged `embedding_synthetic`). Provider responses are
+  normalized (`normalizeEmbedding` — some servers return numeric strings) and bound as JSON
+  strings, the pgvector-safe convention.
 
 **Live deployment:** one llama-swap box on the LAN (`10.10.10.41:8080`) serves embeddings,
-generative extraction, and the upstream chat model. Configured models: `LFM2.5-1.2B-Instruct`
-(generative) and `nomic-embed-text-v1.5` (embedding, 768-dim; procedural facet
-`CodeRankEmbed`).
+generative extraction, and the upstream chat model. Configured models: `Gemma-4-12B-no-thinking`
+(generative — extraction/compaction/consolidation), `nomic-embed-text-v1.5` (embedding,
+768-dim, all facets), and the judge runs on a **second, fully independent model**
+(`Qwen3.6-28B-REAP20`) on the same box. Env fallbacks for the trust-ladder systems:
+`EG_TRACE_RETENTION_DAYS` / `EG_TRACE_MAX_BODY_CHARS` / `EG_TRACE_AUTO_SCORE_RATE`,
+`EG_POLICY_GOOD_THRESHOLD` / `EG_POLICY_BAD_THRESHOLD`, `EG_INTEGRITY_*` (enabled, interval,
+sample size, min calibration, max MAD, delete confidence, tier-2 action, gate max age),
+`EG_ENRICHMENT_*` (enabled, action, interval, pool/batch size, min incomplete, min usage,
+search roots, web enabled, max web results).
 
 ---
 
@@ -387,7 +467,7 @@ cd packages/engram-js && EG_PORT=8080 HOST=0.0.0.0 npx tsx src/server.ts
 npm run build && npm start
 ```
 
-Migrations are **idempotent** — the same `IF NOT EXISTS` statement list (`src/durable/schema.ts`, version `4.1.0-settings`) executes in one transaction at every boot, so the schema is always current before the API accepts traffic.
+Migrations are **idempotent** — the same `IF NOT EXISTS` statement list (`src/durable/schema.ts`, version `4.4.0-integrity`, 31 tables incl. `traces`, `judge_calibration`, `integrity_runs`, `integrity_findings`, `judge_evals`) executes in one transaction at every boot, so the schema is always current before the API accepts traffic.
 
 ---
 
@@ -401,8 +481,11 @@ The web interface (React/Vite SPA on port 8099) is the primary dashboard:
 - **Performance Monitor** — CPU, memory, disk, and llama-swap metrics
 - **Memory Recall** — test the real recall engine (`POST /api/dashboard/recall`)
 - **Activity** — live memory read/write traffic (`/api/dashboard/activity`)
-- **Traces** — persistent request history with full bodies (secrets redacted), genome/phenotype breakdown, and LLM-judge scores (`/api/dashboard/traces*`)
-- **Settings** — the single source of truth: Provider Settings, Generative Models (master + per-task), Embedding Models (master + per-facet), General Settings (26 tuning knobs), and a read-only Advanced table (`.env` values); **Test & Save** buttons live-validate each model section
+- **Mindmap** — visual knowledge-graph view of memories
+- **Traces** — persistent request history with full bodies (secrets redacted), genome/phenotype breakdown, LLM-judge score pills, needs-review flags, filters, **Generate Report** (aggregates + deterministic remediation suggestions + policy alerts, PDF export), and per-trace score/delete/add-to-calibration actions
+- **Governance** — judge calibration set (add any trace with your expected score, run calibration → agreement %, edit/delete), consistency check (N traces × R repeats → variance), and the needs-review queue
+- **Memory Audit** — integrity findings ledger ("Would do" verdicts, Apply/Dismiss), the full **audit trail** (every mutation with before/after JSON), **undo buttons**, and **Run integrity check / Run enrichment now** triggers
+- **Settings** — the single source of truth: Provider, Generative (master + per-task), Embedding (master + per-facet), **Judge (independent model/provider)**, and General groups (Server, Rate Limit, Compaction, Consolidation, Auto-Search, **Traces, Policy, Integrity, Enrichment**), plus a read-only Advanced table (`.env` values); **Test & Save** buttons live-validate each model section
 
 ```bash
 # Dev mode (Vite + React, proxies /api → http://localhost:8080)
@@ -448,11 +531,26 @@ The server exposes two families: **root-level API routes** (used by clients and 
 | `/api/dashboard/consolidate`                                                                                                 | POST                 | Trigger consolidation (`?tier=recent` / `?tier=deep` / both)                             |
 | `/api/dashboard/perf`                                                                                                        | GET                  | Server performance metrics                                                               |
 | `/api/dashboard/activity`                                                                                                    | GET                  | Live memory activity feed (ring buffer)                                                  |
-| `/api/dashboard/traces`                                                                                                      | GET                  | Persistent trace store — list (filters: route/direction/kind/status/scored)              |
-| `/api/dashboard/traces/:id`                                                                                                  | GET                  | Full trace incl. request/response bodies                                                 |
-| `/api/dashboard/traces/:id/score`                                                                                            | POST                 | LLM-as-judge scoring (`dimension=recall_relevance\|extraction_fidelity\|answer_quality`) |
-| `/api/dashboard/traces` / `/api/dashboard/traces/prune`                                                                      | DELETE               | Clear all traces / hard-delete older than retention (`?days=N`)                          |
-| `/api/dashboard/activity/clear`                                                                                              | POST                 | Clear the activity feed                                                                  |
+| `/api/dashboard/traces`                                                                                                      | GET                  | Persistent trace store — list (filters: route/direction/kind/status/scored/review)              |
+| `/api/dashboard/traces/facets`                                                                                               | GET                  | Route/status facets + live policy thresholds (good/bad)                                          |
+| `/api/dashboard/traces/:id`                                                                                                  | GET / DELETE         | Full trace incl. bodies / hard-delete one trace                                                  |
+| `/api/dashboard/traces/:id/score`                                                                                            | POST                 | LLM-as-judge scoring (`dimension=recall_relevance\|extraction_fidelity\|answer_quality`)          |
+| `/api/dashboard/traces/:id/review`                                                                                           | POST                 | Mark a needs-review trace as reviewed                                                            |
+| `/api/dashboard/traces/report`                                                                                               | POST                 | Window aggregation + score stats + deterministic suggestions + policy alerts                     |
+| `/api/dashboard/traces` / `/api/dashboard/traces/prune`                                                                      | DELETE               | Clear all traces / hard-delete older than retention (`?days=N`)                                  |
+| `/api/dashboard/judge/calibration`                                                                                           | GET/POST             | Judge calibration set (human-labeled expected scores)                                            |
+| `/api/dashboard/judge/calibration/:id`                                                                                       | PUT/DELETE           | Edit / remove a calibration entry                                                                |
+| `/api/dashboard/judge/run-calibration`                                                                                       | POST                 | Re-score every calibration entry → agreement rate + mean abs error                               |
+| `/api/dashboard/judge/consistency`                                                                                           | POST                 | Re-score N traces × R repeats (non-persisting) → per-trace mean/MAD                              |
+| `/api/dashboard/integrity/run`                                                                                               | POST                 | Run the integrity engine now (8 checks + judged false-memory sample)                             |
+| `/api/dashboard/integrity/status`                                                                                            | GET                  | Engine enabled/action/last run + gate state                                                      |
+| `/api/dashboard/integrity/findings`                                                                                          | GET                  | Findings ledger (verdicts, memory content, successor_live)                                       |
+| `/api/dashboard/integrity/findings/:id/resolve`                                                                              | POST                 | Apply (performs the deferred repair / grants access) or Dismiss                                  |
+| `/api/dashboard/memory-audit`                                                                                                | GET                  | Audit trail (every mutation with before/after state)                                             |
+| `/api/dashboard/memory-audit/:id/undo`                                                                                       | POST                 | Undo a supersede/delete/update/reclassify/enrich (one-click reversibility)                       |
+| `/api/dashboard/enrichment/run`                                                                                              | POST                 | Run the enrichment engine now (used-most × completeness → sourced successors)                    |
+| `/api/dashboard/enrichment/status`                                                                                           | GET                  | Enrichment enabled/action/last run                                                               |
+| `/api/dashboard/activity/clear`                                                                                              | POST                 | Clear the activity feed                                                                          |
 | `/api/performance/system`                                                                                                    | GET                  | System metrics (CPU, memory, disk, load, uptime)                                         |
 | `/api/performance/llama-swap`                                                                                                | GET                  | Upstream llama-swap box metrics                                                          |
 | `/api/ide/session/start` · `/api/ide/session/end` · `/api/ide/events` · `/api/ide/context` · `/api/ide/patterns/:session_id` | GET/POST             | VS Code extension integration endpoints                                                  |
@@ -487,6 +585,14 @@ Compaction runs when a conversation exceeds `EG_COMPACT_TRIGGER` (code default 5
 ### Consolidation not running
 
 The cron has two tiers (RECENT 4h / DEEP 24h). Trigger manually via `POST /api/dashboard/consolidate`. Groups come from `consolidation_hash` with tier-specific minimum sizes (2 recent / 3 deep).
+
+### Enrichment / integrity engines not acting
+
+Both engines are schedulers with run locks (manual + scheduled runs never overlap — a concurrent call returns `skipped: already in progress`). The enrichment engine is **flag-first by default** (`EG_ENRICHMENT_ACTION=flag`): it proposes candidates in the Memory Audit ledger and touches nothing until you Apply. Verify enabled state + last run via `GET /api/dashboard/enrichment/status` and `GET /api/dashboard/integrity/status`. When the embedding provider is down, engines **skip gracefully** (the synthetic fallback's 1536-dim vectors fail the 768-dim column check) — no corruption, just no-ops.
+
+### "invalid input syntax for type halfvec" errors
+
+node-pg serializes JS arrays as `{"0.1","0.2"}` (quoted elements), which pgvector's halfvec parser rejects. Embeddings must be bound as **JSON strings** (`[0.1,0.2]` — the `asVector` convention in `durable/repository.ts`), and provider output should pass through `normalizeEmbedding` first (some OpenAI-compatible servers return numeric strings). Any new code binding embeddings must follow both.
 
 ### `.env` changes not picked up after `docker compose restart`
 

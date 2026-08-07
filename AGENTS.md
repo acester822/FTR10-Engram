@@ -6,6 +6,11 @@
 - readme.md - Similar to the agents.md but will have less technical information
 - docs/model-config-audit.md - **Configuration reference**: full audit of every model variable + the Settings-tab registry design
 - docs/model-breakdowns.md - Model selection guide (current: Settings-tab registry, no hardcoded defaults)
+- docs/trace-observability-plan.md - Trace store + judge scoring design (implemented v4.2.0)
+- docs/governance-plan.md - Judge calibration/consistency/policy/review design (implemented v4.3.0)
+- docs/memory-integrity-plan.md - Integrity engine (auto-heal) design (implemented v4.4.0)
+- docs/optimization-plan.md - Enrichment engine (auto-optimization) design + contamination incident post-mortem (implemented v4.5.0)
+- docs/changelog-2026-08-04-05.md - Recent build changelog
 - docs/todo.md - Implementation plans (kept as historical reference)
 - docs/archive/ - Superseded design/plan documents (Langfuse plans, original plan.md, rebrand notes, etc.)
 ### Directories:
@@ -28,6 +33,17 @@ docker compose up --build -d
 ```
 Docker services: `postgres`, `redis`, `engram`, `searxncrawl`, `searxng`, `web`.
 External ports: **8098** (Engram API), **8099** (Web GUI), 5432 (Postgres), 6379 (Redis).
+
+### Manual engine triggers (dashboard API, port 8098):
+```bash
+curl -X POST http://localhost:8098/api/dashboard/consolidate            # consolidation (both tiers)
+curl -X POST http://localhost:8098/api/dashboard/integrity/run          # integrity engine now
+curl -X POST http://localhost:8098/api/dashboard/enrichment/run         # enrichment engine now
+curl -X POST http://localhost:8098/api/dashboard/traces/report          # trace report (aggregates + suggestions)
+curl -X POST http://localhost:8098/api/dashboard/judge/run-calibration  # judge vs human labels (agreement %)
+curl -X POST http://localhost:8098/api/dashboard/judge/consistency      # judge stability (N×R variance)
+curl -X POST http://localhost:8098/api/dashboard/memory-audit/<id>/undo # undo a mutation (supersede/delete/update/enrich)
+```
 
 ## Project Flows:
 ```mermaid
@@ -79,7 +95,7 @@ flowchart TD
     S1["⏱ Consolidation Cron"]:::consolidation
     S2[("🗄️ PostgreSQL")]:::db
     S3["⚙️ LLM Actions\nmerge/update/promote/delete"]:::consolidation
-    S1 -->|"Every 30 min"| S2
+    S1 -->|"RECENT 4h / DEEP 24h"| S2
     S2 --> S3
 ```
 
@@ -109,8 +125,9 @@ Models/providers are configured in the **web GUI Settings tab** (persisted in Po
 
 | Task | Deployed model | Notes |
 |---|---|---|
-| **Generative** (extraction, compaction, consolidation, autoSearch) | LFM2.5-1.2B-Instruct | Master model in Settings → Generative; per-task overrides available (extraction/compaction/consolidation) |
-| **Embedding** | nomic-embed-text-v1.5 (768-dim) | Master model in Settings → Embedding; per-facet overrides for episodic/semantic/procedural/emotional/reflective (deployment: procedural = CodeRankEmbed) |
+| **Generative** (extraction, compaction, consolidation, autoSearch) | Gemma-4-12B-no-thinking | Master model in Settings → Generative; per-task overrides available (extraction/compaction/consolidation) |
+| **Judge** (trace scoring, false-memory sampling, enrichment rubrics) | Qwen3.6-28B-REAP20 | Settings → Judge — deliberately a **second, fully independent model** from the generative chain; own provider URL possible |
+| **Embedding** | nomic-embed-text-v1.5 (768-dim) | Master model in Settings → Embedding; per-facet overrides for episodic/semantic/procedural/emotional/reflective |
 | **Provider** | llama-swap @ http://10.10.10.41:8080/v1 | Set in Settings → Provider (type OpenAI Compatible, host IP, port) |
 
 Legacy env overrides still honored as fallback: `EG_MODEL_GENERATIVE`, `EG_MODEL_EMBEDDING`, `EG_MODEL_EMBED_<FACET>`, `EG_CONSOLIDATION_MODEL` — but they are no longer required.
@@ -164,6 +181,27 @@ Supported embedding providers: `openai`, `gemini`, `aws`, `siray`, `local`.
    ├─ 3. GENERATE ACTIONS: LLM JSON merge/update/promote/delete decisions
    ├─ 4. EXECUTE ACTIONS: per-action with transaction rollback
    └─ 5. SYNTHESIS FALLBACK: if LLM omits new_content, synthesize from sources
+
+[TRACE + JUDGE] (every request → persistent traces, auto-scored)
+   ├─ 1. CAPTURE: route/status/ms/bodies (secrets redacted, `EG_TRACE_MAX_BODY_CHARS` cap)
+   ├─ 2. AUTO-SCORE: chat→answer_quality, ingest→extraction_fidelity, recall→recall_relevance
+   ├─ 3. GOVERN: calibration set (human labels) + consistency (N×R variance) + policy thresholds
+   └─ 4. REVIEW: low-scored traces flagged needs-review until opened; report + PDF export
+
+[INTEGRITY ENGINE] (auto-heal cron, `EG_INTEGRITY_INTERVAL_MS`, default 24h — run locks)
+   ├─ 1. TIER-1 deterministic: 8 checks (dupes, empty, null/synthetic embeddings, sectors, near-dupes, secrets)
+   ├─ 2. TIER-2 judged: sample oldest never-accessed (skip open findings) → is-it-a-fact rubric
+   ├─ 3. ACT per `EG_INTEGRITY_TIER2_ACTION`: flag (default) | supersede | delete (gated on calibration + confidence)
+   └─ 4. FINDINGS LEDGER: verdicts + Apply/Dismiss in Memory Audit tab (all mutations audited + undoable)
+
+[ENRICHMENT ENGINE] (optimization cron, `EG_ENRICHMENT_INTERVAL_MS`, default 24h — run locks)
+   ├─ 1. SELECT: used-most × completeness rubric; NEVER genome (column OR metadata) / intent / TODO
+   ├─ 2. SOURCES: store (≥0.85 sim) → codebase (rg over allowlisted roots, file:line) → web (searxNcrawl)
+   ├─ 3. GROUND: judge gate drops cross-project sources; compose (verbatim + [src:N]) + validate (≥0.6)
+   └─ 4. MUTATE: `enrichMemory` → sourced successor + supersede (ONE audit row, one undo click); `EG_ENRICHMENT_ACTION` default flag
+
+[AUDIT + UNDO] (every mutation → audit_log with before/after full rows incl. embedding)
+   └─ Memory Audit tab: undo supersede/delete/update/reclassify/enrich; REVERTED badges on reverted findings
 ```
 
 ## Intended Operation
@@ -182,9 +220,13 @@ Supported embedding providers: `openai`, `gemini`, `aws`, `siray`, `local`.
 - **Rebrand complete**: Renamed from OpenMemory/CodeCortex to FTR10 Engram (packages, env vars, file names)
 - **Compaction Engine**: Fully implemented — isolates recent tail, thins history, generates summary + facts via generative model
 - **Consolidation Engine**: Background cron job for memory maintenance (merge/update/promote/delete with synthesis fallback)
-- **Settings tab (single source of truth)**: providers, generative/embedding models, general tuning, and read-only advanced values — persisted in Postgres `app_settings`, no hardcoded model defaults
-- **Persistent trace store (v4.2.0-traces)**: every memory/chat request captured with full bodies (secrets regex-redacted), genome/phenotype/sector breakdown, and LLM-judge scores — Traces tab in the web GUI (`/api/dashboard/traces*`), retention-pruned by hard DELETE
-- **Model registry**: `modelRegistry.ts` resolves every model via Settings → env → fail
+- **Settings tab (single source of truth)**: providers, generative/embedding/judge models, general tuning, and read-only advanced values — persisted in Postgres `app_settings` (schema `4.4.0-integrity`), no hardcoded model defaults
+- **Trace store (v4.2.0-traces)**: every request captured with full bodies (secrets regex-redacted), genome/phenotype breakdown, LLM-judge scores — Traces tab (`/api/dashboard/traces*`), retention-pruned
+- **Judge governance (v4.3.0-governance)**: calibration set + run-calibration (agreement %), consistency check (N×R variance), live policy thresholds (0.7/0.4), needs-review loop — Governance tab
+- **Integrity engine (v4.4.0-integrity)**: 8 deterministic checks + judged false-memory sampling, flag-first Tier-2, automatic calibration gate (flashing red banner when closed) — Memory Audit tab
+- **Enrichment engine (v4.5.0-optimization)**: used-most × completeness → sourced successors (store/codebase/web), genome+intent guardrails, grounding gate, **flag-first default** after the 2026-08-07 contamination incident
+- **Audit trail + undo**: every mutation writes audit_log (before/after full rows); supersede/delete/update/enrich one-click undoable; REVERTED markers on reverted findings
+- **Model registry**: `modelRegistry.ts` resolves every model via Settings → env → fail (incl. the independent Judge model)
 - **Auto-search**: Web search via searxNcrawl MCP server (configurable, disabled by default)
 - **Memory decay engine**: Temporal salience computation with access-based reinforcement and exponential decay
 - **Durable memory system**: Genome/Phenotype separation with automatic classification heuristics
