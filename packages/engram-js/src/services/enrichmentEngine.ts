@@ -69,16 +69,25 @@ const STOP = new Set("the this that with from have your their about into would c
 // Intent/TODO/preference memories are NOT facts — enrichment (web/codebase)
 // cannot improve them, and trying produced the "claude-md compaction" and
 // "other-Engram" contamination. Deterministic gate BEFORE the judge runs.
+// Extended 2026-08-07 (user review round 2): preferences ("user prefers"),
+// bare "replace/update <thing>" TODOs, and "needs replaced" phrasing were
+// slipping through and pulling generic web content.
 const INTENT_PATTERNS = [
   /\buser wants? to\b/i,
+  /\buser prefers?\b/i,
+  /\bprefers? (to|using|working)\b/i,
   /\bneeds? (updating|to be (updated|fixed|changed|reviewed))\b/i,
-  /\bneeds? to (fix|update|change|add|remove|review|remember)\b/i,
+  /\bneeds? to (fix|update|change|add|remove|review|remember|replace)\b/i,
+  /\bneeds? (to be )?(replaced|removed|renamed|rewritten)\b/i,
+  /\breplace\s+[A-Za-z][\w.]*\s+(method|class|function|file|schema|route|engine|handler|module|component)\b/i,
+  /\bupdate\s+the\s+(output schema|schema|config|configuration|docs?|readme|documentation)\b/i,
   /\b(should|must|please)\s+(update|fix|change|add|remove|remember|check)\b/i,
   /\btodo\b/i,
   /\bremind(er|ing)?\b/i,
   /\bimportant decision\b/i,
   /\bcheck (for|the) (consistency|alignment|discrepan)/i,
   /\bconfirm whether\b/i,
+  /\bfix requires\b/i,
 ];
 
 export function isIntentOrTodo(content: string): boolean {
@@ -201,7 +210,7 @@ async function doRun(): Promise<any> {
     return { skipped: true, reason: "EG_ENRICHMENT_ENABLED is false — enable in Settings → General → Enrichment" };
   }
   const action = enrichmentAction();
-  const stats = { sampled: 0, candidates: 0, enriched: 0, flagged: 0, failed: 0, skipped_no_sources: 0, skipped_intent: 0, access_requests: 0 };
+  const stats = { sampled: 0, candidates: 0, enriched: 0, flagged: 0, failed: 0, noop: 0, skipped_no_sources: 0, skipped_intent: 0, access_requests: 0 };
   const started = Date.now();
 
   // 1. Selection — used-most first, deterministic filter to bound judge cost.
@@ -307,7 +316,11 @@ async function doRun(): Promise<any> {
         sources.length = 0;
         sources.push(...memorySources, ...kept);
       } catch {
-        /* grounding judge failed — keep everything (validate still guards) */
+        // FAIL-CLOSED (user review round 2): if the grounding judge errors,
+        // we cannot verify external sources belong to this project — drop
+        // ALL of them rather than risk cross-project contamination.
+        sources.length = 0;
+        sources.push(...memorySources);
       }
     }
 
@@ -363,12 +376,26 @@ async function doRun(): Promise<any> {
       stats.failed++;
       continue;
     }
+    // NO-OP GUARD (user review round 2): the compose model sometimes re-emits
+    // the original with only a [src:N] tag or a generic sentence — that is not
+    // enrichment. Require a substantive addition beyond the verbatim original.
+    {
+      let addition = enriched.trim();
+      const origNorm = cand.content.trim();
+      if (addition.startsWith(origNorm)) addition = addition.slice(origNorm.length);
+      else if (addition.includes(origNorm)) addition = addition.replace(origNorm, "");
+      const tagOnly = addition.replace(/\[\s*src:\s*\d+\s*\]/gi, "").trim();
+      if (tagOnly.length < 40) {
+        stats.noop++;
+        continue;
+      }
+    }
 
     // 3e. Validate — factual vs sources, no hallucination.
     let valid = true;
     try {
       const v = await callJudge(
-        `You are a strict enrichment validator. Given ORIGINAL, ENRICHED, and SOURCES, judge whether ENRICHED preserves the original and adds ONLY facts supported by the sources. REJECT (score 0) if: (a) any addition imports facts about a DIFFERENT project, tool, or codebase than the original memory; (b) any addition is not directly supported by a source; (c) the enrichment drifts off-topic or invents specifics. Respond ONLY with JSON: {"score": <0.0-1.0>, "reason": "<one sentence>"} where 0 = terrible and 1 = perfect.`,
+        `You are a strict enrichment validator. Given ORIGINAL, ENRICHED, and SOURCES, judge whether ENRICHED preserves the original and adds ONLY facts supported by the sources. REJECT (score 0) if: (a) any addition imports facts about a DIFFERENT project, tool, or codebase than the original memory; (b) any addition is not directly supported by a source; (c) the enrichment drifts off-topic or invents specifics; (d) the enrichment adds ONLY a source tag, a generic tutorial, generic best practice, or vendor defaults that do not pertain specifically to THIS memory's fact. Respond ONLY with JSON: {"score": <0.0-1.0>, "reason": "<one sentence>"} where 0 = terrible and 1 = perfect.`,
         `ORIGINAL:\n${cand.content}\n\nENRICHED:\n${enriched}\n\nSOURCES:\n${JSON.stringify(realSources).slice(0, 6000)}`,
       );
       const parsed = v.ok ? parseJudge(v.content || "") : null;

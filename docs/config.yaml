@@ -31,7 +31,7 @@ models:
       # ==========================================
       # CONTEXT & PERFORMANCE
       # ==========================================
-        --ctx-size 262144
+        --ctx-size 16384
         --ctx-checkpoints 128
         --batch-size 1024
         --ubatch-size 512
@@ -43,7 +43,7 @@ models:
       # ==========================================
         --cache-type-k q4_0
         --cache-type-v q4_0
-        --cache-ram 16384
+        --cache-ram 2048
         --kv-unified
       # ==========================================
       # SAMPLING / GENERATION
@@ -85,7 +85,7 @@ models:
       # ==========================================
       # CONTEXT & PERFORMANCE
       # ==========================================
-        --ctx-size 131072
+        --ctx-size 32768
         --ctx-checkpoints 128
         --flash-attn on
         --parallel 1
@@ -141,7 +141,7 @@ models:
       # ==========================================
       # CONTEXT & PERFORMANCE
       # ==========================================
-        --ctx-size 128000
+        --ctx-size 65536
         --flash-attn on
         --parallel 1
         --batch-size 2048
