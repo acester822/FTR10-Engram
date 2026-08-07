@@ -201,6 +201,26 @@ export interface TraceFilter {
   offset?: string | number;
 }
 
+/** A trace "needs review" when it carries a low score AND is not one of the
+ *  known-noise classes: conversational (non-question) /recall traces, ingest
+ *  receipts where facts WERE stored (the judge grades the receipt, not the
+ *  stored facts), POST /memories receipts, and non-200 (already-error) traces.
+ *  Added 2026-08-07 after the 41-flag flood — the real gap signal for
+ *  knowledge queries lives in the recall-gap engine instead. */
+function needsReviewSql(bad: number): string {
+  return `(
+    reviewed_at IS NULL
+    AND status < 400
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(scores, '[]'::jsonb)) s WHERE (s->>'score')::numeric < ${bad})
+    AND NOT (
+      route LIKE '/recall%'
+      AND (request_body->>'query' IS NULL OR request_body->>'query' !~* '\\?|^(what|how|why|when|where|which|who|does|do|can|could|would|should|explain|define|describe)')
+    )
+    AND NOT (route LIKE '/ingest%' AND COALESCE((response_body->'extraction'->>'stored_count')::int, 0) > 0)
+    AND NOT (route = '/memories' AND method = 'POST')
+  )`;
+}
+
 /** List rows WITHOUT full bodies (summary + breakdown + scores + review state). */
 export async function listTraces(f: TraceFilter = {}): Promise<any[]> {
   const where: string[] = [];
@@ -235,7 +255,7 @@ export async function listTraces(f: TraceFilter = {}): Promise<any[]> {
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   return pg_all(
     `SELECT id, ts, route, method, status, ms, direction, kind, label, model, breakdown, injection, scores, error, reviewed_at,
-       (reviewed_at IS NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(scores, '[]'::jsonb)) s WHERE (s->>'score')::numeric < ${policy.bad})) AS needs_review
+       (${needsReviewSql(policy.bad)}) AS needs_review
      FROM public.traces ${whereSql}
      ORDER BY ts DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset],
@@ -252,9 +272,7 @@ export async function markTraceReviewed(id: string): Promise<boolean> {
 export async function getTrace(id: string): Promise<any | null> {
   const bad = policyThresholds().bad;
   const rows = await pg_all(
-    `SELECT *, (
-       reviewed_at IS NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(scores, '[]'::jsonb)) s WHERE (s->>'score')::numeric < ${bad})
-     ) AS needs_review
+    `SELECT *, (${needsReviewSql(bad)}) AS needs_review
      FROM public.traces WHERE id = $1`,
     [id],
   );
