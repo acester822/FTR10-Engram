@@ -518,7 +518,7 @@ export async function resolveFinding(
     } else {
       appliedNote = "no root in finding detail — nothing to grant";
     }
-  } else if (f.check_name === "enrichment_candidate" && f.action_taken === "flag" && f.memory_id && f.detail?.new_content) {
+  } else if ((f.check_name === "enrichment_candidate" || f.check_name === "recall_gap") && f.action_taken === "flag" && f.memory_id && f.detail?.new_content) {
     // Deferred enrichment (only reachable in flag mode) — human click = approval.
     const r = await enrichMemory(f.memory_id, f.detail.new_content, f.detail.sources ?? [], "user-apply");
     if (r.ok) {

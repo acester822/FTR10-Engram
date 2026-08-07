@@ -112,7 +112,7 @@ function keyTerms(content: string): string[] {
   return out;
 }
 
-function parseEnrichmentJson(content: string): any | null {
+export function parseEnrichmentJson(content: string): any | null {
   let text = content.trim().replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) return null;

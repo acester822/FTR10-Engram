@@ -15,6 +15,7 @@ import { consolidationEngine } from "../services/consolidationEngine";
 import { integrityEngine } from "../services/integrityEngine";
 import { enrichmentEngine } from "../services/enrichmentEngine";
 import { candidateProcessor } from "../services/candidateProcessor";
+import { recallGapEngine } from "../services/recallGapEngine";
 import { loadSettings, seedSettingsFromEnv } from "../services/settingsService";
 import { run_migrations } from "../database/migrate";
 import { logger } from "../utils/logger";
@@ -237,6 +238,8 @@ export async function startServer() {
   setTimeout(() => { enrichmentEngine.start?.(); }, 6000);
   // 🧹 START THE CANDIDATE PROCESSOR — drains the extraction-candidates queue
   setTimeout(() => { candidateProcessor.start?.(); }, 45000);
+  // 🔁 START THE RECALL-GAP ENGINE — low-recall traces -> enrichment proposals
+  setTimeout(() => { recallGapEngine.start?.(); }, 60000);
 
   logger.info({ module: 'server', port: env.port }, `Starting on port ${env.port}`);
   app.listen(env.port, () => {

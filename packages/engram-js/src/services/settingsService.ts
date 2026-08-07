@@ -128,6 +128,11 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.enrichment_search_roots", env: "EG_ENRICHMENT_SEARCH_ROOTS", type: "string", label: "Search Roots (comma-separated)", section: "enrichment" },
   { key: "general.enrichment_web_enabled", env: "EG_ENRICHMENT_WEB_ENABLED", type: "bool", label: "Web Search Enabled", section: "enrichment" },
   { key: "general.enrichment_max_web_results", env: "EG_ENRICHMENT_MAX_WEB_RESULTS", type: "number", label: "Max Web Results", section: "enrichment" },
+  // Recall-gap feedback loop (v4.6.1): low recall_relevance traces -> re-check
+  // the store; true gaps propose enrichment from the conversation's answer.
+  { key: "general.recall_gap_enabled", env: "EG_RECALL_GAP_ENABLED", type: "bool", label: "Recall-Gap Pass Enabled", section: "enrichment" },
+  { key: "general.recall_gap_window_days", env: "EG_RECALL_GAP_WINDOW_DAYS", type: "number", label: "Recall-Gap Window (days)", section: "enrichment" },
+  { key: "general.recall_gap_max_per_run", env: "EG_RECALL_GAP_MAX_PER_RUN", type: "number", label: "Recall-Gap Max Per Run", section: "enrichment" },
 ];
 
 // ── Advanced (infra / secrets / misc) settings — shown in a warning-labeled table.

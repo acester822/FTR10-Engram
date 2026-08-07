@@ -42,6 +42,7 @@ import { dashboard_memory_audit_route } from "./dashboard/memory-audit/route";
 import { dashboard_enrichment_route } from "./dashboard/enrichment/route";
 import { dashboard_coherence_route } from "./dashboard/coherence/route";
 import { dashboard_candidates_route } from "./dashboard/candidates/route";
+import { dashboard_recall_gap_route } from "./dashboard/recall-gap/route";
 import { settings_route } from "./settings/route";
 import { ide_routes } from "./ide/route";
 import { performance_llamaswap_route } from "./performance/llamaswap/route";
@@ -86,6 +87,7 @@ export function routes(app: any) {
   dashboard_enrichment_route(app);
   dashboard_coherence_route(app);
   dashboard_candidates_route(app);
+  dashboard_recall_gap_route(app);
   settings_route(app);
   ide_routes(app, ctx);
   performance_llamaswap_route(app);
