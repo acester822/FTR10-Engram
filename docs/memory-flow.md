@@ -119,31 +119,31 @@ flowchart TD
 
 ## The eleven gates a fact must pass to reach the store
 
-| # | Gate | Where | Failure behavior |
-|---|---|---|---|
-| 1 | Extraction cooldown (30s) | `memoryLogger` | No extraction this turn |
-| 2 | Extraction quality bar (specifics-or-nothing, single-clause) | extraction prompt | Fact rejected at the source |
-| 3 | Well-formedness (parse) | `memoryLogger` | Body → `extraction_candidates` → drained by processor |
-| 4 | Token-overlap dedupe | `rememberDurableMemory` | NOOP (already known) |
-| 5 | Near-dupe cosine > 0.92 | write path | INVALIDATE → supersede older |
-| 6 | Similarity 0.85–0.92 | write path / backfill | `related_to` edge, memory kept |
-| 7 | Sector validation | write path | Genome/episodic/emotional not auto-written |
-| 8 | Embedding (nomic) | write path | Store with vector |
-| 9 | Context frame + links | coherence | `metadata.context` + edges |
-| 10 | Audit row | every mutation | `memory_audit` before/after |
-| 11 | Recall visibility (`superseded_at IS NULL`) | search | Superseded memories never recalled |
+| #   | Gate                                                         | Where                   | Failure behavior                                      |
+| --- | ------------------------------------------------------------ | ----------------------- | ----------------------------------------------------- |
+| 1   | Extraction cooldown (30s)                                    | `memoryLogger`          | No extraction this turn                               |
+| 2   | Extraction quality bar (specifics-or-nothing, single-clause) | extraction prompt       | Fact rejected at the source                           |
+| 3   | Well-formedness (parse)                                      | `memoryLogger`          | Body → `extraction_candidates` → drained by processor |
+| 4   | Token-overlap dedupe                                         | `rememberDurableMemory` | NOOP (already known)                                  |
+| 5   | Near-dupe cosine > 0.92                                      | write path              | INVALIDATE → supersede older                          |
+| 6   | Similarity 0.85–0.92                                         | write path / backfill   | `related_to` edge, memory kept                        |
+| 7   | Sector validation                                            | write path              | Genome/episodic/emotional not auto-written            |
+| 8   | Embedding (nomic)                                            | write path              | Store with vector                                     |
+| 9   | Context frame + links                                        | coherence               | `metadata.context` + edges                            |
+| 10  | Audit row                                                    | every mutation          | `memory_audit` before/after                           |
+| 11  | Recall visibility (`superseded_at IS NULL`)                  | search                  | Superseded memories never recalled                    |
 
 ## Engines — schedule & posture
 
-| Engine | Schedule | Posture | Key output |
-|---|---|---|---|
-| Enrichment | 6s first tick, 24h | **flag-first** | `enrichment_candidate` findings |
-| Integrity | 24h (run-locked) | mixed: auto-repair + **flag-first** Tier-2 | 9 checks → findings |
-| Recall-gap | 60s first tick, 6h | **flag-first** | `recall_gap` findings (one per memory) |
-| Candidate processor | 45s, 15min | auto | drained extraction queue |
-| Catch-up scorer | 5min, 15min | auto | retried judge scores |
-| Consolidation | 2s first tick, 4h/24h tiers | auto | merged memory rows |
-| Compound splitter | manual trigger | audited supersede | clause-fact split |
+| Engine              | Schedule                    | Posture                                    | Key output                             |
+| ------------------- | --------------------------- | ------------------------------------------ | -------------------------------------- |
+| Enrichment          | 6s first tick, 24h          | **flag-first**                             | `enrichment_candidate` findings        |
+| Integrity           | 24h (run-locked)            | mixed: auto-repair + **flag-first** Tier-2 | 9 checks → findings                    |
+| Recall-gap          | 60s first tick, 6h          | **flag-first**                             | `recall_gap` findings (one per memory) |
+| Candidate processor | 45s, 15min                  | auto                                       | drained extraction queue               |
+| Catch-up scorer     | 5min, 15min                 | auto                                       | retried judge scores                   |
+| Consolidation       | 2s first tick, 4h/24h tiers | auto                                       | merged memory rows                     |
+| Compound splitter   | manual trigger              | audited supersede                          | clause-fact split                      |
 
 ## The self-healing loop (one paragraph)
 

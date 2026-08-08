@@ -122,7 +122,43 @@ export async function runCalibration(
   const results: any[] = [];
   let agree = 0;
   let absErrSum = 0;
+  let unscorable = 0;
   for (const e of entries) {
+    // Honesty filter (v4.7.5): some traces cannot produce a MEANINGFUL score
+    // for their dimension. The one systematic artifact class: extraction_fidelity
+    // needs stored_memory_ids (receipt-era traces grade the receipt, not the
+    // extraction output). Recall traces are deliberately picked by the user
+    // with a label — that pick is authoritative (statement-form questions are
+    // legit recall queries), so no query-form filter here.
+    const tr = await pg_all(`SELECT response_body, request_body FROM public.traces WHERE id = $1`, [e.trace_id]);
+    const row = tr[0];
+    let scorable = true;
+    let skipNote: string | null = null;
+    if (!row) {
+      scorable = false;
+      skipNote = "trace deleted — cannot score";
+    } else if (e.dimension === "extraction_fidelity") {
+      const ids = (row.response_body as any)?.stored_memory_ids;
+      if (!(Array.isArray(ids) && ids.length > 0)) {
+        scorable = false;
+        skipNote = "receipt-era trace (no stored_memory_ids) — fidelity cannot be scored";
+      }
+    }
+    if (!scorable) {
+      unscorable++;
+      results.push({
+        id: e.id,
+        trace_id: e.trace_id,
+        route: e.route ?? null,
+        ts: e.ts ?? null,
+        dimension: e.dimension,
+        expected: e.expected_score,
+        actual: null,
+        match: null,
+        note: skipNote,
+      });
+      continue;
+    }
     const r = await scoreTrace(e.trace_id, e.dimension, { persist: false });
     const actual = r.ok && r.score !== undefined ? r.score : null;
     const match = actual !== null ? Math.abs(actual - e.expected_score) <= tolerance : null;
@@ -140,11 +176,14 @@ export async function runCalibration(
       note: e.note ?? null,
     });
   }
+  const scored = results.length - unscorable;
   const result = {
     checked: results.length,
+    scored,
+    unscorable,
     agree,
-    agree_rate: results.length ? Math.round((agree / results.length) * 100) / 100 : null,
-    avg_abs_error: results.length ? Math.round((absErrSum / results.length) * 1000) / 1000 : null,
+    agree_rate: scored ? Math.round((agree / scored) * 100) / 100 : null,
+    avg_abs_error: scored ? Math.round((absErrSum / scored) * 1000) / 1000 : null,
     entries: results,
   };
   await persistJudgeEval("calibration", result);

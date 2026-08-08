@@ -2729,18 +2729,42 @@ function GovernanceView() {
         </p>
 
         {calResult && (
-          <div className="flex flex-wrap gap-3">
-            <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm">
-              <span className="text-xs text-slate-500 uppercase block">Agreement</span>
-              <span className={`text-xl font-bold ${calResult.agree_rate !== null && calResult.agree_rate >= 0.8 ? "text-emerald-600" : "text-red-600"}`}>
-                {calResult.agree_rate !== null ? `${Math.round(calResult.agree_rate * 100)}%` : "—"}
-              </span>
-              <span className="text-xs text-slate-500 ml-1">({calResult.agree}/{calResult.checked})</span>
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-3">
+              <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm">
+                <span className="text-xs text-slate-500 uppercase block">Agreement</span>
+                <span className={`text-xl font-bold ${calResult.agree_rate !== null && calResult.agree_rate >= 0.8 ? "text-emerald-600" : "text-red-600"}`}>
+                  {calResult.agree_rate !== null ? `${Math.round(calResult.agree_rate * 100)}%` : "—"}
+                </span>
+                <span className="text-xs text-slate-500 ml-1">({calResult.agree}/{calResult.scored ?? calResult.checked})</span>
+              </div>
+              <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm">
+                <span className="text-xs text-slate-500 uppercase block">Avg abs error</span>
+                <span className="text-xl font-bold text-slate-800">{calResult.avg_abs_error ?? "—"}</span>
+              </div>
+              {calResult.unscorable > 0 && (
+                <div className="px-3 py-2 rounded-lg bg-yellow-50 border border-yellow-200 text-sm">
+                  <span className="text-xs text-yellow-600 uppercase block">Excluded (unscorable)</span>
+                  <span className="text-xl font-bold text-yellow-700">{calResult.unscorable}</span>
+                  <span className="text-xs text-yellow-600 ml-1">see notes</span>
+                </div>
+              )}
             </div>
-            <div className="px-3 py-2 rounded-lg bg-slate-50 border border-gray-200 text-sm">
-              <span className="text-xs text-slate-500 uppercase block">Avg abs error</span>
-              <span className="text-xl font-bold text-slate-800">{calResult.avg_abs_error ?? "—"}</span>
-            </div>
+            {(calResult.entries || []).length > 0 && (
+              <div className="bg-slate-50 border border-gray-200 rounded-lg p-2 space-y-1">
+                {calResult.entries.map((x: any) => (
+                  <div key={x.id} className="flex items-center gap-2 text-xs">
+                    <span className={`font-bold ${x.match === true ? "text-emerald-600" : x.match === false ? "text-red-600" : "text-slate-400"}`}>
+                      {x.match === true ? "✓" : x.match === false ? "✗" : "–"}
+                    </span>
+                    <span className="font-mono text-slate-500 w-36 truncate">{x.dimension}</span>
+                    <span className="text-slate-600">exp {x.expected}</span>
+                    <span className="text-slate-400">vs judge {x.actual ?? "—"}</span>
+                    {x.note && <span className="text-yellow-600 italic truncate">{x.note}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -2802,7 +2826,7 @@ function GovernanceView() {
                 <th className="pb-2 pr-3">Trace</th>
                 <th className="pb-2 pr-3">Dimension</th>
                 <th className="pb-2 pr-3">Expected</th>
-                <th className="pb-2 pr-3">Last actual</th>
+                <th className="pb-2 pr-3" title="The score stored on the trace. The gate + a calibration run RE-SCORE live with the judge — stored scores can drift after rubric changes or when an extraction's stored memories are superseded.">Last stored</th>
                 <th className="pb-2 pr-3">Note</th>
                 <th className="pb-2"></th>
               </tr>
