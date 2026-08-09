@@ -140,6 +140,7 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.repos_max_files", env: "EG_REPO_MAX_FILES", type: "number", label: "Max Files Per Run", section: "repos" },
   { key: "general.repos_max_file_bytes", env: "EG_REPO_MAX_FILE_BYTES", type: "number", label: "Max File Bytes", section: "repos" },
   { key: "general.repos_max_commits", env: "EG_REPO_MAX_COMMITS", type: "number", label: "Max Git Commits", section: "repos" },
+  { key: "general.repos_clone_depth", env: "EG_REPO_CLONE_DEPTH", type: "number", label: "URL Clone Depth", section: "repos" },
   { key: "general.repos_tip_enabled", env: "EG_REPO_TIP_ENABLED", type: "bool", label: "Working-Location Tip Enabled", section: "repos" },
 ];
 

@@ -39,6 +39,13 @@ function maxCommits(): number {
   const n = Number(process.env.EG_REPO_MAX_COMMITS);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 200;
 }
+/** Clone depth for URL sources — matches the commit-mine cap so there IS
+ *  history to map (the user's "briefly map commit history / reversions"
+ *  requirement; a --depth 1 clone would have zero history). */
+function cloneDepth(): number {
+  const n = Number(process.env.EG_REPO_CLONE_DEPTH);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : maxCommits();
+}
 function localPathPrefix(): string {
   return process.env.EG_REPO_LOCAL_PREFIX || "/data/repos-local";
 }
@@ -90,7 +97,7 @@ export function resolveSource(source: string): { root: string; name: string; sou
 function cloneUrl(source: string, root: string): void {
   mkdirSync(reposRoot(), { recursive: true });
   if (existsSync(join(root, ".git"))) return; // already cloned
-  execSync(`git clone --depth 1 ${shellQuote(source)} ${shellQuote(root)}`, {
+  execSync(`git clone --depth ${cloneDepth()} ${shellQuote(source)} ${shellQuote(root)}`, {
     stdio: ["ignore", "pipe", "ignore"],
     maxBuffer: 16 * 1024 * 1024,
   });
