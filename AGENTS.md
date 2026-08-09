@@ -11,6 +11,7 @@
 - docs/memory-integrity-plan.md - Integrity engine (auto-heal) design (implemented v4.4.0)
 - docs/optimization-plan.md - Enrichment engine (auto-optimization) design + contamination incident post-mortem (implemented v4.5.0)
 - docs/coherence-plan.md - Memory coherence design (context frames, linked clusters, sourced bundles — implemented v4.6.0)
+- docs/repo-indexing-plan.md - Repo baseline index design (T1/T2 structural miners, git history + reverts, Repos tab, working-location tip — implemented v4.7.0)
 - docs/changelog-2026-08-04-05.md - Recent build changelog
 - docs/todo.md - Implementation plans (kept as historical reference)
 - docs/archive/ - Superseded design/plan documents (Langfuse plans, original plan.md, rebrand notes, etc.)
@@ -46,6 +47,9 @@ curl -X POST http://localhost:8098/api/dashboard/judge/consistency      # judge 
 curl -X POST http://localhost:8098/api/dashboard/memory-audit/<id>/undo # undo a mutation (supersede/delete/update/enrich)
 curl -X POST "http://localhost:8098/api/dashboard/coherence/link-backfill" # one-time legacy link backfill (idempotent, SQL-only)
 curl -X POST "http://localhost:8098/api/memories/bundle?topic=<topic>"      # composed, source-anchored knowledge bundle
+curl -X POST http://localhost:8098/api/dashboard/repos/index -H "content-type: application/json" -d '{"source":"<url-or-path>"}'   # repo baseline index (URL clone or local path)
+curl http://localhost:8098/api/dashboard/repos                          # list indexed repos (files/memories/commits/reverts)
+curl "http://localhost:8098/api/dashboard/repos/<id>/recall-test?query=<q>"  # repo-scoped recall demo
 ```
 
 ## Project Flows:
@@ -216,6 +220,22 @@ Supported embedding providers: `openai`, `gemini`, `aws`, `siray`, `local`.
    │        → validate (≥0.6, no cross-project drift) → injected into /api/cognitive-context
    │        on "working on X" detection (read-only, 5-min TTL)
    └─ 4. HYGIENE: integrity check #9 broken_links (edges → superseded memories flagged)
+
+[REPO INDEX ENGINE] (v4.7.0-repo-index — baseline repo knowledge)
+   ├─ 1. SOURCE: URL (git clone --depth N into EG_REPOS_ROOT, N = commit cap) OR local path
+   │        (host paths under /home/ftr/Apps auto-translated to /data/repos-local mount)
+   ├─ 2. MINE (zero LLM): T1 line-based + T2 tree-sitter (web-tree-sitter + vendored grammar
+   │        wasms; T2 falls back to T1 on parse failure) → one memory per file
+   │        {path, exports, imports, calls}; README/configs as doc memories; secrets redacted
+   ├─ 3. GIT: if a git repo — commits (capped), per-file mutations, REVERTS → bi-temporal
+   │        "do NOT re-introduce" memories (the "remembers what broke" goal)
+   ├─ 4. WRITE: metadata.repo = canonical identity (owner/repo or path — same-named repos
+   │        from other owners can NEVER mingle), metadata.repo_id, kind repo_index/repo_commit/
+   │        repo_revert/repo_anchor; part_of edges file→anchor; re-index supersedes per-file
+   │        (kind-aware dedupe), full audit, run-locked, progress
+   └─ 5. TIP: /api/cognitive-context — after 3 injections in a session whose project has no
+            indexed repo → one "isn't indexed — add baseline knowledge" note (once/session,
+            EG_REPO_TIP_ENABLED)
 ```
 
 ## Intended Operation
@@ -234,12 +254,13 @@ Supported embedding providers: `openai`, `gemini`, `aws`, `siray`, `local`.
 - **Rebrand complete**: Renamed from OpenMemory/CodeCortex to FTR10 Engram (packages, env vars, file names)
 - **Compaction Engine**: Fully implemented — isolates recent tail, thins history, generates summary + facts via generative model
 - **Consolidation Engine**: Background cron job for memory maintenance (merge/update/promote/delete with synthesis fallback)
-- **Settings tab (single source of truth)**: providers, generative/embedding/judge models, general tuning, and read-only advanced values — persisted in Postgres `app_settings` (schema `4.4.0-integrity`), no hardcoded model defaults
+- **Settings tab (single source of truth)**: providers, generative/embedding/judge models, general tuning, and read-only advanced values — persisted in Postgres `app_settings` (schema `4.7.0-repo-index`), no hardcoded model defaults
 - **Trace store (v4.2.0-traces)**: every request captured with full bodies (secrets regex-redacted), genome/phenotype breakdown, LLM-judge scores — Traces tab (`/api/dashboard/traces*`), retention-pruned
 - **Judge governance (v4.3.0-governance)**: calibration set + run-calibration (agreement %), consistency check (N×R variance), live policy thresholds (0.7/0.4), needs-review loop — Governance tab
 - **Integrity engine (v4.4.0-integrity)**: 9 deterministic checks (incl. broken_links from v4.6.0) + judged false-memory sampling, flag-first Tier-2, automatic calibration gate (flashing red banner when closed) — Memory Audit tab
 - **Enrichment engine (v4.5.0-optimization)**: used-most × completeness → sourced successors (store/codebase/web), genome+intent guardrails, grounding gate, **flag-first default** after the 2026-08-07 contamination incident
 - **Coherence (v4.6.0-coherence)**: extraction context frames + specifics-or-nothing + linked clusters (edges); bundle composer ("the living skill") at `/api/memories/bundle` + `/api/cognitive-context` topic detection; integrity check #9 broken_links
+- **Repo baseline index (v4.7.0-repo-index)**: Repos tab — URL clone or local path → T1/T2 structural miners (zero LLM) + git history (commits/mutations/reverts → "remember what broke"); repo-identity tagged, redacted, audited, re-index supersedes; working-location tip in cognitive-context
 - **Audit trail + undo**: every mutation writes audit_log (before/after full rows); supersede/delete/update/enrich one-click undoable; REVERTED markers on reverted findings
 - **Model registry**: `modelRegistry.ts` resolves every model via Settings → env → fail (incl. the independent Judge model)
 - **Auto-search**: Web search via searxNcrawl MCP server (configurable, disabled by default)

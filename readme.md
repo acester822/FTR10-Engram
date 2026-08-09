@@ -30,7 +30,7 @@ A **cognitive memory proxy** that gives LLMs persistent, project-aware context a
 
 ## What Engram Is
 
-Engram is a hand-rolled Node.js/TypeScript HTTP server — no Express/Fastify — that acts as an intelligent proxy between clients and an LLM. It is biologically inspired (genome/phenotype memory model, Ebbinghaus decay, a "hippocampus" consolidation cron) and built around eight capabilities:
+Engram is a hand-rolled Node.js/TypeScript HTTP server — no Express/Fastify — that acts as an intelligent proxy between clients and an LLM. It is biologically inspired (genome/phenotype memory model, Ebbinghaus decay, a "hippocampus" consolidation cron) and built around ten capabilities:
 
 1. **Memory recall & injection** — every request is embedded, vector-searched against a PostgreSQL + pgvector store, and enriched with a `[ENGRAM COGNITIVE CONTEXT]` block before being forwarded upstream.
 2. **Generative extraction** — after each conversation, a configurable generative model extracts new durable facts from the transcript and stores them (with quality gates, dedup, and embedding).
@@ -41,6 +41,7 @@ Engram is a hand-rolled Node.js/TypeScript HTTP server — no Express/Fastify �
 7. **Enrichment engine (auto-optimization)** — the memories you use most that are weakest get *sourced* enrichment from the store itself, the codebase (rg, `file:line`), and the web — as reversible superseding successors, never in-place rewrites.
 8. **Audit trail + undo** — every mutation (extraction, consolidation, integrity, enrichment, manual edits) writes a before/after audit row; supersedes, deletes, updates, and enrichments are one-click undoable from the GUI.
 9. **Memory coherence (the "living skill")** — extraction attaches a **context frame** (project/module/file/topic) to every fact and **links related facts** into graph clusters (`part_of` / `derives_from` / `related_to` edges); on recall, a **bundle composer** assembles the cluster into a dense, ordered, source-anchored knowledge bundle — *"when I say I'm working on Engram, Engram gives me the Engram skill, auto-maintained."*
+10. **Repo baseline index** — enter a repo URL or local path in the web GUI; Engram structurally maps the repo into the store (files/exports/imports/calls via T1 line-based + T2 tree-sitter miners, zero LLM), mines git history (commits, mutations, **reverts → "remember what broke"**), tags everything with the repo identity, redacts secrets, supersedes on re-index, and suggests indexing when you're continuously working in an unindexed location.
 
 The whole system is organized as a **four-rung trust ladder**: *calibration → integrity (validity) → optimization (enrichment) → coherence (context)* — no engine mutates memories until the judge it depends on is calibrated, and every mutation is audited and reversible.
 
@@ -160,6 +161,15 @@ The rung that fixes the *"Important decision: restructure conditional rendering�
    - **Specifics or nothing (hard rule)** — a fact that would be meaningless without the conversation is rejected; a decision must include the concrete what/where/why. Measured via the existing `extraction_fidelity` judge dimension.
    - **Links** — extraction emits `links: [{from, to, type}]` (`part_of` / `derives_from` / `related_to` only); the write path materializes them as `edges` rows. Unsupported link types → `cluster_link_evaluation` findings for judge/user (a memory is **never dropped** because it couldn't be linked — new projects start unlinked clusters, which is fine).
 2. **Recall (the bundle)** — `POST /api/memories/bundle?topic=X` (and auto-detection in `/api/cognitive-context` for "working on X" phrases): `clusterEngine` finds the anchor (top vector recall) → BFS over coherence edges (depth 2) → similarity neighbors (≥ 0.75), then **composes a dense, ordered bundle** (architecture → current state → conventions → pitfalls) with every statement tagged `[src:N]`, validated against hallucination/cross-project drift (≥ 0.6). **Read-only**: bundles never write to the store, cache ≤ 5 min per topic, and the memories stay the authority. The integrity engine gained check #9 `broken_links` (edges whose endpoint memory is superseded — the graph can't rot silently).
+
+### Repo baseline index engine (v4.7.0-repo-index)
+
+The fix for the "forgetful on large projects" class — the store improves in real time from conversation turns, but never had the *baseline knowledge of the repo itself* (the plugin can't see the tool calls where the agent reads files). Enter a **repo URL** (shallow-cloned into the repos root) or a **local path** in the GUI → Repos tab, and Engram structurally maps the repo into the store:
+
+1. **Structural mining, zero LLM** — one memory per file: `{path, exports, imports, calls}`. Two tiers: **T1** line-based heuristics (zero deps) and **T2** tree-sitter AST parsing (web-tree-sitter + vendored per-language grammars — verified syntax, call graph). T2 falls back to T1 on any parse failure; the index never fails.
+2. **Git history** — if the location is a git repo: commits, per-file mutations, and **revert detection → bi-temporal "remember what broke" memories** (*"Revert 'fix: adjust unit label' was reverted in commit 2c6b899 — do NOT re-introduce this change"*), so recall surfaces past failures before the next edit.
+3. **Discipline preserved** — every memory carries `metadata.repo` (the canonical identity: `owner/repo` for URLs, the path for local — a same-named repo from a different owner can never mingle), secrets are redacted, re-index **supersedes** per-file (audited, undoable), runs are locked and progress-reported, and delete supersedes everything with one click.
+4. **Working-location tip** — after 3 cognitive-context injections in a session whose project has no indexed repo, one honest note is appended: *"this repo isn't indexed — add baseline knowledge (Web GUI → Repos)."* Once per session, toggleable, never automatic.
 
 ### Memory decay engine
 
