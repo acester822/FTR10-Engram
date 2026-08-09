@@ -25,6 +25,13 @@ import { logger } from "../utils/logger";
 
 // ── Config (GENERAL_SETTINGS → process.env, live at call time) ──
 
+/** The user's own repository owner(s) — enrichment's cross-owner guard
+ *  (v4.7.7): any github/gitlab/docker-hub source from a different owner is a
+ *  different project, even when the repo name matches. Comma-separated. */
+export function projectRepoOwner(): string {
+  return process.env.EG_PROJECT_GITHUB_OWNER || "acester822";
+}
+
 export function enrichmentEnabled(): boolean {
   return ["1", "true", "yes", "on"].includes(String(process.env.EG_ENRICHMENT_ENABLED).toLowerCase());
 }
@@ -214,7 +221,7 @@ async function doRun(): Promise<any> {
     return { skipped: true, reason: "EG_ENRICHMENT_ENABLED is false — enable in Settings → General → Enrichment" };
   }
   const action = enrichmentAction();
-  const stats = { sampled: 0, candidates: 0, enriched: 0, flagged: 0, failed: 0, noop: 0, skipped_no_sources: 0, skipped_intent: 0, access_requests: 0 };
+  const stats = { sampled: 0, candidates: 0, enriched: 0, flagged: 0, failed: 0, noop: 0, skipped_no_sources: 0, skipped_intent: 0, access_requests: 0, grounding_rejected: 0 };
   const started = Date.now();
 
   // 1. Selection — used-most first, deterministic filter to bound judge cost.
@@ -305,13 +312,41 @@ async function doRun(): Promise<any> {
 
     // 3d. GROUNDING GATE — keep only sources about the SAME project/topic.
     //     (The 2026-08-07 contamination: claude-md compaction + a DIFFERENT
-    //     Engram repo passed validate because they were topically adjacent.)
+    //     Engram repo passed validate because they were topically adjacent.
+    //     2026-08-08 round 3: sources NAMED 'engram' from OTHER OWNERS —
+    //     Gentleman-Programming/engram, cylian/engram, thebtf/engram —
+    //     fooled the judge on name alone.)
     const memorySources = sources.filter((s) => s.type === "memory");
-    const externalSources = sources.filter((s) => s.type !== "memory");
+    let externalSources = sources.filter((s) => s.type !== "memory");
+    // DETERMINISTIC CROSS-OWNER GUARD: a repository (github/gitlab/docker
+    // hub) whose owner is NOT the user's own is a DIFFERENT project even
+    // when the repo name matches the memory's topic. Dropped before the
+    // judge — fail-safe, no LLM needed. Docs/blogs (no repo path) still
+    // pass to the grounding judge. EG_PROJECT_GITHUB_OWNER (comma-sep).
+    if (externalSources.length) {
+      const owners = projectRepoOwner()
+        .split(",")
+        .map((o) => o.trim().toLowerCase())
+        .filter(Boolean);
+      const repoOwnerRe = /(?:github\.com|raw\.githubusercontent\.com|gitlab\.com|hub\.docker\.com\/r)\/([^/?#]+)/i;
+      let crossOwner = 0;
+      externalSources = externalSources.filter((s) => {
+        const url = String(s.url || "");
+        const m = url.match(repoOwnerRe);
+        if (!m) return true; // docs/blogs — judge decides
+        const srcOwner = m[1].toLowerCase();
+        if (srcOwner && !owners.includes(srcOwner)) {
+          crossOwner++;
+          return false;
+        }
+        return true;
+      });
+      stats.grounding_rejected = (stats.grounding_rejected || 0) + crossOwner;
+    }
     if (externalSources.length) {
       try {
         const g = await callJudge(
-          `You are a source grounding filter. Given a MEMORY and numbered SOURCES, decide which sources are about the SAME project, tool, or codebase as the memory. A source about a DIFFERENT product or project is NOT usable even if it is topically adjacent. CRITICAL TEST: if the memory describes the USER'S OWN system (e.g. "all active memories", "the store", "our project", an internal module name) and a source belongs to a DIFFERENT NAMED product (mem0, Langfuse, claude-md, Ollama, mem0ai, DeepWiki, any tutorial site, any discussion about another tool) — even when it discusses the SAME CONCEPTS (memory deduplication, tracing, compaction, embeddings) — that source is a DIFFERENT PROJECT and must be REJECTED. Only sources about the same named project or the same codebase pass. Respond ONLY with JSON: {"keep": [<indices>], "reasons": {"<n>": "<short reason>"}} — keep must be an array of the source numbers that are genuinely about the same project/topic.`,
+          `You are a source grounding filter. Given a MEMORY and numbered SOURCES, decide which sources are about the SAME project, tool, or codebase as the memory. A source about a DIFFERENT product or project is NOT usable even if it is topically adjacent. CRITICAL TEST: if the memory describes the USER'S OWN system (e.g. "all active memories", "the store", "our project", an internal module name) and a source belongs to a DIFFERENT NAMED product (mem0, Langfuse, claude-md, Ollama, mem0ai, DeepWiki, any tutorial site, any discussion about another tool) — even when it discusses the SAME CONCEPTS (memory deduplication, tracing, compaction, embeddings) — that source is a DIFFERENT PROJECT and must be REJECTED. OWNER TEST: the user's own project repositories live under the owner '${projectRepoOwner()}'; a github/gitlab/docker-hub source from ANY other owner is a DIFFERENT project even when the repo name matches the memory's topic. Only sources about the same named project or the same codebase pass. Respond ONLY with JSON: {"keep": [<indices>], "reasons": {"<n>": "<short reason>"}} — keep must be an array of the source numbers that are genuinely about the same project/topic.`,
           `MEMORY:\n${cand.content.slice(0, 600)}\n\nSOURCES:\n${JSON.stringify(externalSources.map((s, i) => ({ n: i + 1, type: s.type, file: s.file, url: s.url, title: s.title, snippet: (s.snippet || s.excerpt || "").slice(0, 300) })), null, 1).slice(0, 7000)}`,
         );
         const gp = g.ok ? parseEnrichmentJson(g.content || "") : null;

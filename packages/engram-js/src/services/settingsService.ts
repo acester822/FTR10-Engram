@@ -134,6 +134,7 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.recall_gap_window_days", env: "EG_RECALL_GAP_WINDOW_DAYS", type: "number", label: "Recall-Gap Window (days)", section: "enrichment" },
   { key: "general.recall_gap_max_per_run", env: "EG_RECALL_GAP_MAX_PER_RUN", type: "number", label: "Recall-Gap Max Per Run", section: "enrichment" },
   { key: "general.recall_gap_auto_apply", env: "EG_RECALL_GAP_AUTO_APPLY", type: "bool", label: "Recall-Gap Auto-Apply (high-confidence)", section: "enrichment" },
+  { key: "general.project_github_owner", env: "EG_PROJECT_GITHUB_OWNER", type: "string", label: "Project GitHub Owner(s)", section: "enrichment" },
 ];
 
 // ── Advanced (infra / secrets / misc) settings — shown in a warning-labeled table.

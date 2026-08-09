@@ -16,7 +16,7 @@ import { all_async as pg_all, run_async as pg_run } from "../database/connection
 import { embed, normalizeEmbedding } from "../embeddings/embed";
 import { callJudge, parseJudge } from "./traceScorer";
 import { policyThresholds } from "./traceStore";
-import { parseEnrichmentJson } from "./enrichmentEngine";
+import { parseEnrichmentJson, projectRepoOwner } from "./enrichmentEngine";
 import { enrichMemory } from "../durable/mutations";
 import { logger } from "../utils/logger";
 
