@@ -19,7 +19,7 @@ import { logger } from "../utils/logger";
 const MAX_COMPOUND_LEN = 400; // rows longer than this are candidates
 const MIN_CLAUSE_LEN = 40; // fragments shorter than this merge onto the previous clause
 
-function splitClauses(content: string): string[] {
+export function splitClauses(content: string): string[] {
   const parts = content
     .replace(/\.\s+/g, ".\u0000")
     .replace(/;\s+/g, ";\u0000")
@@ -36,6 +36,55 @@ function splitClauses(content: string): string[] {
 }
 
 let running = false;
+
+/** Chunk a long memory into clause-windows (memory_windows) for chunk-boosted
+ *  recall (v4.7.6). The table already existed (hybrid's windowed-embedding leg)
+ *  but was never populated — clause chunks let recall surface a specific fact
+ *  buried in a long memory (the compound-dilution class). Idempotent per call. */
+export async function chunkMemory(id: string, content: string): Promise<number> {
+  if (!content || content.length <= MAX_COMPOUND_LEN) return 0;
+  const clauses = splitClauses(content).filter((c) => c.length >= MIN_CLAUSE_LEN);
+  if (clauses.length < 2) return 0;
+  let pos = 0;
+  let n = 0;
+  for (const clause of clauses) {
+    const start = content.indexOf(clause, pos);
+    const end = start >= 0 ? start + clause.length : pos + clause.length;
+    pos = end;
+    try {
+      const vec = normalizeEmbedding(await embed(clause));
+      await pg_run(
+        `INSERT INTO public.memory_windows (memory_id, window_index, start_pos, end_pos, embedding)
+         VALUES ($1, $2, $3, $4, $5::halfvec)`,
+        [id, n, start >= 0 ? start : 0, end, JSON.stringify(vec)],
+      ).catch(() => {});
+      n++;
+    } catch {
+      /* embed flake — skip this clause */
+    }
+  }
+  return n;
+}
+
+/** One-time backfill: chunk every active long memory that has no windows yet. */
+export async function chunkBackfill(limit = 200): Promise<{ checked: number; chunked: number; windows: number }> {
+  const rows = await pg_all(
+    `SELECT id, content FROM public.memories
+     WHERE superseded_at IS NULL AND length(content) > $1
+       AND NOT EXISTS (SELECT 1 FROM public.memory_windows w WHERE w.memory_id = memories.id)
+     LIMIT ${Math.min(Math.max(Number(limit) || 200, 1), 500)}`,
+    [MAX_COMPOUND_LEN],
+  );
+  let chunked = 0;
+  let windows = 0;
+  for (const r of rows) {
+    const n = await chunkMemory(r.id, String(r.content || "")).catch(() => 0);
+    if (n > 0) chunked++;
+    windows += n;
+  }
+  if (rows.length) logger.info({ module: "compoundSplitter", checked: rows.length, chunked, windows }, `chunk backfill done`);
+  return { checked: rows.length, chunked, windows };
+}
 
 export async function runCompoundSplit(): Promise<{
   checked: number;

@@ -133,6 +133,7 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.recall_gap_enabled", env: "EG_RECALL_GAP_ENABLED", type: "bool", label: "Recall-Gap Pass Enabled", section: "enrichment" },
   { key: "general.recall_gap_window_days", env: "EG_RECALL_GAP_WINDOW_DAYS", type: "number", label: "Recall-Gap Window (days)", section: "enrichment" },
   { key: "general.recall_gap_max_per_run", env: "EG_RECALL_GAP_MAX_PER_RUN", type: "number", label: "Recall-Gap Max Per Run", section: "enrichment" },
+  { key: "general.recall_gap_auto_apply", env: "EG_RECALL_GAP_AUTO_APPLY", type: "bool", label: "Recall-Gap Auto-Apply (high-confidence)", section: "enrichment" },
 ];
 
 // ── Advanced (infra / secrets / misc) settings — shown in a warning-labeled table.

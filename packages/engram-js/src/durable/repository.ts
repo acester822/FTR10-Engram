@@ -11,6 +11,7 @@ import { ImportanceCalculator, type ImportanceTier, TIER_CONFIG } from "../servi
 import { WindowedEmbedder, tokenize, WINDOW_SIZE } from "../services/windowedEmbedder";
 import { computeLexicalScore } from "../utilities/keyword";
 import { isSyntheticEmbedding } from "../embeddings/embed";
+import { chunkBoost } from "./chunks";
 import { logger } from "../utils/logger";
 
 const importanceCalculator = new ImportanceCalculator();
@@ -1483,6 +1484,13 @@ export async function recallDurableMemories(
       .slice(0, limit);
   } else {
     results = rows.map((row) => mapRow(row));
+  }
+
+  // CHUNK BOOST (v4.7.6): a memory whose clause-chunk matches the query better
+  // than its own embedding (the compound-dilution class) gets the chunk score.
+  if (useVectorRecall && input.embedding?.length) {
+    const boosted = await chunkBoost(input.embedding, results, schema).catch(() => 0);
+    if (boosted > 0) results = results.sort((a: any, b: any) => b.score - a.score).slice(0, limit);
   }
 
   return {

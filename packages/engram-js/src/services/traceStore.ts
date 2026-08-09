@@ -201,19 +201,30 @@ export interface TraceFilter {
   offset?: string | number;
 }
 
-/** Knowledge-question filter — shared with the recall-gap engine's logic:
- *  conversational messages are not knowledge queries, so their recall scores
- *  are excluded from the stats. */
+/** Knowledge-question filter — shared by the recall-gap engine, needs-review,
+ *  and report stats. Conversational messages ("yes please") are not knowledge
+ *  queries; but neither are statement-form questions ("Looks like I am getting
+ *  duplicate listings…", "I need a way to boost the recall score") — the user's
+ *  actual question style (v4.7.6). */
 const QUESTION_RE =
   /^(\bwhat\b|\bwhats\b|\bhow\b|\bwhy\b|\bwhen\b|\bwhere\b|\bwhich\b|\bwho\b|\bdoes\b|\bdo\b|\bcan\b|\bcould\b|\bwould\b|\bshould\b|\bexplain\b|\bdefine\b|\bdescribe\b)/i;
 const QUESTION_OPENER_RE =
   /\b(what is|what are|whats|what's|how does|how do|how to|how can|why is|why does|when did|where is|which is|is there|are there|is it|does it|can you|could you|would you|tell me about|difference between)\b/i;
+// Statement-form questions: complaints, needs, and status reports phrased as
+// statements but carrying an implicit question ("I'm still getting X",
+// "Looks like I am seeing Y twice", "this should be working", "need a way to").
+const STATEMENT_QUESTION_RE =
+  /\b(still getting|still seeing|still have|looks? like (?:i(?:'m| am)|we(?:'re| are)|it(?:'s| is))|i(?:'m| am) (?:getting|seeing|having|trying)|need(?:s)? (?:a )?(?:\w+ )?way\b|having trouble|is there a way|any way to|how come|what about|(?:should|would|could|can'?t|doesn'?t|isn'?t|won'?t|why (?:is|are|does|did|was)))\b/i;
 
 export function isKnowledgeQuery(q: string): boolean {
   const t = q.trim();
   if (t.length < 8) return false;
   if (t.includes("?")) return true;
-  return QUESTION_RE.test(t) || QUESTION_OPENER_RE.test(t);
+  if (QUESTION_RE.test(t) || QUESTION_OPENER_RE.test(t)) return true;
+  // Statement-form: only substantive messages (>= 30 chars) with an
+  // intent/complaint marker count — short acknowledgments stay excluded.
+  if (t.length >= 30 && STATEMENT_QUESTION_RE.test(t)) return true;
+  return false;
 }
 
 /** A trace "needs review" when it carries a low score AND is not one of the

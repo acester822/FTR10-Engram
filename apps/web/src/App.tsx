@@ -1425,6 +1425,7 @@ const GENERAL_GROUPS = [
       ["enrichment_web_enabled", "Web Search Enabled", "bool"],
       ["enrichment_max_web_results", "Max Web Results", "number"],
       ["recall_gap_enabled", "Recall-Gap Pass Enabled", "bool"],
+      ["recall_gap_auto_apply", "Recall-Gap Auto-Apply", "bool"],
       ["recall_gap_window_days", "Recall-Gap Window (days)", "number"],
       ["recall_gap_max_per_run", "Recall-Gap Max Per Run", "number"],
     ],

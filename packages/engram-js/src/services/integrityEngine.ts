@@ -317,31 +317,54 @@ async function doIntegrityRun(): Promise<any> {
     }
   }
 
-  // 8. coverage_probes → known-good queries must still hit
+  // 8. coverage_probes → known-good queries must still hit (v4.7.6: per-domain
+  //    battery + a REAL similarity threshold — previously ANY top-1 counted as
+  //    a hit, even a 0.2-sim irrelevant memory, so the check could pass while
+  //    the store silently lost a domain)
   {
     const probes = [
-      "always run tests before committing",
-      "PDF report generation with html2canvas",
-      "judge calibration and consistency governance",
+      // Engram / this system
+      "engram server binds port 8098 and the web gui runs on 8099",
+      "the judge model is Qwen3.6-28B-REAP20, independent from the generative chain",
+      "extraction stores facts with stored_memory_ids on the ingest trace",
+      "the recall_gap engine proposes one enrichment per memory",
+      "compound memories dilute retrieval — specific facts recall better",
+      // Milestone / security integration
+      "milestone xprotect recording server and management server",
+      "lenel onguard access control integration with milestone",
+      // PLC / AutomationDirect
+      "automationdirect p3-550 plc factory default ip 10.10.10.10",
+      "the c-more cm5 is a graphical hmi, not a plc",
+      // Network
+      "multi-homed windows ethernet 192.168.1.102 and usb ethernet 192.168.1.4",
+      "subnet mask /22 equals 255.255.252.0",
     ];
-    const missed: string[] = [];
+    const COVERAGE_SIM_MIN = 0.6;
+    const missed: Array<{ q: string; sim: number | null }> = [];
     for (const q of probes) {
       try {
         const vec = normalizeEmbedding(await embed(q));
         const res = await pg_all(
-          `SELECT id FROM public.memories
+          `SELECT round((1 - (embedding <=> $1::halfvec))::numeric, 3) AS sim
+           FROM public.memories
            WHERE superseded_at IS NULL AND embedding IS NOT NULL
            ORDER BY embedding <=> $1::halfvec LIMIT 1`,
           [JSON.stringify(vec)],
         );
-        if (!res.length) missed.push(q);
+        const sim = res[0]?.sim !== undefined ? Number(res[0].sim) : null;
+        if (sim === null || sim < COVERAGE_SIM_MIN) missed.push({ q, sim });
       } catch {
         /* embed backend down — skip probe this run */
       }
     }
-    summary.coverage_probes_missed = missed;
+    summary.coverage_probes_missed = missed.map((m) => `${m.q} (sim ${m.sim ?? "?"})`);
     if (missed.length) {
-      await writeFinding(runId, "coverage_probes", { memoryId: null, severity: "high", actionTaken: "flag", detail: { missed } });
+      await writeFinding(runId, "coverage_probes", {
+        memoryId: null,
+        severity: "high",
+        actionTaken: "flag",
+        detail: { min_sim: COVERAGE_SIM_MIN, missed: missed.map((m) => ({ q: m.q, sim: m.sim })) },
+      });
     }
   }
 

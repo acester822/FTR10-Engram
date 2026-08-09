@@ -44,6 +44,7 @@ import { dashboard_coherence_route } from "./dashboard/coherence/route";
 import { dashboard_candidates_route } from "./dashboard/candidates/route";
 import { dashboard_recall_gap_route } from "./dashboard/recall-gap/route";
 import { runCompoundSplit } from "../../services/compoundSplitter";
+import { backfillWindows } from "../../durable/chunks";
 import { settings_route } from "./settings/route";
 import { ide_routes } from "./ide/route";
 import { performance_llamaswap_route } from "./performance/llamaswap/route";
@@ -93,6 +94,16 @@ export function routes(app: any) {
   app.post("/api/dashboard/coherence/split-compounds", async (_req: any, res: any) => {
     try {
       const r = await runCompoundSplit();
+      res.json({ ok: true, ...r });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+  // Window backfill (POST /api/dashboard/coherence/chunk-backfill) — v4.7.6:
+  // populate memory_windows for pre-existing long memories (WindowedEmbedder).
+  app.post("/api/dashboard/coherence/chunk-backfill", async (_req: any, res: any) => {
+    try {
+      const r = await backfillWindows();
       res.json({ ok: true, ...r });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e?.message || String(e) });

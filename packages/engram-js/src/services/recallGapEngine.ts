@@ -17,10 +17,18 @@ import { embed, normalizeEmbedding } from "../embeddings/embed";
 import { callJudge, parseJudge } from "./traceScorer";
 import { policyThresholds } from "./traceStore";
 import { parseEnrichmentJson } from "./enrichmentEngine";
+import { enrichMemory } from "../durable/mutations";
 import { logger } from "../utils/logger";
 
 export function recallGapEnabled(): boolean {
-  return ["1", "true", "yes", "on"].includes(String(process.env.EG_RECALL_GAP_ENABLED ?? "true").toLowerCase());
+  return (process.env.EG_RECALL_GAP_ENABLED ?? "true").toLowerCase() !== "false";
+}
+
+/** High-confidence auto-apply for composed recall-gap enrichments — sources
+ *  are the user's own conversations (same-project by construction). Audited
+ *  via enrichMemory (actor recall-gap-auto), always undoable. */
+export function recallGapAutoApply(): boolean {
+  return (process.env.EG_RECALL_GAP_AUTO_APPLY ?? "false").toLowerCase() === "true";
 }
 function windowDays(): number {
   const n = Number(process.env.EG_RECALL_GAP_WINDOW_DAYS);
@@ -210,6 +218,7 @@ async function doRun(): Promise<{ checked: number; answered_now: number; gaps: n
         answerTraceId,
         llmResponse,
         true,
+        recallGapAutoApply(),
       );
       stats.proposed++;
     } catch (e: any) {
@@ -230,6 +239,7 @@ async function writeGapFinding(
   answerTraceId: string | null,
   llmResponse: string | null,
   proposed: boolean,
+  autoApply = false,
 ): Promise<void> {
   const detail: any = {
     trace_id: traceId,
@@ -244,12 +254,37 @@ async function writeGapFinding(
     detail.verdict = "enrich";
   }
   if (llmResponse) detail.sources = [{ type: "trace", trace_id: answerTraceId, content: llmResponse.slice(0, 500) }];
-  await pg_run(
+  const ins = await pg_all(
     `INSERT INTO public.integrity_findings (run_id, check_name, memory_id, severity, action_taken, detail, status)
      VALUES ((SELECT id FROM public.integrity_runs ORDER BY started_at DESC LIMIT 1),
-             'recall_gap', $1, 'medium', 'flag', $2::jsonb, 'open')`,
+             'recall_gap', $1, 'medium', 'flag', $2::jsonb, 'open') RETURNING id`,
     [memoryId, JSON.stringify(detail)],
-  ).catch((e: any) => logger.warn({ module: "recallGapEngine", err: e?.message }, "recall_gap finding write failed"));
+  ).catch((e: any) => {
+    logger.warn({ module: "recallGapEngine", err: e?.message }, "recall_gap finding write failed");
+    return [];
+  });
+  // HIGH-CONFIDENCE AUTO-APPLY (v4.7.6, user-approved): recall-gap sources are
+  // the user's OWN conversations — same-project by construction, zero
+  // contamination risk — so when EG_RECALL_GAP_AUTO_APPLY is on, a composed
+  // enrichment is applied immediately through the audited path instead of
+  // waiting for a human Apply. Always audited + undoable (via: auto-apply).
+  if (autoApply && memoryId && newContent && ins.length) {
+    const r: any = await enrichMemory(memoryId, newContent, detail.sources ?? [], "recall-gap-auto").catch((e: any) => ({
+      ok: false,
+      error: e?.message || String(e),
+    }));
+    if (r.ok && r.new_id) {
+      await pg_run(
+        `UPDATE public.integrity_findings
+         SET status = 'resolved', action_taken = 'enrich', resolved_at = now(),
+             detail = jsonb_set(jsonb_set(detail, '{resolution}', '"auto-applied by user setting (EG_RECALL_GAP_AUTO_APPLY)"'::jsonb), '{successor_id}', to_jsonb($2::text))
+         WHERE id = $1`,
+        [ins[0].id, r.new_id],
+      ).catch(() => {});
+    } else {
+      logger.warn({ module: "recallGapEngine", err: r.error }, "recall_gap auto-apply failed — finding left open for review");
+    }
+  }
 }
 
 // ── Scheduler ────────────────────────────────────────────────────────────
