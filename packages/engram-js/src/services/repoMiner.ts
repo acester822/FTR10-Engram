@@ -49,63 +49,63 @@ export interface MinedFile {
 // baseline: names + signatures, nothing about internals.
 const T1_PATTERNS: Record<string, { entity: RegExp; import: RegExp; export: RegExp }> = {
   typescript: {
-    entity: /^\s*(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|enum|const|let|var)\s+([A-Za-z_$][\w$]*)/g,
-    import: /^\s*import\s+.*?from\s+["']([^"']+)["']/g,
-    export: /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|enum|const|let|var)\s+([A-Za-z_$][\w$]*)|^\s*export\s*\{([^}]+)\}/g,
+    entity: /^\s*(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|enum|const|let|var)\s+([A-Za-z_$][\w$]*)/gm,
+    import: /^\s*import\s+.*?from\s+["']([^"']+)["']/gm,
+    export: /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function|class|interface|type|enum|const|let|var)\s+([A-Za-z_$][\w$]*)|^\s*export\s*\{([^}]+)\}/gm,
   },
   javascript: {
-    entity: /^\s*(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/g,
-    import: /^\s*(?:import\s+.*?from\s+["']([^"']+)["']|const\s+\w+\s*=\s*require\(["']([^"']+)["']\))/g,
-    export: /^\s*module\.exports\s*=\s*([A-Za-z_$][\w$]*)|^\s*export\s+(?:default\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/g,
+    entity: /^\s*(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/gm,
+    import: /^\s*(?:import\s+.*?from\s+["']([^"']+)["']|const\s+\w+\s*=\s*require\(["']([^"']+)["']\))/gm,
+    export: /^\s*module\.exports\s*=\s*([A-Za-z_$][\w$]*)|^\s*export\s+(?:default\s+)?(?:function|class|const|let|var)\s+([A-Za-z_$][\w$]*)/gm,
   },
   python: {
-    entity: /^\s*(?:async\s+)?def\s+([a-zA-Z_]\w*)|^\s*class\s+([A-Za-z_]\w*)/g,
-    import: /^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))/g,
-    export: /^\s*(?:async\s+)?def\s+([a-zA-Z_]\w*)|^\s*class\s+([A-Za-z_]\w*)/g,
+    entity: /^\s*(?:async\s+)?def\s+([a-zA-Z_]\w*)|^\s*class\s+([A-Za-z_]\w*)/gm,
+    import: /^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))/gm,
+    export: /^\s*(?:async\s+)?def\s+([a-zA-Z_]\w*)|^\s*class\s+([A-Za-z_]\w*)/gm,
   },
   go: {
-    entity: /^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)|^\s*type\s+([A-Za-z_]\w*)/g,
-    import: /^\s*import\s+(?:\(|"([^"]+)"|([A-Za-z_]\w*)\s*"([^"]+)")/g,
-    export: /^\s*func\s+(?:\([^)]*\)\s*)?([A-Z]\w*)|^\s*type\s+([A-Z]\w*)/g,
+    entity: /^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)|^\s*type\s+([A-Za-z_]\w*)/gm,
+    import: /^\s*import\s+(?:\(|"([^"]+)"|([A-Za-z_]\w*)\s*"([^"]+)")/gm,
+    export: /^\s*func\s+(?:\([^)]*\)\s*)?([A-Z]\w*)|^\s*type\s+([A-Z]\w*)/gm,
   },
   rust: {
-    entity: /^\s*(?:pub\s+)?(?:fn|struct|enum|trait|type|impl)\s+([A-Za-z_]\w*)/g,
-    import: /^\s*use\s+([\w:]+)/g,
-    export: /^\s*pub\s+(?:fn|struct|enum|trait|type)\s+([A-Za-z_]\w*)/g,
+    entity: /^\s*(?:pub\s+)?(?:fn|struct|enum|trait|type|impl)\s+([A-Za-z_]\w*)/gm,
+    import: /^\s*use\s+([\w:]+)/gm,
+    export: /^\s*pub\s+(?:fn|struct|enum|trait|type)\s+([A-Za-z_]\w*)/gm,
   },
   java: {
-    entity: /^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:class|interface|enum)\s+([A-Za-z_]\w*)|^\s*(?:public|private|protected)\s+[\w<>\[\],\s]+\s+([a-z]\w*)\s*\(/g,
-    import: /^\s*import\s+([\w.]+)/g,
-    export: /^\s*(?:public|protected)\s+(?:static\s+)?(?:class|interface|enum)\s+([A-Za-z_]\w*)/g,
+    entity: /^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:class|interface|enum)\s+([A-Za-z_]\w*)|^\s*(?:public|private|protected)\s+[\w<>\[\],\s]+\s+([a-z]\w*)\s*\(/gm,
+    import: /^\s*import\s+([\w.]+)/gm,
+    export: /^\s*(?:public|protected)\s+(?:static\s+)?(?:class|interface|enum)\s+([A-Za-z_]\w*)/gm,
   },
   ruby: {
-    entity: /^\s*(?:def\s+([a-zA-Z_]\w*)|class\s+([A-Z]\w*)|module\s+([A-Z]\w*))/g,
-    import: /^\s*(?:require|require_relative)\s+["']([^"']+)["']/g,
-    export: /^\s*def\s+([a-zA-Z_]\w*)/g,
+    entity: /^\s*(?:def\s+([a-zA-Z_]\w*)|class\s+([A-Z]\w*)|module\s+([A-Z]\w*))/gm,
+    import: /^\s*(?:require|require_relative)\s+["']([^"']+)["']/gm,
+    export: /^\s*def\s+([a-zA-Z_]\w*)/gm,
   },
   php: {
-    entity: /^\s*(?:public|private|protected)?\s*function\s+([A-Za-z_]\w*)|^\s*(?:abstract\s+|final\s+)?class\s+([A-Za-z_]\w*)/g,
-    import: /^\s*use\s+([\w\\]+)/g,
-    export: /^\s*function\s+([A-Za-z_]\w*)/g,
+    entity: /^\s*(?:public|private|protected)?\s*function\s+([A-Za-z_]\w*)|^\s*(?:abstract\s+|final\s+)?class\s+([A-Za-z_]\w*)/gm,
+    import: /^\s*use\s+([\w\\]+)/gm,
+    export: /^\s*function\s+([A-Za-z_]\w*)/gm,
   },
   c: {
-    entity: /^\s*(?:static\s+)?(?:[\w\s\*]+?)\s+([a-zA-Z_]\w*)\s*\([^;]*\)\s*\{/g,
-    import: /^\s*#include\s*[<"]([^>"]+)[>"]/g,
-    export: /^\s*(?:[\w\s\*]+?)\s+([a-zA-Z_]\w*)\s*\(/g,
+    entity: /^\s*(?:static\s+)?(?:[\w\s\*]+?)\s+([a-zA-Z_]\w*)\s*\([^;]*\)\s*\{/gm,
+    import: /^\s*#include\s*[<"]([^>"]+)[>"]/gm,
+    export: /^\s*(?:[\w\s\*]+?)\s+([a-zA-Z_]\w*)\s*\(/gm,
   },
   cpp: {
-    entity: /^\s*(?:class|struct|namespace|template\s*<[^>]+>\s*class)\s+([A-Za-z_]\w*)/g,
-    import: /^\s*#include\s*[<"]([^>"]+)[>"]/g,
-    export: /^\s*(?:[\w\s\*&:]+?)\s+([a-zA-Z_]\w*)\s*\(/g,
+    entity: /^\s*(?:class|struct|namespace|template\s*<[^>]+>\s*class)\s+([A-Za-z_]\w*)/gm,
+    import: /^\s*#include\s*[<"]([^>"]+)[>"]/gm,
+    export: /^\s*(?:[\w\s\*&:]+?)\s+([a-zA-Z_]\w*)\s*\(/gm,
   },
   csharp: {
-    entity: /^\s*(?:public|private|protected|internal)?\s*(?:static\s+)?(?:class|interface|struct|enum|record)\s+([A-Za-z_]\w*)/g,
-    import: /^\s*using\s+([\w.]+)/g,
-    export: /^\s*(?:public|protected|internal)\s+[\w<>\[\],\s]+\s+([A-Za-z_]\w*)\s*\(/g,
+    entity: /^\s*(?:public|private|protected|internal)?\s*(?:static\s+)?(?:class|interface|struct|enum|record)\s+([A-Za-z_]\w*)/gm,
+    import: /^\s*using\s+([\w.]+)/gm,
+    export: /^\s*(?:public|protected|internal)\s+[\w<>\[\],\s]+\s+([A-Za-z_]\w*)\s*\(/gm,
   },
 };
 
-const T1_FALLBACK_ENTITY = /^\s*(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/g;
+const T1_FALLBACK_ENTITY = /^\s*(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm;
 
 function matchAll(re: RegExp, text: string): string[] {
   const out: string[] = [];
@@ -126,9 +126,9 @@ export function mineT1(path: string, content: string): MinedFile {
   const pat = T1_PATTERNS[language] ?? { entity: T1_FALLBACK_ENTITY, import: /^import/g, export: /^export/g };
   const entities = matchAll(pat.entity, content);
   const imports = matchAll(pat.import, content);
-  const exports = matchAll(pat.export, content).length ? matchAll(pat.export, content) : entities;
-  const summary = buildSummary(path, language, entities, imports, exports, "T1");
-  return { path, language, tier: "T1", summary, entities, imports, exports };
+  const exportedNames = matchAll(pat.export, content).length ? matchAll(pat.export, content) : entities;
+  const summary = buildSummary(path, language, entities, imports, exportedNames, "T1");
+  return { path, language, tier: "T1", summary, entities, imports, exports: exportedNames };
 }
 
 // ── T2: tree-sitter AST parsing ──────────────────────────────────────────
@@ -172,7 +172,13 @@ async function loadTsLanguage(language: string): Promise<any> {
     const pkgMain = require2.resolve(`${pkg}/package.json`);
     const wasmPath = join(dirname(pkgMain), `tree-sitter-${language}.wasm`);
     if (!existsSync(wasmPath)) return null;
-    const lang = await Parser.Language.load(wasmPath);
+    // web-tree-sitter exports Language as a separate named export; the
+    // Parser class carries static `init()` and a `LANGUAGE_VERSION` —
+    // grammar loading goes through Language.load(wasmPath).
+    const mod: any = await import("web-tree-sitter");
+    const Language = mod.Language ?? mod.default?.Language;
+    if (!Language?.load) return null;
+    const lang = await Language.load(wasmPath);
     tsLanguages[language] = lang;
     return lang;
   } catch (e: any) {
@@ -223,9 +229,9 @@ export async function mineT2(path: string, content: string): Promise<MinedFile> 
     walkTs(tree.rootNode, out);
     const entities = [...out.entities];
     const imports = [...out.imports];
-    const exports = entities;
-    const summary = buildSummary(path, language, entities, imports, exports, "T2", [...out.calls]);
-    return { path, language, tier: "T2", summary, entities, imports, exports };
+    const exportedNames = entities;
+    const summary = buildSummary(path, language, entities, imports, exportedNames, "T2", [...out.calls]);
+    return { path, language, tier: "T2", summary, entities, imports, exports: exportedNames };
   } catch (e: any) {
     return mineT1(path, content); // any parser failure → T1 (never fail the index)
   }
@@ -237,14 +243,14 @@ function buildSummary(
   language: string,
   entities: string[],
   imports: string[],
-  exports: string[],
+  exportedNames: string[],
   tier: "T1" | "T2",
   calls: string[] = [],
 ): string {
   const rel = path.replace(/^\.\//, "");
   const parts: string[] = [`File ${rel} (${language})`];
-  if (exports.length) parts.push(`exports: ${exports.slice(0, 24).join(", ")}`);
-  if (entities.length && entities.join("|") !== exports.join("|")) {
+  if (exportedNames.length) parts.push(`exports: ${exportedNames.slice(0, 24).join(", ")}`);
+  if (entities.length && entities.join("|") !== exportedNames.join("|")) {
     parts.push(`defines: ${entities.slice(0, 24).join(", ")}`);
   }
   if (imports.length) parts.push(`imports: ${imports.slice(0, 16).join(", ")}`);
