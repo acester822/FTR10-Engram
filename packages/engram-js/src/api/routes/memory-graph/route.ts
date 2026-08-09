@@ -1,20 +1,20 @@
 /*
  - filename: packages/engram-js/src/api/routes/memory-graph/route.ts
  - what is the file used for: GET /api/memory-graph — the Mind Map view.
-   v2 (2026-08-08): fixed two prototype defects and added real connections.
+   v2.1 (2026-08-08): fixed three v2 defects.
    1) Node selection was importance+recency with every score = 0.5 → the
       tiebreak on recency let the repo_* structural memories (all semantic)
       flood the node set → the map rendered as ONE color. Now: STRATIFIED
-      sampling by sector (proportional shares, per-sector floor) over
-      conversation memories, plus repo_* memories as a capped structural
-      class (≤15% of the set) so all memory types are visible.
-   2) The store now has REAL typed edges (part_of / related_to /
-      derives_from — coherence links, repo anchors, backfill). The map
-      previously showed only cosine proximity. Now it emits both:
-        typed_edges      — real edges (source, target, edge_type, weight)
-        proximity_edges  — cosine similarity (kept, faint, toggleable)
-   Nodes carry kind_group ("conversation" | "repo") so the client can
-   visually distinguish structural memories from conversation memories.
+      sampling by sector over conversation memories + repo_* as a capped
+      structural class.
+   2) Typed edges were near-invisible: the edges-table query required BOTH
+      endpoints inside the 140-node sample, and random sampling placed only
+      ~9 of 166 live edges there. Now: node selection is BIASED toward
+      edge-connected memories (highest-degree endpoints reserved first),
+      so real relationships are visible on the map.
+   3) Nodes carry kind_group ("conversation" | "repo") + a stable `index`
+      (1..N) so the client can render numbered badges + a lookup table
+      instead of label soup.
 */
 
 import { bad, fail, parse_posint, type route_ctx } from "../_kit";
@@ -36,10 +36,32 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
       return bad(res, "min_sim", "min_sim must be a number between 0 and 1");
 
     try {
-      // ── 1) Node set: STRATIFIED by sector over conversation memories ──
-      //    (kind NOT repo_*), so every memory type is represented regardless
-      //    of recency. Proportional shares with a per-sector floor of 3.
-      const convLimit = Math.max(10, Math.floor(limit * 0.85));
+      const EDGE_TYPES = ["part_of", "related_to", "derives_from"];
+
+      // ── 0) Edge-connected endpoint bias ──────────────────────────────────
+      //    Reserve up to 35% of the node budget for memories that participate
+      //    in LIVE typed edges (both endpoints active), highest degree first.
+      //    This is what makes solid relationship lines actually visible.
+      const edgeBudget = Math.max(10, Math.floor(limit * 0.35));
+      const edgeEndpoints = await ctx.db.query(
+        `SELECT id, count(*) AS deg FROM (
+           SELECT e.source_memory_id AS id FROM edges e
+             JOIN memories a ON e.source_memory_id = a.id
+             JOIN memories b ON e.target_memory_id = b.id
+             WHERE e.edge_type = ANY($1) AND a.superseded_at IS NULL AND b.superseded_at IS NULL
+           UNION ALL
+           SELECT e.target_memory_id AS id FROM edges e
+             JOIN memories a ON e.source_memory_id = a.id
+             JOIN memories b ON e.target_memory_id = b.id
+             WHERE e.edge_type = ANY($1) AND a.superseded_at IS NULL AND b.superseded_at IS NULL
+         ) t GROUP BY id ORDER BY deg DESC LIMIT $2`,
+        [EDGE_TYPES, edgeBudget],
+      );
+      const edgeIds = edgeEndpoints.rows.map((r: any) => r.id as string);
+      const edgeIdSet = new Set(edgeIds);
+
+      // ── 1) Stratified sector sampling over conversation memories ──
+      const convBudget = Math.max(10, limit - edgeIds.length - Math.floor(limit * 0.15));
       const sectorRows = await ctx.db.query(
         `SELECT sector, count(*) AS n
          FROM memories
@@ -48,10 +70,11 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
          GROUP BY sector ORDER BY n DESC`,
       );
       const total = sectorRows.rows.reduce((acc: number, r: any) => acc + Number(r.n), 0) || 1;
-      const perSector = Math.max(3, Math.floor(convLimit / Math.max(1, sectorRows.rows.length)));
+      const perSector = Math.max(3, Math.floor(convBudget / Math.max(1, sectorRows.rows.length)));
       const nodeRows: any[] = [];
+      const reserved = new Set(edgeIds);
       for (const s of sectorRows.rows) {
-        const share = Math.max(3, Math.min(Number(s.n), Math.floor((Number(s.n) / total) * convLimit), perSector * 2));
+        const share = Math.max(3, Math.min(Number(s.n), Math.floor((Number(s.n) / total) * convBudget), perSector * 2));
         const rows = await ctx.db.query(
           `SELECT id, content, sector, importance_tier, importance_score,
                   metadata->>'kind' AS kind,
@@ -60,15 +83,16 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
            WHERE embedding IS NOT NULL AND is_genome = false AND superseded_at IS NULL
              AND sector = $1
              AND (metadata->>'kind' IS NULL OR left(metadata->>'kind', 5) <> 'repo_')
+             AND NOT (id = ANY($2::uuid[]))
            ORDER BY importance_score DESC, recorded_at DESC
-           LIMIT $2`,
-          [s.sector, share],
+           LIMIT $3`,
+          [s.sector, [...reserved], share],
         );
         nodeRows.push(...rows.rows);
       }
-      // Top-up if stratification under-filled (sparse sectors etc.).
-      if (nodeRows.length < convLimit) {
-        const have = nodeRows.map((r: any) => r.id);
+      // Top-up if stratification under-filled.
+      if (nodeRows.length < convBudget) {
+        const have = [...reserved, ...nodeRows.map((r: any) => r.id)];
         const fill = await ctx.db.query(
           `SELECT id, content, sector, importance_tier, importance_score,
                   metadata->>'kind' AS kind, false AS superseded
@@ -78,24 +102,25 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
              AND NOT (id = ANY($1::uuid[]))
            ORDER BY importance_score DESC, recorded_at DESC
            LIMIT $2`,
-          [have, convLimit - nodeRows.length],
+          [have, convBudget - nodeRows.length],
         );
         nodeRows.push(...fill.rows);
       }
 
-      // Repo structural memories: capped class (≤15%), newest first.
+      // ── 2) Repo structural memories: capped class (≤15%), newest first ──
       const repoRows = await ctx.db.query(
         `SELECT id, content, sector, importance_tier, importance_score,
                 metadata->>'kind' AS kind, false AS superseded
          FROM memories
          WHERE embedding IS NOT NULL AND is_genome = false AND superseded_at IS NULL
            AND left(metadata->>'kind', 5) = 'repo_'
+           AND NOT (id = ANY($1::uuid[]))
          ORDER BY recorded_at DESC
-         LIMIT $1`,
-        [Math.max(5, Math.floor(limit * 0.15))],
+         LIMIT $2`,
+        [[...edgeIdSet], Math.max(5, Math.floor(limit * 0.15))],
       );
 
-      // A few superseded memories as faded nodes (state, not edges).
+      // ── 3) A few superseded memories as faded nodes (state, not edges) ──
       const superRows = await ctx.db.query(
         `SELECT id, content, sector, importance_tier, importance_score,
                 metadata->>'kind' AS kind
@@ -121,6 +146,16 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
           });
         }
       };
+      // Edge-connected memories first (they make the map show real links).
+      if (edgeIds.length) {
+        const edgeRows = await ctx.db.query(
+          `SELECT id, content, sector, importance_tier, importance_score,
+                  metadata->>'kind' AS kind, false AS superseded
+           FROM memories WHERE id = ANY($1::uuid[])`,
+          [edgeIds],
+        );
+        addNodes(edgeRows.rows, false);
+      }
       addNodes(nodeRows, false);
       addNodes(repoRows.rows, false);
       addNodes(superRows.rows, true);
@@ -129,9 +164,11 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
         return res.json({ adapter: "durable-postgres", nodes: [], typed_edges: [], proximity_edges: [], edges: [], stats: { nodes: 0, typed: 0, proximity: 0, sectors: {} } });
       }
 
+      // Stable 1..N index for the numbered badges + lookup table.
+      nodes.forEach((n: any, i: number) => { n.index = i + 1; });
       const ids = nodes.map((n: any) => n.id);
 
-      // ── 2) REAL typed edges from the edges table (both endpoints in set) ──
+      // ── 4) REAL typed edges (both endpoints in the set) ──
       const typedRows = await ctx.db.query(
         `SELECT e.source_memory_id AS source, e.target_memory_id AS target,
                 e.edge_type, e.weight, e.confidence
@@ -149,7 +186,7 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
         confidence: Number(r.confidence) || 1,
       }));
 
-      // ── 3) Proximity edges (cosine), trimmed topK per source, deduped ──
+      // ── 5) Proximity edges (cosine), trimmed topK per source, deduped ──
       const edgeRows = await ctx.db.query(
         `SELECT a.id AS source, b.id AS target,
                 1 - (a.embedding <=> b.embedding) AS similarity
@@ -179,7 +216,7 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
 
       return res.json({
         adapter: "durable-postgres",
-        note: "Mind map v2 — stratified by sector; typed_edges are REAL relationships (edges table), proximity_edges are cosine similarity.",
+        note: "Mind map v2.1 — edge-biased + stratified; typed_edges are REAL relationships (edges table), proximity_edges are cosine similarity.",
         params: { limit, top_k: topK, min_sim: minSim },
         nodes,
         typed_edges: typedEdges,

@@ -4939,7 +4939,8 @@ function MemoryGraphView() {
   const [minSim, setMinSim] = useState(0.7);
   const [limit, setLimit] = useState(120);
   const [showProximity, setShowProximity] = useState(true);
-  const [showLabels, setShowLabels] = useState(true);
+  const [showNumbers, setShowNumbers] = useState(true);
+  const [hoverIdx, setHoverIdx] = useState(null as number | null);
   const [, setViewTick] = useState(0);
 
   const load = useCallback(async () => {
@@ -4970,7 +4971,7 @@ function MemoryGraphView() {
     const H = Math.max(420, Math.min(640, W * 0.6));
     canvas.width = W * dpr;
     canvas.height = H * dpr;
-    ctx2d.scale(dpr, dpr);
+    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     const nodes = graph.nodes.map((n: any, i: number) => ({
       ...n,
@@ -4986,13 +4987,13 @@ function MemoryGraphView() {
       .filter((e: any) => idIndex.has(e.source) && idIndex.has(e.target))
       .map((e: any) => ({ s: idIndex.get(e.source)!, t: idIndex.get(e.target)!, w: e.similarity }));
 
-    // View transform: pan + zoom.
     const view = { x: 0, y: 0, k: 1 };
     let raf = 0;
     let frame = 0;
     let dragNode: any = null;
     let panning = false;
     let lastPt = { x: 0, y: 0 };
+    let hoverNode: any = null;
 
     const simStep = () => {
       frame++;
@@ -5065,11 +5066,19 @@ function MemoryGraphView() {
         }
         ctx2d.setLineDash([]);
       }
-      // typed edges — solid, colored by type
+      // typed edges — SOLID, colored by type, glow + main passes
       for (const e of typed) {
         const a = nodes[e.s], b = nodes[e.t];
-        ctx2d.strokeStyle = (EDGE_TYPE_COLORS as any)[e.type] || "#94a3b8";
-        ctx2d.lineWidth = 1.2 + e.w * 0.8;
+        const col = (EDGE_TYPE_COLORS as any)[e.type] || "#94a3b8";
+        ctx2d.strokeStyle = col;
+        ctx2d.globalAlpha = 0.25;
+        ctx2d.lineWidth = 4.5;
+        ctx2d.beginPath();
+        ctx2d.moveTo(a.x, a.y);
+        ctx2d.lineTo(b.x, b.y);
+        ctx2d.stroke();
+        ctx2d.globalAlpha = 1;
+        ctx2d.lineWidth = 1.6 + e.w * 0.9;
         ctx2d.beginPath();
         ctx2d.moveTo(a.x, a.y);
         ctx2d.lineTo(b.x, b.y);
@@ -5084,7 +5093,6 @@ function MemoryGraphView() {
         ctx2d.beginPath();
         ctx2d.arc(n.x, n.y, r, 0, Math.PI * 2);
         ctx2d.fill();
-        // repo-class ring (structural memories get a distinct outline)
         if (n.kind_group === "repo") {
           ctx2d.strokeStyle = "rgba(226,232,240,0.55)";
           ctx2d.lineWidth = 1;
@@ -5094,16 +5102,25 @@ function MemoryGraphView() {
           ctx2d.stroke();
           ctx2d.setLineDash([]);
         }
-        ctx2d.globalAlpha = 1;
-        // label with halo — always visible when zoomed enough, else on hover
-        if (showLabels && view.k > 0.55) {
-          ctx2d.font = "10px sans-serif";
-          ctx2d.lineWidth = 3;
-          ctx2d.strokeStyle = "rgba(15,23,42,0.9)";
-          ctx2d.strokeText(n.label.slice(0, 42), n.x + r + 4, n.y + 3);
-          ctx2d.fillStyle = "#cbd5e1";
-          ctx2d.fillText(n.label.slice(0, 42), n.x + r + 4, n.y + 3);
+        // number badge — small dark circle with the memory index
+        if (showNumbers) {
+          const badgeR = Math.max(7, r * 0.72);
+          ctx2d.fillStyle = "rgba(15,23,42,0.88)";
+          ctx2d.beginPath();
+          ctx2d.arc(n.x, n.y, badgeR, 0, Math.PI * 2);
+          ctx2d.fill();
+          ctx2d.strokeStyle = "#e2e8f0";
+          ctx2d.lineWidth = 1;
+          ctx2d.stroke();
+          ctx2d.fillStyle = "#f8fafc";
+          ctx2d.font = "bold 9px sans-serif";
+          ctx2d.textAlign = "center";
+          ctx2d.textBaseline = "middle";
+          ctx2d.fillText(String(n.index), n.x, n.y + 0.5);
+          ctx2d.textAlign = "left";
+          ctx2d.textBaseline = "alphabetic";
         }
+        ctx2d.globalAlpha = 1;
       }
       ctx2d.restore();
 
@@ -5114,19 +5131,27 @@ function MemoryGraphView() {
         ctx2d.font = "12px sans-serif";
         ctx2d.fillStyle = "rgba(15,23,42,0.92)";
         const tw = ctx2d.measureText(hoverNode.label).width;
-        ctx2d.fillRect(nx - 6, ny - 22, tw + 12, 18);
+        ctx2d.fillRect(nx - 6, ny - 26, tw + 14, 22);
         ctx2d.fillStyle = "#e2e8f0";
-        ctx2d.fillText(hoverNode.label, nx, ny - 9);
+        ctx2d.fillText(`#${hoverNode.index} · ${hoverNode.label}`, nx, ny - 11);
       }
     };
 
-    let hoverNode: any = null;
     const toWorld = (mx: number, my: number) => ({ x: (mx - view.x) / view.k, y: (my - view.y) / view.k });
+    // CRITICAL FIX: scale CSS mouse coords to canvas logical coords —
+    // the canvas element is CSS-stretched; raw clientX/Y drift from the
+    // logical space the nodes live in (the old code had this, v2 dropped it).
+    const mousePos = (ev: any) => {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        mx: (ev.clientX - rect.left) * (W / rect.width),
+        my: (ev.clientY - rect.top) * (H / rect.height),
+      };
+    };
 
     canvas.onwheel = (ev: any) => {
       ev.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+      const { mx, my } = mousePos(ev);
       const factor = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
       const w = toWorld(mx, my);
       view.k = Math.max(0.3, Math.min(4, view.k * factor));
@@ -5135,8 +5160,7 @@ function MemoryGraphView() {
       setViewTick((t: number) => t + 1);
     };
     canvas.onmousedown = (ev: any) => {
-      const rect = canvas.getBoundingClientRect();
-      const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+      const { mx, my } = mousePos(ev);
       const w = toWorld(mx, my);
       dragNode = nodes.find((n: any) => Math.hypot(n.x - w.x, n.y - w.y) < (12 + n.importance_score * 12) / view.k) || null;
       if (dragNode) {
@@ -5145,11 +5169,10 @@ function MemoryGraphView() {
         panning = true;
         lastPt = { x: mx, y: my };
       }
-      canvas.style.cursor = dragNode ? "grabbing" : "grabbing";
+      canvas.style.cursor = "grabbing";
     };
     canvas.onmousemove = (ev: any) => {
-      const rect = canvas.getBoundingClientRect();
-      const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+      const { mx, my } = mousePos(ev);
       if (dragNode) {
         const w = toWorld(mx, my);
         dragNode.x = w.x; dragNode.y = w.y;
@@ -5160,7 +5183,9 @@ function MemoryGraphView() {
         setViewTick((t: number) => t + 1);
       } else {
         const w = toWorld(mx, my);
-        hoverNode = nodes.find((n: any) => Math.hypot(n.x - w.x, n.y - w.y) < (12 + n.importance_score * 12) / view.k) || null;
+        const hit = nodes.find((n: any) => Math.hypot(n.x - w.x, n.y - w.y) < (12 + n.importance_score * 12) / view.k) || null;
+        hoverNode = hit;
+        setHoverIdx(hit ? hit.index : null);
       }
     };
     canvas.onmouseup = () => {
@@ -5173,7 +5198,7 @@ function MemoryGraphView() {
     raf = requestAnimationFrame(simStep);
     const drawLoop = setInterval(draw, 33);
     return () => { cancelAnimationFrame(raf); clearInterval(drawLoop); };
-  }, [graph, showProximity, showLabels]);
+  }, [graph, showProximity, showNumbers]);
 
   const stats = graph?.stats || null;
   const sectorTotals: Record<string, number> = {};
@@ -5185,7 +5210,7 @@ function MemoryGraphView() {
         <div>
           <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Memory Mind Map</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Solid lines are <b>real relationships</b> (edges table); dashed faint lines are cosine proximity. Drag to pan, scroll to zoom, drag a node to pin it. Repo-index memories get a dashed ring.
+            Solid colored lines are <b>real relationships</b> (edges table); faint dashed lines are cosine proximity. Drag to pan, scroll to zoom, drag a node to pin it. Hover a node or a table row to see the memory.
           </p>
         </div>
         <button
@@ -5198,19 +5223,19 @@ function MemoryGraphView() {
 
       {stats && (
         <div className="grid grid-cols-4 gap-3 mb-4">
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-800/50">
             <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">{stats.nodes}</div>
             <div className="text-xs text-slate-500 dark:text-slate-400">memories shown</div>
           </div>
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-800/50">
             <div className="text-2xl font-bold text-sky-500">{stats.typed}</div>
             <div className="text-xs text-slate-500 dark:text-slate-400">real relationships</div>
           </div>
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-800/50">
             <div className="text-2xl font-bold text-slate-400">{stats.proximity}</div>
             <div className="text-xs text-slate-500 dark:text-slate-400">proximity links</div>
           </div>
-          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-800/50">
             <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">{Object.keys(sectorTotals).length}</div>
             <div className="text-xs text-slate-500 dark:text-slate-400">memory types</div>
           </div>
@@ -5233,8 +5258,8 @@ function MemoryGraphView() {
           proximity links
         </label>
         <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
-          labels
+          <input type="checkbox" checked={showNumbers} onChange={(e) => setShowNumbers(e.target.checked)} />
+          numbers
         </label>
       </div>
 
@@ -5259,14 +5284,52 @@ function MemoryGraphView() {
         <canvas ref={canvasRef} className="w-full block" style={{ height: 560, cursor: "grab" }} />
       </div>
 
+      {/* Lookup table: number → memory */}
+      {graph && graph.nodes.length > 0 && (
+        <div className="mt-4 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+          <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-sm font-semibold text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700">
+            Memory index — {graph.nodes.length} memories
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-slate-100 dark:bg-slate-800">
+                <tr className="text-left text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                  <th className="px-3 py-1.5 w-12">#</th>
+                  <th className="px-3 py-1.5 w-24">Sector</th>
+                  <th className="px-3 py-1.5">Memory</th>
+                </tr>
+              </thead>
+              <tbody>
+                {graph.nodes.map((n: any) => (
+                  <tr
+                    key={n.id}
+                    onMouseEnter={() => setHoverIdx(n.index)}
+                    onMouseLeave={() => setHoverIdx(null)}
+                    className={`border-b border-slate-100 dark:border-slate-800 cursor-pointer ${
+                      hoverIdx === n.index ? "bg-blue-50 dark:bg-blue-900/30" : ""
+                    }`}
+                  >
+                    <td className="px-3 py-1.5 text-slate-500 dark:text-slate-400 font-medium">{n.index}</td>
+                    <td className="px-3 py-1.5">
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: SECTOR_COLORS[n.sector] || "#94a3b8" }} />
+                        <span className="capitalize text-slate-600 dark:text-slate-300">{n.sector}</span>
+                        {n.superseded && <span className="text-slate-400">(superseded)</span>}
+                        {n.kind_group === "repo" && <span className="text-slate-400">(repo)</span>}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 text-slate-600 dark:text-slate-300">{n.label}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {loading && <p className="text-sm text-slate-400 mt-2">Loading graph&hellip;</p>}
       {!loading && graph && graph.nodes.length === 0 && (
         <p className="text-sm text-slate-400 mt-2">No memories with embeddings found.</p>
-      )}
-      {!loading && graph && graph.nodes.length > 0 && graph.typed_edges.length === 0 && graph.proximity_edges.length === 0 && (
-        <p className="text-sm text-slate-400 mt-2">
-          {graph.nodes.length} memories loaded, but no connections above the threshold &mdash; lower &ldquo;Min similarity&rdquo; or index a repo to create typed relationships.
-        </p>
       )}
     </div>
   );
