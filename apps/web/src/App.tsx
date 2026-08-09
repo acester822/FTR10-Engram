@@ -4918,13 +4918,29 @@ const SECTOR_COLORS: Record<string, string> = {
   reflective: "#a855f7",
   unknown: "#94a3b8",
 };
+// Real relationship edge colors (edges table).
+const EDGE_TYPE_COLORS: Record<string, string> = {
+  part_of: "#38bdf8",
+  related_to: "#fbbf24",
+  derives_from: "#f472b6",
+  supersedes: "#f87171",
+  same_as: "#a78bfa",
+  depends_on: "#34d399",
+  causes: "#fb923c",
+  contradicts: "#ef4444",
+  supports: "#4ade80",
+  mentions: "#94a3b8",
+};
 
 function MemoryGraphView() {
   const canvasRef = useRef(null);
-  const [graph, setGraph] = useState(null as { nodes: any[]; edges: any[] } | null);
+  const [graph, setGraph] = useState(null as { nodes: any[]; edges: any[]; typed_edges: any[]; proximity_edges: any[]; stats: any } | null);
   const [loading, setLoading] = useState(false);
   const [minSim, setMinSim] = useState(0.7);
   const [limit, setLimit] = useState(120);
+  const [showProximity, setShowProximity] = useState(true);
+  const [showLabels, setShowLabels] = useState(true);
+  const [, setViewTick] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -4933,7 +4949,7 @@ function MemoryGraphView() {
       const res = await fetch(`/api/memory-graph?${params}`);
       if (res.ok) {
         const data = await res.json();
-        setGraph({ nodes: data.nodes || [], edges: data.edges || [] });
+        setGraph({ nodes: data.nodes || [], edges: data.edges || [], typed_edges: data.typed_edges || [], proximity_edges: data.proximity_edges || [], stats: data.stats || null });
       }
     } catch {
       // ignore — empty state handles it
@@ -4944,27 +4960,41 @@ function MemoryGraphView() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Force-directed layout on a canvas (self-contained, no d3).
+  // Force-directed layout with zoom/pan + typed edges on a canvas.
   useEffect(() => {
     if (!graph || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const ctx2d = canvas.getContext("2d");
-    const W = canvas.width = 900;
-    const H = canvas.height = 600;
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.clientWidth || 960;
+    const H = Math.max(420, Math.min(640, W * 0.6));
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx2d.scale(dpr, dpr);
+
     const nodes = graph.nodes.map((n: any, i: number) => ({
       ...n,
-      x: W / 2 + Math.cos((i / graph.nodes.length) * Math.PI * 2) * 200,
-      y: H / 2 + Math.sin((i / graph.nodes.length) * Math.PI * 2) * 200,
-      vx: 0, vy: 0,
+      x: W / 2 + Math.cos((i / Math.max(1, graph.nodes.length)) * Math.PI * 2) * Math.min(W, H) * 0.32,
+      y: H / 2 + Math.sin((i / Math.max(1, graph.nodes.length)) * Math.PI * 2) * Math.min(W, H) * 0.32,
+      vx: 0, vy: 0, pinned: false,
     }));
     const idIndex = new Map(nodes.map((n: any, i: number) => [n.id, i]));
-    const edges = graph.edges
+    const typed = (graph.typed_edges || [])
+      .filter((e: any) => idIndex.has(e.source) && idIndex.has(e.target))
+      .map((e: any) => ({ s: idIndex.get(e.source)!, t: idIndex.get(e.target)!, type: e.edge_type, w: e.weight || 1 }));
+    const prox = (graph.proximity_edges || [])
       .filter((e: any) => idIndex.has(e.source) && idIndex.has(e.target))
       .map((e: any) => ({ s: idIndex.get(e.source)!, t: idIndex.get(e.target)!, w: e.similarity }));
 
+    // View transform: pan + zoom.
+    const view = { x: 0, y: 0, k: 1 };
     let raf = 0;
     let frame = 0;
-    const step = () => {
+    let dragNode: any = null;
+    let panning = false;
+    let lastPt = { x: 0, y: 0 };
+
+    const simStep = () => {
       frame++;
       // repulsion
       for (let i = 0; i < nodes.length; i++) {
@@ -4972,73 +5002,182 @@ function MemoryGraphView() {
           const dx = nodes[i].x - nodes[j].x;
           const dy = nodes[i].y - nodes[j].y;
           const d2 = dx * dx + dy * dy + 0.01;
-          const f = 1200 / d2;
+          const f = 1400 / d2;
           const d = Math.sqrt(d2);
           const fx = (dx / d) * f, fy = (dy / d) * f;
           nodes[i].vx += fx; nodes[i].vy += fy;
           nodes[j].vx -= fx; nodes[j].vy -= fy;
         }
       }
-      // attraction along edges
-      for (const e of edges) {
+      // attraction: typed edges stronger than proximity
+      for (const e of typed) {
+        if (nodes[e.s].pinned || nodes[e.t].pinned) continue;
         const a = nodes[e.s], b = nodes[e.t];
         const dx = b.x - a.x, dy = b.y - a.y;
         const d = Math.sqrt(dx * dx + dy * dy) + 0.01;
-        const f = (d - 80) * 0.02 * (0.5 + e.w);
+        const f = (d - 90) * 0.035 * (0.6 + e.w * 0.6);
         const fx = (dx / d) * f, fy = (dy / d) * f;
         a.vx += fx; a.vy += fy;
         b.vx -= fx; b.vy -= fy;
       }
+      if (showProximity) {
+        for (const e of prox) {
+          if (nodes[e.s].pinned || nodes[e.t].pinned) continue;
+          const a = nodes[e.s], b = nodes[e.t];
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const d = Math.sqrt(dx * dx + dy * dy) + 0.01;
+          const f = (d - 110) * 0.012 * (0.4 + e.w);
+          const fx = (dx / d) * f, fy = (dy / d) * f;
+          a.vx += fx; a.vy += fy;
+          b.vx -= fx; b.vy -= fy;
+        }
+      }
       // gravity to center + integrate
       for (const n of nodes) {
+        if (n.pinned) continue;
         n.vx += (W / 2 - n.x) * 0.005;
         n.vy += (H / 2 - n.y) * 0.005;
         n.vx *= 0.85; n.vy *= 0.85;
         n.x += n.vx; n.y += n.vy;
-        n.x = Math.max(20, Math.min(W - 20, n.x));
-        n.y = Math.max(20, Math.min(H - 20, n.y));
       }
-      // draw
+      if (frame < 500) raf = requestAnimationFrame(simStep);
+    };
+
+    const draw = () => {
       ctx2d.clearRect(0, 0, W, H);
       ctx2d.fillStyle = "#0f172a";
       ctx2d.fillRect(0, 0, W, H);
-      for (const e of edges) {
+      ctx2d.save();
+      ctx2d.translate(view.x, view.y);
+      ctx2d.scale(view.k, view.k);
+
+      // proximity edges — faint dashed
+      if (showProximity) {
+        ctx2d.setLineDash([3, 3]);
+        for (const e of prox) {
+          const a = nodes[e.s], b = nodes[e.t];
+          ctx2d.strokeStyle = `rgba(148,163,184,${0.08 + e.w * 0.18})`;
+          ctx2d.lineWidth = 0.6;
+          ctx2d.beginPath();
+          ctx2d.moveTo(a.x, a.y);
+          ctx2d.lineTo(b.x, b.y);
+          ctx2d.stroke();
+        }
+        ctx2d.setLineDash([]);
+      }
+      // typed edges — solid, colored by type
+      for (const e of typed) {
         const a = nodes[e.s], b = nodes[e.t];
-        ctx2d.strokeStyle = `rgba(148,163,184,${0.15 + e.w * 0.5})`;
-        ctx2d.lineWidth = 0.5 + e.w * 2;
+        ctx2d.strokeStyle = (EDGE_TYPE_COLORS as any)[e.type] || "#94a3b8";
+        ctx2d.lineWidth = 1.2 + e.w * 0.8;
         ctx2d.beginPath();
         ctx2d.moveTo(a.x, a.y);
         ctx2d.lineTo(b.x, b.y);
         ctx2d.stroke();
       }
+      // nodes
       for (const n of nodes) {
         const r = 4 + n.importance_score * 12;
         const color = SECTOR_COLORS[n.sector] || SECTOR_COLORS.unknown;
-        ctx2d.globalAlpha = n.superseded ? 0.35 : 1;
+        ctx2d.globalAlpha = n.superseded ? 0.3 : 1;
         ctx2d.fillStyle = color;
         ctx2d.beginPath();
         ctx2d.arc(n.x, n.y, r, 0, Math.PI * 2);
         ctx2d.fill();
+        // repo-class ring (structural memories get a distinct outline)
+        if (n.kind_group === "repo") {
+          ctx2d.strokeStyle = "rgba(226,232,240,0.55)";
+          ctx2d.lineWidth = 1;
+          ctx2d.setLineDash([2, 2]);
+          ctx2d.beginPath();
+          ctx2d.arc(n.x, n.y, r + 2.5, 0, Math.PI * 2);
+          ctx2d.stroke();
+          ctx2d.setLineDash([]);
+        }
         ctx2d.globalAlpha = 1;
-        if (n === hoverNode) {
-          ctx2d.fillStyle = "#e2e8f0";
-          ctx2d.font = "11px sans-serif";
-          ctx2d.fillText(n.label, n.x + r + 4, n.y + 3);
+        // label with halo — always visible when zoomed enough, else on hover
+        if (showLabels && view.k > 0.55) {
+          ctx2d.font = "10px sans-serif";
+          ctx2d.lineWidth = 3;
+          ctx2d.strokeStyle = "rgba(15,23,42,0.9)";
+          ctx2d.strokeText(n.label.slice(0, 42), n.x + r + 4, n.y + 3);
+          ctx2d.fillStyle = "#cbd5e1";
+          ctx2d.fillText(n.label.slice(0, 42), n.x + r + 4, n.y + 3);
         }
       }
-      // stop settling after a while
-      if (frame < 400) raf = requestAnimationFrame(step);
+      ctx2d.restore();
+
+      // hover detail (screen space)
+      if (hoverNode) {
+        const nx = hoverNode.x * view.k + view.x;
+        const ny = hoverNode.y * view.k + view.y;
+        ctx2d.font = "12px sans-serif";
+        ctx2d.fillStyle = "rgba(15,23,42,0.92)";
+        const tw = ctx2d.measureText(hoverNode.label).width;
+        ctx2d.fillRect(nx - 6, ny - 22, tw + 12, 18);
+        ctx2d.fillStyle = "#e2e8f0";
+        ctx2d.fillText(hoverNode.label, nx, ny - 9);
+      }
     };
+
     let hoverNode: any = null;
+    const toWorld = (mx: number, my: number) => ({ x: (mx - view.x) / view.k, y: (my - view.y) / view.k });
+
+    canvas.onwheel = (ev: any) => {
+      ev.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+      const factor = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const w = toWorld(mx, my);
+      view.k = Math.max(0.3, Math.min(4, view.k * factor));
+      view.x = mx - w.x * view.k;
+      view.y = my - w.y * view.k;
+      setViewTick((t: number) => t + 1);
+    };
+    canvas.onmousedown = (ev: any) => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+      const w = toWorld(mx, my);
+      dragNode = nodes.find((n: any) => Math.hypot(n.x - w.x, n.y - w.y) < (12 + n.importance_score * 12) / view.k) || null;
+      if (dragNode) {
+        dragNode.pinned = true;
+      } else {
+        panning = true;
+        lastPt = { x: mx, y: my };
+      }
+      canvas.style.cursor = dragNode ? "grabbing" : "grabbing";
+    };
     canvas.onmousemove = (ev: any) => {
       const rect = canvas.getBoundingClientRect();
-      const mx = (ev.clientX - rect.left) * (W / rect.width);
-      const my = (ev.clientY - rect.top) * (H / rect.height);
-      hoverNode = nodes.find((n: any) => Math.hypot(n.x - mx, n.y - my) < 12 + n.importance_score * 12) || null;
+      const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
+      if (dragNode) {
+        const w = toWorld(mx, my);
+        dragNode.x = w.x; dragNode.y = w.y;
+      } else if (panning) {
+        view.x += mx - lastPt.x;
+        view.y += my - lastPt.y;
+        lastPt = { x: mx, y: my };
+        setViewTick((t: number) => t + 1);
+      } else {
+        const w = toWorld(mx, my);
+        hoverNode = nodes.find((n: any) => Math.hypot(n.x - w.x, n.y - w.y) < (12 + n.importance_score * 12) / view.k) || null;
+      }
     };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [graph]);
+    canvas.onmouseup = () => {
+      dragNode = null;
+      panning = false;
+      canvas.style.cursor = "grab";
+    };
+    canvas.style.cursor = "grab";
+
+    raf = requestAnimationFrame(simStep);
+    const drawLoop = setInterval(draw, 33);
+    return () => { cancelAnimationFrame(raf); clearInterval(drawLoop); };
+  }, [graph, showProximity, showLabels]);
+
+  const stats = graph?.stats || null;
+  const sectorTotals: Record<string, number> = {};
+  if (graph) for (const n of graph.nodes) sectorTotals[n.sector] = (sectorTotals[n.sector] || 0) + 1;
 
   return (
     <div>
@@ -5046,8 +5185,7 @@ function MemoryGraphView() {
         <div>
           <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Memory Mind Map</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Semantic proximity &mdash; edges are cosine similarity between memory embeddings, not inferred relationships.
-            Faded nodes were superseded. For show; no writes.
+            Solid lines are <b>real relationships</b> (edges table); dashed faint lines are cosine proximity. Drag to pan, scroll to zoom, drag a node to pin it. Repo-index memories get a dashed ring.
           </p>
         </div>
         <button
@@ -5057,6 +5195,27 @@ function MemoryGraphView() {
           <RefreshCw size={16} /> Refresh
         </button>
       </div>
+
+      {stats && (
+        <div className="grid grid-cols-4 gap-3 mb-4">
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+            <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">{stats.nodes}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">memories shown</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+            <div className="text-2xl font-bold text-sky-500">{stats.typed}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">real relationships</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+            <div className="text-2xl font-bold text-slate-400">{stats.proximity}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">proximity links</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+            <div className="text-2xl font-bold text-slate-800 dark:text-slate-100">{Object.keys(sectorTotals).length}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">memory types</div>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center gap-6 mb-4 flex-wrap">
         <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
@@ -5069,27 +5228,44 @@ function MemoryGraphView() {
           <input type="range" min={30} max={200} step={10} value={limit}
             onChange={(e) => setLimit(Number(e.target.value))} />
         </label>
-        <div className="flex items-center gap-3 text-xs">
-          {Object.entries(SECTOR_COLORS).map(([s, c]) => (
-            <span key={s} className="flex items-center gap-1">
-              <span className="inline-block w-3 h-3 rounded-full" style={{ background: c }} />
-              <span className="capitalize text-slate-500 dark:text-slate-400">{s}</span>
-            </span>
-          ))}
-        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <input type="checkbox" checked={showProximity} onChange={(e) => setShowProximity(e.target.checked)} />
+          proximity links
+        </label>
+        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
+          labels
+        </label>
+      </div>
+
+      <div className="flex items-center gap-3 text-xs mb-3 flex-wrap">
+        {Object.entries(SECTOR_COLORS).filter(([s]) => sectorTotals[s]).map(([s, c]) => (
+          <span key={s} className="flex items-center gap-1">
+            <span className="inline-block w-3 h-3 rounded-full" style={{ background: c }} />
+            <span className="capitalize text-slate-500 dark:text-slate-400">{s}</span>
+            <span className="text-slate-400">({sectorTotals[s]})</span>
+          </span>
+        ))}
+        <span className="mx-2 text-slate-300 dark:text-slate-600">|</span>
+        {Object.entries(EDGE_TYPE_COLORS).map(([t, c]: [string, string]) => (
+          <span key={t} className="flex items-center gap-1">
+            <span className="inline-block w-4 h-0.5 rounded" style={{ background: c }} />
+            <span className="text-slate-500 dark:text-slate-400">{t}</span>
+          </span>
+        ))}
       </div>
 
       <div className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
-        <canvas ref={canvasRef} className="w-full block" style={{ maxHeight: 600 }} />
+        <canvas ref={canvasRef} className="w-full block" style={{ height: 560, cursor: "grab" }} />
       </div>
 
       {loading && <p className="text-sm text-slate-400 mt-2">Loading graph&hellip;</p>}
       {!loading && graph && graph.nodes.length === 0 && (
         <p className="text-sm text-slate-400 mt-2">No memories with embeddings found.</p>
       )}
-      {!loading && graph && graph.edges.length === 0 && graph.nodes.length > 0 && (
+      {!loading && graph && graph.nodes.length > 0 && graph.typed_edges.length === 0 && graph.proximity_edges.length === 0 && (
         <p className="text-sm text-slate-400 mt-2">
-          {graph.nodes.length} memories loaded, but no edges above the similarity threshold &mdash; lower &ldquo;Min similarity&rdquo; to connect them.
+          {graph.nodes.length} memories loaded, but no connections above the threshold &mdash; lower &ldquo;Min similarity&rdquo; or index a repo to create typed relationships.
         </p>
       )}
     </div>
