@@ -7,9 +7,33 @@
 
 import { bad, fail } from "../../_kit";
 import { listRepos, getRepo, updateRepoStatus } from "../../../../services/repoStore";
-import { indexRepo, deleteIndexedRepo, recallRepoTest, getRepoIndexProgress } from "../../../../services/repoIndexer";
+import { indexRepo, deleteIndexedRepo, recallRepoTest, getRepoIndexProgress, refreshChangedRepos, repoNeedsRefresh } from "../../../../services/repoIndexer";
 
 export const dashboard_repos_route = (app: any) => {
+  // POST /api/dashboard/repos/refresh — manual auto-refresh pass (rescan
+  // every ready repo whose content changed; idempotent).
+  app.post("/api/dashboard/repos/refresh", async (_req: any, res: any) => {
+    try {
+      const result = await refreshChangedRepos();
+      if (result.skipped_running) return res.status(409).json({ ok: false, error: "repo index already running" });
+      res.json({ ok: true, ...result });
+    } catch (e) {
+      fail(res, "repo_refresh_failed", e);
+    }
+  });
+
+  // GET /api/dashboard/repos/:id/needs-refresh — check if a repo changed.
+  app.get("/api/dashboard/repos/:id/needs-refresh", async (req: any, res: any) => {
+    try {
+      const repo = await getRepo(req.params.id);
+      if (!repo) return bad(res, "id", "repo not found");
+      const changed = await repoNeedsRefresh(repo);
+      res.json({ ok: true, changed });
+    } catch (e) {
+      fail(res, "repo_needs_refresh_failed", e);
+    }
+  });
+
   // POST /api/dashboard/repos/index {source} — start an index run (async).
   app.post("/api/dashboard/repos/index", async (req: any, res: any) => {
     try {

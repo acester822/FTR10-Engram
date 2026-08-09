@@ -22,12 +22,13 @@ export interface RepoRow {
   revert_count: number;
   error: string | null;
   created_at: string;
+  head_sha?: string | null;
 }
 
 export async function listRepos(): Promise<RepoRow[]> {
   return pg_all(
     `SELECT id, name, source_type, source, root, status, last_indexed_at,
-            file_count, memory_count, commit_count, revert_count, error, created_at
+            file_count, memory_count, commit_count, revert_count, error, created_at, head_sha
      FROM public.repos ORDER BY created_at DESC`,
   ).catch(() => [] as RepoRow[]);
 }
@@ -35,7 +36,7 @@ export async function listRepos(): Promise<RepoRow[]> {
 export async function getRepo(id: string): Promise<RepoRow | null> {
   const rows = await pg_all(
     `SELECT id, name, source_type, source, root, status, last_indexed_at,
-            file_count, memory_count, commit_count, revert_count, error, created_at
+            file_count, memory_count, commit_count, revert_count, error, created_at, head_sha
      FROM public.repos WHERE id = $1::uuid`,
     [id],
   ).catch(() => [] as any[]);
@@ -45,7 +46,7 @@ export async function getRepo(id: string): Promise<RepoRow | null> {
 export async function getRepoBySource(source: string): Promise<RepoRow | null> {
   const rows = await pg_all(
     `SELECT id, name, source_type, source, root, status, last_indexed_at,
-            file_count, memory_count, commit_count, revert_count, error, created_at
+            file_count, memory_count, commit_count, revert_count, error, created_at, head_sha
      FROM public.repos WHERE source = $1`,
     [source],
   ).catch(() => [] as any[]);
@@ -63,7 +64,7 @@ export async function createRepo(r: {
      VALUES ($1, $2, $3, $4)
      ON CONFLICT (source) DO UPDATE SET name = EXCLUDED.name, root = EXCLUDED.root
      RETURNING id, name, source_type, source, root, status, last_indexed_at,
-               file_count, memory_count, commit_count, revert_count, error, created_at`,
+               file_count, memory_count, commit_count, revert_count, error, created_at, head_sha`,
     [r.name, r.source_type, r.source, r.root],
   );
   // pg_run may return rows on RETURNING; if not, refetch.
@@ -76,7 +77,7 @@ export async function createRepo(r: {
 
 export async function updateRepoStatus(
   id: string,
-  patch: Partial<Pick<RepoRow, "status" | "error" | "last_indexed_at" | "file_count" | "memory_count" | "commit_count" | "revert_count">>,
+  patch: Partial<Pick<RepoRow, "status" | "error" | "last_indexed_at" | "file_count" | "memory_count" | "commit_count" | "revert_count" | "head_sha">>,
 ): Promise<void> {
   const sets: string[] = [];
   const params: any[] = [id];

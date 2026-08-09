@@ -20,7 +20,7 @@ import { redactSecrets } from "./traceStore";
 import { recordMemoryAudit } from "../durable/mutations";
 import { mineFile, SUPPORTED_EXTENSIONS } from "./repoMiner";
 import { mineGitHistory, type GitCommit, type GitRevert } from "./gitMiner";
-import { createRepo, getRepoBySource, updateRepoStatus, getRepo, deleteRepo } from "./repoStore";
+import { createRepo, getRepoBySource, updateRepoStatus, getRepo, deleteRepo, listRepos, type RepoRow } from "./repoStore";
 import { logger } from "../utils/logger";
 
 // ── Config (env with defaults — GUI Settings mirrors EG_REPOS_* live) ─────
@@ -48,6 +48,13 @@ function cloneDepth(): number {
 }
 function localPathPrefix(): string {
   return process.env.EG_REPO_LOCAL_PREFIX || "/data/repos-local";
+}
+function autoRefreshEnabled(): boolean {
+  return (process.env.EG_REPO_AUTO_REFRESH ?? "true").toLowerCase() !== "false";
+}
+function refreshIntervalMs(): number {
+  const n = Number(process.env.EG_REPO_REFRESH_INTERVAL_MS);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 30 * 60 * 1000;
 }
 
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".nuxt", "vendor", ".venv", "venv", "__pycache__", ".cache", "coverage", ".engram", ".hermes", "target", ".idea", ".vscode"]);
@@ -104,6 +111,16 @@ function cloneUrl(source: string, root: string): void {
 }
 function shellQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Current git HEAD of a repo ("" when not a git repo / git unavailable). */
+function captureHead(root: string): string | null {
+  try {
+    const head = execSync(`git -C ${shellQuote(root)} -c safe.directory='*' rev-parse HEAD 2>/dev/null`, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    return head || null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Walker ────────────────────────────────────────────────────────────────
@@ -393,6 +410,7 @@ export async function indexRepo(source: string): Promise<IndexResult> {
       commit_count: commits.length,
       revert_count: reverts.length,
       error: null,
+      head_sha: captureHead(root),
     });
     setProgress({ phase: "done", done: files.length, total: files.length, current: `indexed ${name}` });
     logger.info({ module: "repoIndexer", repo: name, files: files.length, memories: stored, commits: commits.length, reverts: reverts.length, edges }, "repo indexed");
@@ -448,4 +466,93 @@ export async function recallRepoTest(repoId: string, query: string): Promise<{ r
       file: r.metadata?.file || undefined,
     })),
   };
+}
+
+// ── Auto-refresh (v4.7.0): rescan changed repos ──────────────────────────
+// The user's question: "if the repo/directory changes, is there a function
+// that will rescan?" — Reindex was manual-only. This adds a scheduled pass:
+// each ready repo is fingerprinted by newest file mtime + git HEAD; a changed
+// repo is re-indexed (supersede + fresh — idempotent by construction).
+
+/** True when the repo's files or git HEAD changed since it was last indexed. */
+export async function repoNeedsRefresh(repo: RepoRow): Promise<boolean> {
+  if (!existsSync(repo.root ?? "")) return false;
+  const last = repo.last_indexed_at ? new Date(repo.last_indexed_at).getTime() : 0;
+  // 1) Newest file mtime under the repo (respecting walk skip rules) — catches
+  //    content edits. The ROOT DIR mtime is also checked: a file add/delete
+  //    bumps the parent dir's mtime even though no existing file changed.
+  let newest = 0;
+  try {
+    const rootStat = statSync(repo.root!);
+    if (rootStat.mtimeMs > newest) newest = rootStat.mtimeMs;
+    const stack = [repo.root!];
+    const seen = new Set<string>();
+    while (stack.length) {
+      const dir = stack.pop()!;
+      let entries: string[] = [];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        continue;
+      }
+      for (const ent of entries) {
+        const full = join(dir, ent);
+        let st;
+        try {
+          st = statSync(full);
+        } catch {
+          continue;
+        }
+        if (st.isDirectory()) {
+          if (SKIP_DIRS.has(ent)) continue;
+          if (!seen.has(full)) { seen.add(full); stack.push(full); }
+        } else if (st.isFile() && st.mtimeMs > newest) {
+          newest = st.mtimeMs;
+        }
+      }
+    }
+  } catch {
+    /* fall through to git HEAD check */
+  }
+  if (newest > last + 5000) return true; // 5s slack for clock skew on the write
+  // 2) Git HEAD changed (a pull/fetch can rewrite mtimes of unchanged files).
+  try {
+    const head = captureHead(repo.root!);
+    return Boolean(head && repo.head_sha && head !== repo.head_sha);
+  } catch {
+    return false;
+  }
+}
+
+/** Refresh pass: re-index every ready repo whose content changed. */
+export async function refreshChangedRepos(): Promise<{ checked: number; refreshed: number; skipped_running: boolean }> {
+  if (runningRepos.size > 0) return { checked: 0, refreshed: 0, skipped_running: true };
+  const repos = await listRepos();
+  let checked = 0;
+  let refreshed = 0;
+  for (const repo of repos) {
+    if (repo.status !== "ready") continue;
+    checked++;
+    try {
+      if (await repoNeedsRefresh(repo)) {
+        const r = await indexRepo(repo.source);
+        if (r.ok) refreshed++;
+      }
+    } catch (e: any) {
+      logger.warn({ module: "repoIndexer", err: e?.message, repo: repo.name }, "auto-refresh failed");
+    }
+  }
+  return { checked, refreshed, skipped_running: false };
+}
+
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
+/** Start the scheduled auto-refresh (called once at boot; interval configurable). */
+export function startRepoAutoRefresh(): void {
+  if (refreshTimer) return;
+  if (!autoRefreshEnabled()) return;
+  const interval = refreshIntervalMs();
+  refreshTimer = setInterval(() => {
+    refreshChangedRepos().catch(() => {});
+  }, interval);
+  logger.info({ module: "repoIndexer", interval_ms: interval }, "repo auto-refresh scheduled");
 }

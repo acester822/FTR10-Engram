@@ -448,5 +448,8 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
       unique (source)
     )`,
     `create index if not exists durable_repos_status_idx on ${repos} (status)`,
+    // Auto-refresh fingerprint (v4.7.0): last-known git HEAD so a pull/fetch
+    // (which can rewrite mtimes of unchanged files) is still detected.
+    `alter table ${repos} add column if not exists head_sha text`,
   ];
 }
