@@ -2826,15 +2826,14 @@ function GovernanceView() {
                 <th className="pb-2 pr-3">Trace</th>
                 <th className="pb-2 pr-3">Dimension</th>
                 <th className="pb-2 pr-3">Expected</th>
-                <th className="pb-2 pr-3" title="The score stored on the trace. The gate + a calibration run RE-SCORE live with the judge — stored scores can drift after rubric changes or when an extraction's stored memories are superseded.">Last stored</th>
+                <th className="pb-2 pr-3" title="The judge's verdict from the LAST calibration run — the number the integrity gate actually uses. The trace's own stored score is NOT shown here (it drifts and the system never acts on it).">Judge (last run)</th>
                 <th className="pb-2 pr-3">Note</th>
                 <th className="pb-2"></th>
               </tr>
             </thead>
             <tbody>
               {calEntries.map((e: any) => {
-                const last = (e.scores || []).filter((s: any) => s.dimension === e.dimension).pop();
-                const match = last && Math.abs(last.score - e.expected_score) <= 0.15;
+                const lastRun = e.last_run_actual !== null && e.last_run_actual !== undefined;
                 return (
                   <tr key={e.id} className="border-t border-gray-100">
                     <td className="py-2 pr-3">
@@ -2859,12 +2858,19 @@ function GovernanceView() {
                       <ScorePill score={e.expected_score} />
                     </td>
                     <td className="py-2 pr-3">
-                      {last ? (
-                        <span className={`text-xs font-semibold ${match ? "text-emerald-600" : "text-red-600"}`}>
-                          {last.score} {match ? "✓" : "✗"}
+                      {lastRun ? (
+                        <span
+                          className={`text-xs font-semibold ${
+                            e.last_run_match === true ? "text-emerald-600" : e.last_run_match === false ? "text-red-600" : "text-slate-400"
+                          }`}
+                          title={`Judge verdict from calibration run ${e.last_run_ts ? fmtTs(e.last_run_ts) : ""}${e.last_run_note ? " — " + e.last_run_note : ""}`}
+                        >
+                          {e.last_run_actual} {e.last_run_match === true ? "✓" : e.last_run_match === false ? "✗" : "–"}
                         </span>
                       ) : (
-                        <span className="text-xs text-slate-400">—</span>
+                        <span className="text-xs text-slate-400" title="Run calibration in the Governance tab to get the judge's verdict — the gate uses only run verdicts, never stored trace scores.">
+                          — run calibration
+                        </span>
                       )}
                     </td>
                     <td className="py-2 pr-3 text-xs text-slate-500">{e.note || ""}</td>

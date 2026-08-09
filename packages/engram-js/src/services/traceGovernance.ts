@@ -34,8 +34,22 @@ export async function latestJudgeEval(kind: "calibration" | "consistency"): Prom
   return rows[0] || null;
 }
 
+/** Fingerprint of a calibration set — lets the gate detect that the set
+ *  changed since the last run (a stored agree_rate for a different set is
+ *  meaningless — the user's exact complaint: 'the scores seen there should
+ *  be the scores the system is using'). */
+export function setFingerprint(entries: Array<{ id: string; dimension: string; expected_score: number }>): string {
+  const s = entries
+    .map((e) => `${e.id}:${e.dimension}:${e.expected_score}`)
+    .sort()
+    .join("|");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return `set:${entries.length}:${h}`;
+}
+
 export async function listCalibration(): Promise<any[]> {
-  return pg_all(
+  const rows = await pg_all(
     `SELECT c.id, c.trace_id, c.dimension, c.expected_score, c.note, c.active, c.created_at,
             t.route, t.ts, t.scores
      FROM public.judge_calibration c
@@ -43,6 +57,23 @@ export async function listCalibration(): Promise<any[]> {
      ORDER BY c.created_at DESC`,
     [],
   );
+  // Overlay the LAST RUN's per-entry verdicts — the numbers the gate uses.
+  // The trace's stored scores are NOT shown here: they drift (rubric
+  // changes, superseded stored memories) and the system never acts on them.
+  const last = await latestJudgeEval("calibration");
+  const byId = new Map<string, any>();
+  for (const e of last?.result?.entries || []) byId.set(String(e.id), e);
+  const runTs = last?.created_at ?? null;
+  return rows.map((r: any) => {
+    const run = byId.get(String(r.id));
+    return {
+      ...r,
+      last_run_actual: run?.actual ?? null,
+      last_run_match: run?.match ?? null,
+      last_run_note: run?.note ?? null,
+      last_run_ts: runTs,
+    };
+  });
 }
 
 export async function addCalibration(input: {
@@ -184,6 +215,7 @@ export async function runCalibration(
     agree,
     agree_rate: scored ? Math.round((agree / scored) * 100) / 100 : null,
     avg_abs_error: scored ? Math.round((absErrSum / scored) * 1000) / 1000 : null,
+    set_fingerprint: setFingerprint(entries),
     entries: results,
   };
   await persistJudgeEval("calibration", result);

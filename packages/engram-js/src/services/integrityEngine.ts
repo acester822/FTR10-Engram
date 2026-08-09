@@ -19,7 +19,7 @@ import { all_async as pg_all, run_async as pg_run } from "../database/connection
 import { embed, normalizeEmbedding } from "../embeddings/embed";
 import { normalizeSector } from "./memoryInjector";
 import { callJudge, parseJudge } from "./traceScorer";
-import { latestJudgeEval } from "./traceGovernance";
+import { latestJudgeEval, setFingerprint } from "./traceGovernance";
 import {
   hardDeleteMemories,
   supersedeMemories,
@@ -83,8 +83,24 @@ export async function integrityGate(): Promise<IntegrityGate> {
     if (!row) return true;
     return Date.now() - new Date(row.created_at).getTime() > maxAgeDays * 86400000;
   };
+  // The set may have changed since the last run — a stored agree_rate for a
+  // DIFFERENT set is meaningless (user review: "the scores seen there should
+  // be the scores the system is using"). Detect via fingerprint and demand a
+  // re-run instead of silently trusting a stale number.
+  let setChanged = false;
+  try {
+    const calSet = await pg_all(
+      `SELECT id, dimension, expected_score FROM public.judge_calibration ORDER BY created_at`,
+      [],
+    );
+    const fp = setFingerprint(calSet);
+    setChanged = !!cal?.result?.set_fingerprint && cal.result.set_fingerprint !== fp;
+  } catch {
+    setChanged = false;
+  }
   if (!cal || calRate === null) reasons.push("no calibration results — run calibration in the Governance tab");
   else if (stale(cal)) reasons.push(`calibration results older than ${maxAgeDays}d — re-run`);
+  else if (setChanged) reasons.push("calibration set changed since last run — re-run calibration");
   else if (calRate < minCal) reasons.push(`calibration ${calRate} < ${minCal}`);
   if (!con || mad === null) reasons.push("no consistency results — run consistency in the Governance tab");
   else if (stale(con)) reasons.push(`consistency results older than ${maxAgeDays}d — re-run`);
