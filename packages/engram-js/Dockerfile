@@ -25,8 +25,11 @@ WORKDIR /app
 
 # git is required by the repo baseline indexer (v4.7.0-repo-index): URL
 # clones + git-history mining (commits, mutations, reverts).
+# safe.directory: host-mounted repos are owned by the host user, not the
+# container user — git refuses them as "dubious ownership" without this.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends git \
+ && git config --system --add safe.directory '*' \
  && rm -rf /var/lib/apt/lists/*
 
 # Create a dedicated non-root user for security

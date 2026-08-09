@@ -42,7 +42,7 @@ export interface GitMineResult {
 function isGitRepo(root: string): boolean {
   try {
     return existsSync(join(root, ".git")) || existsSync(join(root, ".git", "HEAD")) ||
-      execSync(`git -C ${shellQuote(root)} rev-parse --is-inside-work-tree 2>/dev/null`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() === "true";
+      execSync(`git -C ${shellQuote(root)} -c safe.directory='*' rev-parse --is-inside-work-tree 2>/dev/null`, { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() === "true";
   } catch {
     return false;
   }
@@ -61,7 +61,7 @@ export function mineGitHistory(root: string, maxCommits = MAX_COMMITS_DEFAULT): 
     // Format: sha%x1fauthor%x1fdate%x1fsubject%x1f then name-status lines.
     const fmt = `%H%x1f%an%x1f%aI%x1f%s%x1e`;
     const out = execSync(
-      `git -C ${shellQuote(root)} log -${maxCommits} --name-status --pretty=format:${fmt}`,
+      `git -C ${shellQuote(root)} -c safe.directory='*' log -${maxCommits} --name-status --pretty=format:${fmt}`,
       { maxBuffer: 64 * 1024 * 1024, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
     );
     const commits: GitCommit[] = [];
