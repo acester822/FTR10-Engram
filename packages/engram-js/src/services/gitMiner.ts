@@ -58,8 +58,11 @@ export function mineGitHistory(root: string, maxCommits = MAX_COMMITS_DEFAULT): 
   const empty: GitMineResult = { isGit: false, commits: [], reverts: [], mutations: {} };
   if (!isGitRepo(root)) return empty;
   try {
-    // Format: sha%x1fauthor%x1fdate%x1fsubject%x1f then name-status lines.
-    const fmt = `%H%x1f%an%x1f%aI%x1f%s%x1e`;
+    // Format: \x1e-prefixed records — the record separator starts each
+    // commit's header line, so split("\x1e") yields one record per commit
+    // ("header\nfile-status lines") even though name-status lines follow
+    // the pretty-format header on subsequent lines.
+    const fmt = `\x1e%H%x1f%an%x1f%aI%x1f%s`;
     const out = execSync(
       `git -C ${shellQuote(root)} -c safe.directory='*' log -${maxCommits} --name-status --pretty=format:${fmt}`,
       { maxBuffer: 64 * 1024 * 1024, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
