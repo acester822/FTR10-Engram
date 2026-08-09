@@ -135,6 +135,12 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.recall_gap_max_per_run", env: "EG_RECALL_GAP_MAX_PER_RUN", type: "number", label: "Recall-Gap Max Per Run", section: "enrichment" },
   { key: "general.recall_gap_auto_apply", env: "EG_RECALL_GAP_AUTO_APPLY", type: "bool", label: "Recall-Gap Auto-Apply (high-confidence)", section: "enrichment" },
   { key: "general.project_github_owner", env: "EG_PROJECT_GITHUB_OWNER", type: "string", label: "Project GitHub Owner(s)", section: "enrichment" },
+  // Repo baseline indexing (v4.7.0-repo-index)
+  { key: "general.repos_root", env: "EG_REPOS_ROOT", type: "string", label: "Repos Root (clone destination)", section: "repos" },
+  { key: "general.repos_max_files", env: "EG_REPO_MAX_FILES", type: "number", label: "Max Files Per Run", section: "repos" },
+  { key: "general.repos_max_file_bytes", env: "EG_REPO_MAX_FILE_BYTES", type: "number", label: "Max File Bytes", section: "repos" },
+  { key: "general.repos_max_commits", env: "EG_REPO_MAX_COMMITS", type: "number", label: "Max Git Commits", section: "repos" },
+  { key: "general.repos_tip_enabled", env: "EG_REPO_TIP_ENABLED", type: "bool", label: "Working-Location Tip Enabled", section: "repos" },
 ];
 
 // ── Advanced (infra / secrets / misc) settings — shown in a warning-labeled table.

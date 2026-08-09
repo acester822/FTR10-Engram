@@ -23,6 +23,12 @@ FROM node:20-bookworm-slim AS production
 
 WORKDIR /app
 
+# git is required by the repo baseline indexer (v4.7.0-repo-index): URL
+# clones + git-history mining (commits, mutations, reverts).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git \
+ && rm -rf /var/lib/apt/lists/*
+
 # Create a dedicated non-root user for security
 RUN groupadd --gid 1001 appgroup \
  && useradd --uid 1001 --gid appgroup --system --no-create-home appuser

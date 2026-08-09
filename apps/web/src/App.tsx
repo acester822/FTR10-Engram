@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 
 // Local type alias — @types/react doesn't resolve in this monorepo setup with bundler moduleResolution
 type ReactNode = any;
-import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical, Share2, Download, ClipboardList, Flag, AlertTriangle, ClipboardCheck, History, Undo2 } from "lucide-react";
+import { Skull, Database, Activity, Trash2, Edit2, Save, X, Search, RefreshCw, FileText, Cpu, Thermometer, Zap, HardDrive, Gauge, Terminal, Sun, Moon, ChevronDown, Settings as SettingsIcon, FlaskConical, Share2, Download, ClipboardList, Flag, AlertTriangle, ClipboardCheck, History, Undo2, GitBranch, FolderPlus, Link2, RotateCcw } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 const API_BASE = "/api/dashboard";
@@ -41,7 +41,7 @@ interface Stats {
   by_tier: Record<string, number>;
 }
 
-type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity" | "settings" | "mindmap" | "traces" | "governance" | "audit";
+type Tab = "dashboard" | "memories" | "serverLogs" | "performance" | "recall" | "activity" | "settings" | "mindmap" | "traces" | "governance" | "audit" | "repos";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("dashboard" as Tab);
@@ -173,6 +173,13 @@ export default function App() {
             Memory Audit
           </NavButton>
           <NavButton
+            active={activeTab === "repos"}
+            onClick={() => setActiveTab("repos")}
+            icon={<GitBranch size={20} />}
+          >
+            Repos
+          </NavButton>
+          <NavButton
             active={activeTab === "settings"}
             onClick={() => setActiveTab("settings")}
             icon={<SettingsIcon size={20} />}
@@ -216,6 +223,7 @@ export default function App() {
         {activeTab === "traces" && <TracesView />}
         {activeTab === "governance" && <GovernanceView />}
         {activeTab === "audit" && <MemoryAuditView />}
+        {activeTab === "repos" && <ReposView />}
         {activeTab === "settings" && <SettingsView />}
       </main>
     </div>
@@ -3524,6 +3532,280 @@ function MemoryAuditView() {
           </table>
         )}
       </div>
+    </div>
+  );
+}
+
+function ReposView() {
+  const [repos, setRepos] = useState([] as any[]);
+  const [loading, setLoading] = useState(true);
+  const [source, setSource] = useState("");
+  const [indexing, setIndexing] = useState(false);
+  const [msg, setMsg] = useState(null as any);
+  const [progress, setProgress] = useState(null as any);
+  const [recall, setRecall] = useState(null as any);
+  const [recallQuery, setRecallQuery] = useState("");
+  const [recallRepo, setRecallRepo] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dashboard/repos");
+      if (res.ok) {
+        const data = await res.json();
+        setRepos(data.repos || []);
+      }
+    } catch {
+      /* best-effort */
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 10000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  useEffect(() => {
+    if (!indexing) return;
+    const t = setInterval(async () => {
+      try {
+        const res = await fetch("/api/dashboard/repos/progress");
+        if (res.ok) {
+          const data = await res.json();
+          setProgress(data);
+          if (data.phase === "done") {
+            setIndexing(false);
+            setProgress(null);
+            setMsg({ ok: true, text: "Index complete." });
+            load();
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 1500);
+    return () => clearInterval(t);
+  }, [indexing, load]);
+
+  const startIndex = async () => {
+    const s = source.trim();
+    if (!s) return;
+    setIndexing(true);
+    setMsg(null);
+    setProgress({ phase: "prepare", done: 0, total: 0, current: "starting…" });
+    try {
+      const res = await fetch("/api/dashboard/repos/index", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ source: s }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ ok: false, text: data.msg || data.error || "Index failed" });
+        setIndexing(false);
+        setProgress(null);
+      }
+    } catch (e: any) {
+      setMsg({ ok: false, text: String(e?.message || e) });
+      setIndexing(false);
+      setProgress(null);
+    }
+  };
+
+  const reindex = async (repo: any) => {
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/dashboard/repos/${repo.id}/reindex`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setMsg({ ok: false, text: data.msg || data.error || "Reindex failed" });
+      } else {
+        setMsg({ ok: true, text: `Reindex started for ${repo.name}…` });
+        setIndexing(true);
+      }
+    } catch (e: any) {
+      setMsg({ ok: false, text: String(e?.message || e) });
+    }
+  };
+
+  const remove = async (repo: any) => {
+    if (!window.confirm(`Delete repo index "${repo.name}"? Its indexed memories will be superseded (audited, undoable).`)) return;
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/dashboard/repos/${repo.id}`, { method: "DELETE" });
+      const data = await res.json();
+      setMsg(res.ok ? { ok: true, text: `${repo.name} deleted (${data.superseded ?? 0} memories superseded).` } : { ok: false, text: data.msg || "Delete failed" });
+      load();
+    } catch (e: any) {
+      setMsg({ ok: false, text: String(e?.message || e) });
+    }
+  };
+
+  const runRecall = async (repo: any) => {
+    const q = recallQuery.trim();
+    if (!q) return;
+    setRecall(null);
+    setRecallRepo(repo.id);
+    try {
+      const res = await fetch(`/api/dashboard/repos/${repo.id}/recall-test?query=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      setRecall(res.ok ? data.results || [] : []);
+    } catch (e: any) {
+      setRecall([]);
+    }
+  };
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+          <GitBranch size={20} /> Repo Baseline Index
+        </h2>
+        <button onClick={load} className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-sm text-slate-200 flex items-center gap-2">
+          <RefreshCw size={14} /> Refresh
+        </button>
+      </div>
+      <p className="text-sm text-slate-400 mb-4">
+        Enter a <b>repo URL</b> (e.g. <code className="text-slate-300">https://github.com/acester822/indexer_for_testing.git</code>) or a <b>local path</b> (e.g. <code className="text-slate-300">/home/ftr/Apps/Engram</code>). Engram structurally maps the repo into the memory store — files, exports, imports, git commits, and reverts ("remember what broke") — tagged with the repo identity, audited, re-indexable.
+      </p>
+
+      <div className="flex gap-2 mb-4">
+        <input
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+          placeholder="Repo URL or local path…"
+          className="flex-1 px-3 py-2 rounded bg-slate-800 border border-slate-600 text-sm text-slate-100"
+        />
+        <button
+          onClick={startIndex}
+          disabled={indexing || !source.trim()}
+          className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-sm font-medium flex items-center gap-2"
+        >
+          <FolderPlus size={16} /> {indexing ? "Indexing…" : "Index Repo"}
+        </button>
+      </div>
+
+      {msg && (
+        <div className={`mb-3 px-3 py-2 rounded text-sm ${msg.ok ? "bg-emerald-900/40 text-emerald-300 border border-emerald-700" : "bg-red-900/40 text-red-300 border border-red-700"}`}>
+          {msg.text}
+        </div>
+      )}
+
+      {indexing && progress && (
+        <div className="mb-4 px-4 py-3 rounded bg-slate-800 border border-slate-600">
+          <div className="text-sm text-slate-300 mb-1">
+            Phase: <b>{progress.phase}</b> — {progress.current || ""}
+            {progress.total > 0 && <span className="text-slate-400"> ({progress.done}/{progress.total})</span>}
+          </div>
+          {progress.total > 0 && (
+            <div className="w-full bg-slate-700 rounded h-2">
+              <div className="bg-blue-500 h-2 rounded" style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }} />
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-slate-400 border-b border-slate-700">
+              <th className="py-2 pr-3">Name</th>
+              <th className="py-2 pr-3">Source</th>
+              <th className="py-2 pr-3">Status</th>
+              <th className="py-2 pr-3 text-right">Files</th>
+              <th className="py-2 pr-3 text-right">Memories</th>
+              <th className="py-2 pr-3 text-right">Commits</th>
+              <th className="py-2 pr-3 text-right">Reverts</th>
+              <th className="py-2 pr-3">Last Indexed</th>
+              <th className="py-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {repos.length === 0 && !loading && (
+              <tr><td colSpan={9} className="py-6 text-center text-slate-500">No repos indexed yet — add one above.</td></tr>
+            )}
+            {repos.map((r: any) => (
+              <tr key={r.id} className="border-b border-slate-800">
+                <td className="py-2 pr-3 text-slate-200 font-medium">{r.name}</td>
+                <td className="py-2 pr-3 text-slate-400 max-w-[220px] truncate">{r.source}</td>
+                <td className="py-2 pr-3">
+                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                    r.status === "ready" ? "bg-emerald-900/50 text-emerald-300"
+                    : r.status === "indexing" ? "bg-blue-900/50 text-blue-300"
+                    : r.status === "error" ? "bg-red-900/50 text-red-300"
+                    : "bg-slate-700 text-slate-300"
+                  }`}>{r.status}</span>
+                  {r.error && <div className="text-xs text-red-400 mt-1 max-w-[200px] truncate">{r.error}</div>}
+                </td>
+                <td className="py-2 pr-3 text-right text-slate-300">{r.file_count}</td>
+                <td className="py-2 pr-3 text-right text-slate-300">{r.memory_count}</td>
+                <td className="py-2 pr-3 text-right text-slate-300">{r.commit_count}</td>
+                <td className="py-2 pr-3 text-right">
+                  <span className={r.revert_count > 0 ? "text-amber-300 font-medium" : "text-slate-300"}>{r.revert_count}</span>
+                </td>
+                <td className="py-2 pr-3 text-slate-400">{r.last_indexed_at ? new Date(r.last_indexed_at).toLocaleString() : "—"}</td>
+                <td className="py-2">
+                  <div className="flex gap-1.5">
+                    <button onClick={() => reindex(r)} className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs text-slate-200 flex items-center gap-1">
+                      <RotateCcw size={12} /> Reindex
+                    </button>
+                    <button onClick={() => remove(r)} className="px-2 py-1 rounded bg-red-900/50 hover:bg-red-800 text-xs text-red-300 flex items-center gap-1">
+                      <Trash2 size={12} /> Delete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {repos.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold text-slate-300 mb-2 flex items-center gap-2"><Search size={14} /> Recall test (repo-scoped)</h3>
+          <div className="flex gap-2">
+            <select
+              value={recallRepo}
+              onChange={(e) => setRecallRepo(e.target.value)}
+              className="px-3 py-2 rounded bg-slate-800 border border-slate-600 text-sm text-slate-100"
+            >
+              <option value="">Select repo…</option>
+              {repos.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+            <input
+              value={recallQuery}
+              onChange={(e) => setRecallQuery(e.target.value)}
+              placeholder="e.g. where is X defined?"
+              className="flex-1 px-3 py-2 rounded bg-slate-800 border border-slate-600 text-sm text-slate-100"
+            />
+            <button
+              onClick={() => { const r: any = repos.find((x: any) => x.id === recallRepo); if (r) runRecall(r); }}
+              disabled={!recallRepo || !recallQuery.trim()}
+              className="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-sm text-slate-200"
+            >
+              Recall
+            </button>
+          </div>
+          {recall && recall.length === 0 && recallRepo && (
+            <div className="mt-3 text-sm text-slate-400">No results for that query in this repo's memories.</div>
+          )}
+          {recall && recall.length > 0 && (
+            <div className="mt-3 space-y-2">
+              {recall.map((r: any) => (
+                <div key={r.id} className="px-3 py-2 rounded bg-slate-800 border border-slate-700 text-sm">
+                  <div className="flex justify-between mb-1">
+                    <span className="text-xs text-slate-500 truncate">{r.file || r.id}</span>
+                    <span className="text-xs font-medium text-blue-300">{r.score}</span>
+                  </div>
+                  <div className="text-slate-200">{r.content}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

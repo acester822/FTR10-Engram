@@ -3,7 +3,7 @@
  - what is the file used for
 */
 
-export const DURABLE_SCHEMA_VERSION = "4.4.0-integrity";
+export const DURABLE_SCHEMA_VERSION = "4.7.0-repo-index";
 
 export const DURABLE_EDGE_TYPES = [
   "mentions",
@@ -40,6 +40,7 @@ export const DURABLE_TABLES = [
   "integrity_runs",
   "integrity_findings",
   "judge_evals",
+  "repos",
 ] as const;
 
 export interface DurableSchemaOptions {
@@ -76,6 +77,7 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
   const integrityRuns = table(schema, "integrity_runs");
   const integrityFindings = table(schema, "integrity_findings");
   const judgeEvals = table(schema, "judge_evals");
+  const repos = table(schema, "repos");
   const edgeTypeCheck = DURABLE_EDGE_TYPES.map((type) => `'${type}'`).join(",");
 
   return [
@@ -425,5 +427,26 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
       created_at timestamptz not null default now()
     )`,
     `create index if not exists durable_judge_evals_kind_idx on ${judgeEvals} (kind, created_at desc)`,
+    // Repo baseline indexing (v4.7.0-repo-index): one row per indexed repo
+    // (URL clone or local path). Indexed memories carry
+    // metadata.repo = <canonical identity> + metadata.repo_index = true;
+    // re-index supersedes per-file, delete supersedes all.
+    `create table if not exists ${repos} (
+      id uuid primary key default gen_random_uuid(),
+      name text not null,
+      source_type text not null check (source_type in ('url', 'path')),
+      source text not null,
+      root text,
+      status text not null default 'idle' check (status in ('idle', 'indexing', 'ready', 'error')),
+      last_indexed_at timestamptz,
+      file_count integer not null default 0,
+      memory_count integer not null default 0,
+      commit_count integer not null default 0,
+      revert_count integer not null default 0,
+      error text,
+      created_at timestamptz not null default now(),
+      unique (source)
+    )`,
+    `create index if not exists durable_repos_status_idx on ${repos} (status)`,
   ];
 }

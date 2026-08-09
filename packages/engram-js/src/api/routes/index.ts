@@ -43,6 +43,7 @@ import { dashboard_enrichment_route } from "./dashboard/enrichment/route";
 import { dashboard_coherence_route } from "./dashboard/coherence/route";
 import { dashboard_candidates_route } from "./dashboard/candidates/route";
 import { dashboard_recall_gap_route } from "./dashboard/recall-gap/route";
+import { dashboard_repos_route } from "./dashboard/repos/route";
 import { runCompoundSplit } from "../../services/compoundSplitter";
 import { backfillWindows } from "../../durable/chunks";
 import { settings_route } from "./settings/route";
@@ -90,6 +91,7 @@ export function routes(app: any) {
   dashboard_coherence_route(app);
   dashboard_candidates_route(app);
   dashboard_recall_gap_route(app);
+  dashboard_repos_route(app);
   // Compound splitter (POST /api/dashboard/coherence/split-compounds)
   app.post("/api/dashboard/coherence/split-compounds", async (_req: any, res: any) => {
     try {

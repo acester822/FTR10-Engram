@@ -61,9 +61,12 @@
 ## [DECIDE] items (with leanings)
 
 1. **Miner tier** — T1 line-based heuristic first (zero deps, honest baseline); T2 tree-sitter as follow-up. *Not* T3 (external runtime dependency).
+  - Implement T1 and T2
 2. **Local-path access from Docker** — the API runs in a container; local paths need a volume. Lean: mount a **dedicated writable repos dir** (`./repos` on the host, e.g. `/home/ftr/engram-repos`) and a **read-only mount of `/home/ftr/Apps`** so the user can point at any of his existing projects without copying. Both configurable via compose env.
+  - This is perfect, approved!
 3. **Tip injection point** — server-side cognitive-context (no plugin deploy, no new API surface for the plugin).
 4. **Doc-memory LLM use** — gated + flagged like every LLM path; if the repo has no README/docs, zero LLM calls happen at all.
+  - Approved
 
 ## Files-changed table
 
