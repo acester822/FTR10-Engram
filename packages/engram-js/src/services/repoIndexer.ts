@@ -164,15 +164,15 @@ function repoIdentity(source: string, name: string): string {
   return resolve(source);
 }
 
-async function findExistingFileMemory(repoId: string, relPath: string): Promise<string | null> {
+async function findExistingFileMemory(repoId: string, relPath: string, kind = "repo_index"): Promise<string | null> {
   const rows = await pg_all(
     `SELECT id FROM public.memories
      WHERE superseded_at IS NULL
        AND metadata->>'repo_id' = $1
        AND metadata->>'file' = $2
-       AND metadata->>'kind' = 'repo_index'
+       AND metadata->>'kind' = $3
      LIMIT 1`,
-    [repoId, relPath],
+    [repoId, relPath, kind],
   ).catch(() => []);
   return rows[0]?.id ?? null;
 }
@@ -315,7 +315,7 @@ export async function indexRepo(source: string): Promise<IndexResult> {
         const relPaths = c.files.slice(0, 20).map((f) => f.path);
         const content = `[repo ${name}] commit ${c.short} (${c.date.slice(0, 10)}): ${c.subject}. Files touched: ${relPaths.slice(0, 12).join(", ") || "—"}.`;
         const shaKey = `commit:${c.sha}`;
-        const existingC = await findExistingFileMemory(repoId, shaKey);
+        const existingC = await findExistingFileMemory(repoId, shaKey, "repo_commit");
         if (existingC) await supersedeExisting([existingC]);
         await insertMemory({
           repoId,
@@ -334,7 +334,7 @@ export async function indexRepo(source: string): Promise<IndexResult> {
       for (const r of reverts) {
         const content = `[repo ${name}] REVERTED: "${r.revertedSubject}" was reverted in commit ${r.sha.slice(0, 7)} (${r.date.slice(0, 10)}). Do NOT re-introduce this change; it broke before. Files: ${r.files.slice(0, 12).join(", ") || "—"}.`;
         const shaKey = `revert:${r.sha}`;
-        const existingR = await findExistingFileMemory(repoId, shaKey);
+        const existingR = await findExistingFileMemory(repoId, shaKey, "repo_revert");
         if (existingR) await supersedeExisting([existingR]);
         await insertMemory({
           repoId,
@@ -353,6 +353,10 @@ export async function indexRepo(source: string): Promise<IndexResult> {
     setProgress({ phase: "embed", total: 1, done: 0, current: "linking…" });
     let edges = 0;
     try {
+      // Supersede any prior anchor (kind repo_anchor) so re-index never
+      // accumulates duplicate anchors.
+      const priorAnchor = await findExistingFileMemory(repoId, "__repo__", "repo_anchor");
+      if (priorAnchor) await supersedeExisting([priorAnchor]);
       const anchorId = await insertMemory({
         repoId,
         repoName: name,
