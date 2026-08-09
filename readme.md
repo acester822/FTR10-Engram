@@ -170,6 +170,7 @@ The fix for the "forgetful on large projects" class — the store improves in re
 2. **Git history** — if the location is a git repo: commits, per-file mutations, and **revert detection → bi-temporal "remember what broke" memories** (*"Revert 'fix: adjust unit label' was reverted in commit 2c6b899 — do NOT re-introduce this change"*), so recall surfaces past failures before the next edit.
 3. **Discipline preserved** — every memory carries `metadata.repo` (the canonical identity: `owner/repo` for URLs, the path for local — a same-named repo from a different owner can never mingle), secrets are redacted, re-index **supersedes** per-file (audited, undoable), runs are locked and progress-reported, and delete supersedes everything with one click.
 4. **Working-location tip** — after 3 cognitive-context injections in a session whose project has no indexed repo, one honest note is appended: *"this repo isn't indexed — add baseline knowledge (Web GUI → Repos)."* Once per session, toggleable, never automatic.
+5. **Auto-refresh** — a scheduled pass rescans every ready repo (newest-file-mtime + root-dir mtime + git HEAD fingerprint) and re-indexes anything that changed — "I keep working in the repo" stays in sync without clicking Reindex. Interval `EG_REPO_REFRESH_INTERVAL_MS` (default 30 min), toggle `EG_REPO_AUTO_REFRESH`, manual `POST /api/dashboard/repos/refresh`.
 
 ### Memory decay engine
 

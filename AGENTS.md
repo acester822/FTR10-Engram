@@ -50,6 +50,8 @@ curl -X POST "http://localhost:8098/api/memories/bundle?topic=<topic>"      # co
 curl -X POST http://localhost:8098/api/dashboard/repos/index -H "content-type: application/json" -d '{"source":"<url-or-path>"}'   # repo baseline index (URL clone or local path)
 curl http://localhost:8098/api/dashboard/repos                          # list indexed repos (files/memories/commits/reverts)
 curl "http://localhost:8098/api/dashboard/repos/<id>/recall-test?query=<q>"  # repo-scoped recall demo
+curl -X POST http://localhost:8098/api/dashboard/repos/refresh          # rescan changed repos (auto-refresh pass)
+curl "http://localhost:8098/api/dashboard/repos/<id>/needs-refresh"     # fingerprint check: has this repo changed?
 ```
 
 ## Project Flows:
@@ -236,6 +238,10 @@ Supported embedding providers: `openai`, `gemini`, `aws`, `siray`, `local`.
    └─ 5. TIP: /api/cognitive-context — after 3 injections in a session whose project has no
             indexed repo → one "isn't indexed — add baseline knowledge" note (once/session,
             EG_REPO_TIP_ENABLED)
+   └─ 6. AUTO-REFRESH: scheduled pass (EG_REPO_REFRESH_INTERVAL_MS, default 30 min) — fingerprint
+            each ready repo (newest file mtime + root-dir mtime + git HEAD) → re-index changed
+            ones (idempotent supersede); manual POST /api/dashboard/repos/refresh; toggle
+            EG_REPO_AUTO_REFRESH
 ```
 
 ## Intended Operation
