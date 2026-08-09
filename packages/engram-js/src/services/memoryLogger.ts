@@ -179,7 +179,7 @@ Return ONLY valid JSON with this shape:
 {
   "context": { "project": "<project name or \"\">", "module": "<module/area or \"\">", "file": "<file path or \"\">", "topic": "<one-line topic or \"\">" },
   "facts": [
-    { "content": "<self-contained fact>", "sector": "semantic|procedural|episodic|emotional|reflective", "is_genome": <true ONLY for standing rules / explicit save requests; otherwise omit> }
+    { "content": "<self-contained fact>", "quote": "<verbatim source text>", "sector": "semantic|procedural|episodic|emotional|reflective", "is_genome": <true ONLY for standing rules / explicit save requests; otherwise omit> }
   ],
   "links": [
     { "from": <fact index>, "to": <fact index>, "type": "part_of|derives_from|related_to" }
@@ -188,6 +188,7 @@ Return ONLY valid JSON with this shape:
 - "context" is the frame this conversation belongs to (which project/module/file/topic was being discussed). Empty strings when unknown. Attached to every fact.
 - "facts": each fact is ATOMIC and SELF-CONTAINED — it must make complete sense with no reference to this conversation. 15–400 chars, third person, no timestamps, no diffs, no paths unless the path IS the fact.
 - SINGLE CLAUSE (hard rule, added after a compound-dilution review): a fact must be ONE clause about ONE specific thing. NEVER emit a compound paragraph that bundles multiple facts (e.g. do NOT write one memory that merges "hierarchy is workspace→repo→session", "uses a trust ladder", AND "recall_gap enforces one-proposal-per-memory" — emit each as its OWN fact). A long sentence containing several independent claims MUST be split into separate facts.
+- QUOTE (hard rule, verbatim anchoring v4.7.7): every fact MUST include "quote" — the exact verbatim sentence or substring of the CONVERSATION that the fact was extracted from (10-120 chars, copied word-for-word from the input). A fact whose specifics (names, numbers, paths, values) cannot be found in its quote is NOT grounded — do NOT guess or invent details; omit the fact instead. If the only quote you can produce does not contain a specific you want to write, that specific was NOT in the conversation — drop it from the fact.
 - SPECIFICS OR NOTHING (hard rule): a fact that would be meaningless without this conversation is NOT a fact. A decision/conclusion MUST include the concrete what, where, and why (component, file, rationale). Vague announcements like "Important decision: restructure X" are REJECTED — either include the specifics or do not extract.
 - "links": connect facts about the same topic into a cluster — the overview/decision fact is the anchor; satellites use "part_of" (detail of the anchor), "derives_from" (follows from another fact), or "related_to" (loose association). Links are OPTIONAL. If a fact cannot be linked with these three types, leave it unlinked — NEVER drop a memory because it cannot be linked.
 Do NOT invent other fields. If nothing meets the bar, return {"context": {}, "facts": [], "links": []}.
@@ -196,8 +197,8 @@ Example of CORRECT output:
 {
   "context": { "project": "Engram", "module": "traceStore", "file": "services/traceStore.ts", "topic": "trace retention policy" },
   "facts": [
-    { "content": "Trace retention defaults to 7 days and is pruned by hard DELETE", "sector": "semantic" },
-    { "content": "The user decided trace retention must be configurable via EG_TRACE_RETENTION_DAYS, defaulting to 7", "sector": "procedural" }
+    { "content": "Trace retention defaults to 7 days and is pruned by hard DELETE", "quote": "Trace retention defaults to 7 days and is pruned by hard DELETE", "sector": "semantic" },
+    { "content": "The user decided trace retention must be configurable via EG_TRACE_RETENTION_DAYS, defaulting to 7", "quote": "trace retention must be configurable via EG_TRACE_RETENTION_DAYS", "sector": "procedural" }
   ],
   "links": [
     { "from": 1, "to": 0, "type": "derives_from" }
@@ -382,6 +383,58 @@ AI Response: ${truncatedResponse}
         logger.info({ module: 'memoryLogger', model: genModel(), dropped: beforeGate - extractedMemories.length }, 'Quality gate dropped low-value candidates');
       }
 
+      // ── VERBATIM GROUNDING CHECK (v4.7.7) ──
+      // Every fact must carry a 'quote' that (a) is a verbatim substring of the
+      // conversation, and (b) contains the fact's specifics (names, numbers,
+      // paths). Kills the hallucinated-specifics class ("captures the database
+      // schema details but hallucinates specific table names") deterministically —
+      // an invented table name cannot appear in the real conversation, so its
+      // quote cannot contain it. Zero LLM cost.
+      const conversationText = `${userPrompt}\n${llmResponseText}`.toLowerCase();
+      const normConv = conversationText.replace(/\s+/g, " ").trim();
+      const STOP = new Set([
+        "the","and","that","with","from","this","were","was","has","have","been","not","for","are","its","their","they","them","will","would","should","could","about","into","than","then","when","where","which","what","who","can","may","must","our","your","but","all","any","each","more","most","other","some","such","only","own","same","too","very","just","also","these","those","there","here","because","before","after","while","using","used","use","does","did","done","being","both","each","few","how","nor","once","said","says","still","though","through","under","until","upon","well","with","yet",
+      ]);
+      const specificTokens = (text: string): string[] =>
+        Array.from(
+          new Set(
+            text
+              .toLowerCase()
+              .replace(/[^a-z0-9_\-./]/g, " ")
+              .split(/\s+/)
+              .filter((t) => t.length >= 4 && !STOP.has(t)),
+          ),
+        );
+      let groundingRejected = 0;
+      extractedMemories = extractedMemories.filter((mem) => {
+        const quote = typeof mem?.quote === "string" ? mem.quote.trim() : "";
+        const facts = specificTokens(mem?.content || "");
+        if (!quote) {
+          // No quote at all: unverifiable when the fact carries specifics.
+          if (facts.length >= 3) {
+            groundingRejected++;
+            return false;
+          }
+          return true;
+        }
+        const normQuote = quote.toLowerCase().replace(/\s+/g, " ").trim();
+        if (normQuote.length < 10 || !normConv.includes(normQuote)) {
+          groundingRejected++; // quote itself is not verbatim from the conversation
+          return false;
+        }
+        if (facts.length >= 3) {
+          const inQuote = facts.filter((t) => normQuote.includes(t)).length;
+          if (inQuote / facts.length < 0.5) {
+            groundingRejected++; // most specifics have no source in the quote
+            return false;
+          }
+        }
+        return true;
+      });
+      if (groundingRejected > 0) {
+        logger.info({ module: 'memoryLogger', rejected: groundingRejected, survived: extractedMemories.length }, 'Grounding check rejected unanchored facts');
+      }
+
       if (!extractedMemories.length) {
         logger.info({ module: 'memoryLogger', model: genModel() }, 'No new significant memories extracted');
         return empty();
@@ -429,6 +482,11 @@ AI Response: ${truncatedResponse}
             sector,
             decay_rate: decayRate,
             is_genome: Boolean(mem.is_genome && allowGenome),
+            // Verbatim anchoring (v4.7.7): the exact conversation text this
+            // fact was extracted from — provenance + auditability.
+            ...(typeof mem.quote === "string" && mem.quote.trim().length >= 10
+              ? { quote: mem.quote.trim().slice(0, 200) }
+              : {}),
             // Coherence rung (v4.6.0): the context frame from extraction —
             // every fact knows which project/module/file/topic it belongs to.
             ...(ctx.project || ctx.module || ctx.file || ctx.topic
