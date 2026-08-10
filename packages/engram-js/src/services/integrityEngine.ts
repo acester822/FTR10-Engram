@@ -369,9 +369,13 @@ async function doIntegrityRun(): Promise<any> {
   }
 
   // 9. broken_links → edges whose endpoint memory is superseded or gone
-  //    (coherence rung v4.6.0 — the graph cannot rot silently). Deleted
-  //    endpoints vanish via ON DELETE CASCADE, so this catches the soft-dead
-  //    (superseded) side. Flag only — pruning waits for Tier-2 authority.
+  //    (coherence rung v4.6.0 — the graph cannot rot silently). v4.7.8:
+  //    REPAIRS instead of flagging — the near-dupe supersede records the
+  //    surviving memory in the audit trail (metadata.kept), so edges are
+  //    repointed to the survivor; unresolvable edges (compound splits with
+  //    multiple successors, or deleted successors) are deleted. Only edges
+  //    that survive the repair are flagged. Previously this check wrote one
+  //    finding PER EDGE PER RUN with no repair → 198 findings for 71 edges.
   {
     const rows = await pg_all(
       `SELECT e.id AS edge_id, e.edge_type, e.source_memory_id, e.target_memory_id,
@@ -380,11 +384,52 @@ async function doIntegrityRun(): Promise<any> {
        LEFT JOIN public.memories s ON s.id = e.source_memory_id
        LEFT JOIN public.memories t ON t.id = e.target_memory_id
        WHERE (s.superseded_at IS NOT NULL OR t.superseded_at IS NOT NULL)
-       LIMIT 200`,
+       LIMIT 300`,
       [],
     );
     summary.broken_links = rows.length;
+    let repointed = 0;
+    let deleted = 0;
     for (const r of rows) {
+      const findKept = async (endpointId: string): Promise<string | null> => {
+        const found = await pg_all(
+          `SELECT a.metadata->>'kept' AS kept
+           FROM public.audit_log a
+           JOIN public.memories m ON m.id = (a.metadata->>'kept')::uuid
+           WHERE a.operation = 'supersede' AND a.target_id::text = $1
+             AND a.metadata->>'kept' IS NOT NULL AND m.superseded_at IS NULL
+           ORDER BY a.recorded_at DESC LIMIT 1`,
+          [endpointId],
+        ).catch(() => []);
+        return found[0]?.kept ?? null;
+      };
+      const srcKept = r.source_superseded ? await findKept(r.source_memory_id) : null;
+      const tgtKept = r.target_superseded ? await findKept(r.target_memory_id) : null;
+      const srcOk = !r.source_superseded || srcKept !== null;
+      const tgtOk = !r.target_superseded || tgtKept !== null;
+      if (srcOk && tgtOk) {
+        if (srcKept) await pg_run(`UPDATE public.edges SET source_memory_id = $1 WHERE id = $2`, [srcKept, r.edge_id]).catch(() => {});
+        if (tgtKept) await pg_run(`UPDATE public.edges SET target_memory_id = $1 WHERE id = $2`, [tgtKept, r.edge_id]).catch(() => {});
+        repointed++;
+      } else {
+        await pg_run(`DELETE FROM public.edges WHERE id = $1`, [r.edge_id]).catch(() => {});
+        deleted++;
+      }
+    }
+    summary.broken_links_repointed = repointed;
+    summary.broken_links_deleted = deleted;
+    // Flag only what genuinely could not be repaired (should be ~0 now).
+    const leftover = await pg_all(
+      `SELECT e.id AS edge_id, e.edge_type, e.source_memory_id, e.target_memory_id,
+              (s.superseded_at IS NOT NULL) AS source_superseded, (t.superseded_at IS NOT NULL) AS target_superseded
+       FROM public.edges e
+       LEFT JOIN public.memories s ON s.id = e.source_memory_id
+       LEFT JOIN public.memories t ON t.id = e.target_memory_id
+       WHERE (s.superseded_at IS NOT NULL OR t.superseded_at IS NOT NULL)
+       LIMIT 50`,
+      [],
+    );
+    for (const r of leftover) {
       await writeFinding(runId, "broken_links", {
         memoryId: r.target_superseded ? r.target_memory_id : r.source_memory_id,
         severity: "low",
