@@ -8,28 +8,11 @@
    upstream failures (a dead upstream is skipped, never fatal).
 */
 
-import { providerCfg, configuredProviders } from "../../../../services/upstreams";
+import { configuredProviders, upstreamModelIds } from "../../../../services/upstreams";
 import { logger } from "../../../../utils/logger";
 
 let _cache: { at: number; ids: string[] } | null = null;
 const TTL_MS = 60_000;
-
-async function fetchModels(url: string, key: string, timeoutMs = 8000): Promise<string[]> {
-  const headers: Record<string, string> = { "User-Agent": "engram-proxy" };
-  if (key) headers.Authorization = `Bearer ${key}`;
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const r = await fetch(`${url.replace(/\/+$/, "")}/models`, { headers, signal: ctrl.signal });
-    if (!r.ok) return [];
-    const d = (await r.json()) as { data?: Array<{ id?: string }> };
-    return (d.data || []).map((m) => (m.id || "").trim()).filter(Boolean);
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(t);
-  }
-}
 
 function toPayload(ids: string[]) {
   return {
@@ -47,9 +30,7 @@ export const chat_models_route = (app: any) => {
       const providers = configuredProviders();
       const results = await Promise.all(
         providers.map(async (p) => {
-          const cfg = providerCfg(p);
-          if (!cfg || !cfg.url) return [] as string[];
-          const ids = await fetchModels(cfg.url, cfg.key);
+          const ids = await upstreamModelIds(p);
           logger.info({ module: "chatModels", provider: p, count: ids.length }, "Fetched upstream models");
           return ids;
         }),

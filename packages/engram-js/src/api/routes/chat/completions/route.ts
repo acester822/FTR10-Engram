@@ -155,7 +155,7 @@ function acquireSwap(modelKey?: string): () => void {
 // Shared helper lives in services/upstreams.ts — used by the proxy route
 // and the /v1/models listing so they always agree on provider config.
 
-import { resolveUpstream } from "../../../../services/upstreams";
+import { resolveUpstream, resolveUpstreamModel } from "../../../../services/upstreams";
 
 // ── Route ───────────────────────────────────────────────────────────────
 
@@ -386,7 +386,7 @@ export const chat_completions_route = (app: any) => {
       
       const llmPayload = {
         ...body, // Pass through ALL fields from original request (tools, temperature, etc.)
-        model: body.model || tryResolveGenerativeModel("default"),
+        model: await resolveUpstreamModel(body.model || "", upstream.provider),
         messages: enrichedMessages, // Override with our enriched, sanitized messages
       };
 
