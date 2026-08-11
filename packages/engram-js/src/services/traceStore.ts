@@ -459,9 +459,16 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
       //   2. The score dimension must match the trace's OWN type — an
       //      answer_quality score on a /recall trace is a category error
       //      (the judge graded retrieval JSON as if it were an answer).
-      //   3. extraction_fidelity counts ONLY stored-rubric scores (traces
-      //      whose extraction output is linked via stored_memory_ids) —
-      //      receipt-era scores graded the response receipt, not the facts.
+      //   3. extraction_fidelity counts ONLY stored-rubric scores. receipt-era
+      //      = the stored_memory_ids FIELD is MISSING (pre-capture traces whose
+      //      score graded the processing receipt, not the stored facts). A
+      //      MODERN trace with stored_memory_ids present but EMPTY is a real
+      //      extraction outcome (the pipeline stored nothing) — its judge
+      //      verdict ("failed to store any durable facts") is an honest
+      //      fidelity failure and MUST count. v4.7.9: these were being dropped
+      //      as receipt-era, so the metric hid extraction regressions (e.g.
+      //      the grounding-gate over-rejection of 08-10 showed 0.59 while the
+      //      pipeline stored 0.75 facts/turn).
       //   4. recall_relevance counts ONLY knowledge-query recalls —
       //      conversational messages ("yes please") aren't knowledge gaps.
       const tDim = t.label === "chat" ? "answer_quality" : t.label === "ingest" || t.label === "remember" ? "extraction_fidelity" : t.label === "recall" ? "recall_relevance" : null;
@@ -475,7 +482,7 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
         excluded.mis_dimensioned++;
         continue;
       }
-      if (dim === "extraction_fidelity" && !(Array.isArray(storedIds) && storedIds.length > 0)) {
+      if (dim === "extraction_fidelity" && !Array.isArray(storedIds)) {
         excluded.receipt_era++;
         continue;
       }

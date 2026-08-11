@@ -391,41 +391,85 @@ AI Response: ${truncatedResponse}
       // an invented table name cannot appear in the real conversation, so its
       // quote cannot contain it. Zero LLM cost.
       const conversationText = `${userPrompt}\n${llmResponseText}`.toLowerCase();
-      const normConv = conversationText.replace(/\s+/g, " ").trim();
+      // v4.7.9: normalize formatting punctuation on BOTH sides before the
+      // verbatim match. The extractor copies quotes verbatim but drops
+      // markdown decorations present in the conversation (bold **x**, code
+      // `x`, em/en-dashes, curly quotes, ellipses) — a decorated conversation
+      // vs an undecorated quote failed `includes()` and rejected every
+      // grounded fact (verified live: 6/6 grounded facts rejected solely by
+      // `**` / backticks in the source text). Normalization only strips
+      // formatting glyphs; invented specifics still cannot appear in the
+      // conversation, so the hallucinated-specifics class stays impossible.
+      const normalizeVerbatim = (s: string): string =>
+        s
+          .replace(/[*`]/g, "")
+          .replace(/[—–]/g, "-")
+          .replace(/[“”]/g, '"')
+          .replace(/[’]/g, "'")
+          .replace(/…/g, "...")
+          .replace(/\s+/g, " ")
+          .trim();
+      const normConv = normalizeVerbatim(conversationText);
       const STOP = new Set([
         "the","and","that","with","from","this","were","was","has","have","been","not","for","are","its","their","they","them","will","would","should","could","about","into","than","then","when","where","which","what","who","can","may","must","our","your","but","all","any","each","more","most","other","some","such","only","own","same","too","very","just","also","these","those","there","here","because","before","after","while","using","used","use","does","did","done","being","both","each","few","how","nor","once","said","says","still","though","through","under","until","upon","well","with","yet",
       ]);
-      const specificTokens = (text: string): string[] =>
-        Array.from(
-          new Set(
-            text
-              .toLowerCase()
-              .replace(/[^a-z0-9_\-./]/g, " ")
-              .split(/\s+/)
-              .filter((t) => t.length >= 4 && !STOP.has(t)),
-          ),
-        );
+      const specificPairs = (text: string): Array<{ raw: string; low: string }> => {
+        // Tokens with case preserved (raw) so identifier-ish "hard" specifics
+        // (numbers, paths, acronyms, kebab/snake/dotted names) can be told
+        // apart from ordinary English words the extractor may paraphrase.
+        // Trailing sentence periods are stripped before classification.
+        const m = new Map<string, { raw: string; low: string }>();
+        for (const t of text.replace(/[^a-zA-Z0-9_\-./]/g, " ").split(/\s+/)) {
+          if (t.length < 4) continue;
+          const raw = t.replace(/\.+$/, "");
+          const low = raw.toLowerCase();
+          if (STOP.has(low)) continue;
+          if (!m.has(low)) m.set(low, { raw, low });
+        }
+        return Array.from(m.values());
+      };
+      // A "hard" specific is one that cannot be paraphrased: it carries a
+      // digit, path/identifier punctuation, or an uppercase letter (acronym /
+      // proper name). Hard specifics are the hallucination surface — an
+      // invented table name or IP cannot appear in the real conversation.
+      const isHard = (raw: string): boolean => /[0-9]/.test(raw) || /[-_./]/.test(raw) || /[A-Z]/.test(raw);
       let groundingRejected = 0;
       extractedMemories = extractedMemories.filter((mem) => {
         const quote = typeof mem?.quote === "string" ? mem.quote.trim() : "";
-        const facts = specificTokens(mem?.content || "");
+        const pairs = specificPairs(mem?.content || "");
+        const hard = pairs.filter((p) => isHard(p.raw));
         if (!quote) {
-          // No quote at all: unverifiable when the fact carries specifics.
-          if (facts.length >= 3) {
+          // No quote at all: unverifiable when the fact carries HARD specifics.
+          // Soft (paraphraseable) wording without a quote is harmless.
+          if (hard.length >= 1) {
             groundingRejected++;
             return false;
           }
           return true;
         }
-        const normQuote = quote.toLowerCase().replace(/\s+/g, " ").trim();
+        const normQuote = normalizeVerbatim(quote.toLowerCase());
         if (normQuote.length < 10 || !normConv.includes(normQuote)) {
           groundingRejected++; // quote itself is not verbatim from the conversation
           return false;
         }
-        if (facts.length >= 3) {
-          const inQuote = facts.filter((t) => normQuote.includes(t)).length;
-          if (inQuote / facts.length < 0.5) {
-            groundingRejected++; // most specifics have no source in the quote
+        if (hard.length >= 1) {
+          // v4.7.9: ground HARD specifics against the CONVERSATION (the ground
+          // truth), not just the quote. The quote is a verbatim fragment used
+          // as provenance; a fact synthesizing several parts of the
+          // conversation legitimately has specifics spread beyond the quoted
+          // fragment, and the quote may be the EVIDENCE (error codes, logs)
+          // rather than the subject — the old "≥50% of specifics in quote"
+          // (and any in-quote anchor) over-rejected grounded facts (verified:
+          // 4/6 Dell-BIOS facts failed pre-fix while ALL their specifics were
+          // in the conversation). Hard specifics (numbers, paths, identifiers,
+          // acronyms) cannot be paraphrased, so an invented one still cannot
+          // appear in the conversation — the hallucination defense is
+          // unchanged in spirit: the class stays structurally impossible.
+          // Soft English words (verbs/adjectives) may be paraphrased and are
+          // not checked.
+          const missing = hard.filter((p) => !normConv.includes(p.low));
+          if (missing.length > 0) {
+            groundingRejected++; // invented specifics have no source in the conversation
             return false;
           }
         }
