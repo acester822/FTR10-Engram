@@ -26,7 +26,7 @@ export const TRACE_DIMENSIONS: TraceDimension[] = [
   "answer_quality",
 ];
 
-const JUDGE_TIMEOUT_MS = 180000;
+const JUDGE_TIMEOUT_MS = 300000;
 const JUDGE_MAX_TOKENS = 400;
 
 // ── Body helpers (trace bodies are stored via traceStore.encodeBody) ──
@@ -282,24 +282,10 @@ export async function runCatchupScoring(
     let failed = 0;
     let skipped = 0;
     for (const t of rows) {
-      const dim = autoScoreDimensionFor(t);
+      const dim = eligibleForScoring(t);
       if (!dim) {
         skipped++;
         continue;
-      }
-      if (dim === "extraction_fidelity") {
-        const ids = (t.response_body as any)?.stored_memory_ids;
-        if (!(Array.isArray(ids) && ids.length > 0)) {
-          skipped++; // receipt-era — no meaningful fidelity score possible
-          continue;
-        }
-      }
-      if (dim === "recall_relevance") {
-        const q = (t.request_body as any)?.query;
-        if (!isKnowledgeQuery(typeof q === "string" ? q : "")) {
-          skipped++; // conversational — not a knowledge query
-          continue;
-        }
       }
       attempted++;
       const r = await scoreTrace(t.id, dim, { persist: true });
@@ -327,6 +313,33 @@ export function autoScoreDimensionFor(trace: { label?: string }): TraceDimension
   return null;
 }
 
+/** Eligibility gate shared by auto-score and catch-up (v4.7.10). A trace is
+ *  only scoreable when its dimension is meaningful for its SHAPE: an
+ *  extraction trace with NO stored memories (receipt-era — no stored ids)
+ *  cannot be graded on stored output, and a conversational recall is not a
+ *  knowledge query. The auto-score path previously scored these anyway, and
+ *  buildRubric fell back to grading the response ENVELOPE ("EXTRACTION
+ *  SUMMARY"), producing bogus 0.0 extraction_fidelity verdicts on /memories
+ *  and /ingest traces ("stored memory is merely a structural metadata
+ *  object"). */
+export function eligibleForScoring(t: {
+  label?: string;
+  request_body?: unknown;
+  response_body?: unknown;
+}): TraceDimension | null {
+  const dim = autoScoreDimensionFor(t);
+  if (!dim) return null;
+  if (dim === "extraction_fidelity") {
+    const ids = (t.response_body as any)?.stored_memory_ids;
+    if (!(Array.isArray(ids) && ids.length > 0)) return null;
+  }
+  if (dim === "recall_relevance") {
+    const q = (t.request_body as any)?.query;
+    if (!isKnowledgeQuery(typeof q === "string" ? q : "")) return null;
+  }
+  return dim;
+}
+
 /** Fire-and-forget: score an eligible trace when the rate hits. Skips failed
  *  requests (status >= 400) — a 404 chat turn isn't worth judging. */
 export function maybeAutoScore(trace: { id: string; label?: string; status?: number }): void {
@@ -337,16 +350,26 @@ export function maybeAutoScore(trace: { id: string; label?: string; status?: num
   if (!dimension) return;
   autoScoreCounter = (autoScoreCounter + 1) % rate;
   if (autoScoreCounter !== 0) return;
-  scoreTrace(trace.id, dimension)
-    .then((r) => {
-      if (r.ok) {
-        logger.info({ module: "traceScorer", id: trace.id, dimension, score: r.score }, `auto-scored trace`);
-      } else if (/no judge/i.test(r.error || "")) {
-        // judge not configured yet — silent (debug) until the user sets it
-        logger.debug({ module: "traceScorer", id: trace.id, error: r.error }, "auto-score skipped (judge unconfigured)");
-      } else {
-        logger.warn({ module: "traceScorer", id: trace.id, error: r.error }, "auto-score failed");
-      }
+  // v4.7.10: apply the SAME eligibility gate as the catch-up pass. The
+  // in-memory traceRec may lack bodies, so fetch the persisted trace —
+  // scoring a receipt-era /memories or /ingest envelope was the bogus-0.0
+  // class.
+  pg_all(`SELECT request_body, response_body FROM public.traces WHERE id = $1`, [trace.id])
+    .then((rows) => {
+      const t = rows[0];
+      if (!t) return;
+      if (!eligibleForScoring({ label: trace.label, request_body: t.request_body, response_body: t.response_body })) return;
+      return scoreTrace(trace.id, dimension as TraceDimension)
+        .then((r) => {
+          if (r.ok) {
+            logger.info({ module: "traceScorer", id: trace.id, dimension, score: r.score }, `auto-scored trace`);
+          } else if (/no judge/i.test(r.error || "")) {
+            logger.debug({ module: "traceScorer", id: trace.id, error: r.error }, "auto-score skipped (judge unconfigured)");
+          } else {
+            logger.warn({ module: "traceScorer", id: trace.id, error: r.error }, "auto-score failed");
+          }
+        })
+        .catch(() => {});
     })
     .catch(() => {});
 }
