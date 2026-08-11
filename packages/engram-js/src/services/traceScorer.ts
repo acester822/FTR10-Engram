@@ -26,7 +26,7 @@ export const TRACE_DIMENSIONS: TraceDimension[] = [
   "answer_quality",
 ];
 
-const JUDGE_TIMEOUT_MS = 60000;
+const JUDGE_TIMEOUT_MS = 180000;
 const JUDGE_MAX_TOKENS = 400;
 
 // ── Body helpers (trace bodies are stored via traceStore.encodeBody) ──
