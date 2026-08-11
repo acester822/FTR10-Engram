@@ -137,7 +137,11 @@ async function emb_openai(t: string, s: string): Promise<number[]> {
     },
   );
   if (!r.ok) throw new Error(`OpenAI: ${r.status}`);
-  return ((await r.json()) as any).data[0].embedding;
+  // v4.7.10: coerce to env.vec_dim like the Gemini/AWS paths. Some
+  // OpenAI-compatible servers (llama.cpp) ignore the `dimensions` body param
+  // and return the model's native dim (Nomic = 768) — a raw passthrough hit
+  // pgvector with "expected N dimensions, not M" on insert.
+  return resize_vec(((await r.json()) as any).data[0].embedding, env.vec_dim);
 }
 
 const task_map: Record<string, string> = {
