@@ -45,7 +45,7 @@ data/
 storage/
 tmp/
 .cache/
-models/
+/models/
 working_files/
 new_code/
 Old/

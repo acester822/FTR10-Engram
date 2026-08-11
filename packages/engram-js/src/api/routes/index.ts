@@ -22,6 +22,7 @@ import { ingest_event_route } from "./ingest/event/route";
 import { ingest_conversation_route } from "./ingest/conversation/route";
 import { make_ctx } from "./_kit";
 import { chat_completions_route } from "./chat/completions/route";
+import { chat_models_route } from "./chat/models/route";
 import { memory_create_route } from "./memories/create/route";
 import { memory_delete_route } from "./memories/delete/route";
 import { memory_explain_route } from "./memories/explain/route";
@@ -82,6 +83,7 @@ export function routes(app: any) {
   stats_summary_route(app, ctx);
   stats_timeseries_route(app, ctx);
   chat_completions_route(app);
+  chat_models_route(app);
   dashboard_route(app);
   dashboard_traces_route(app);
   dashboard_judge_route(app);

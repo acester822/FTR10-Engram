@@ -152,54 +152,10 @@ function acquireSwap(modelKey?: string): () => void {
 }
 
 // ── Upstream resolution (v4.7.10: NOUS / OpenRouter / local routing) ────
+// Shared helper lives in services/upstreams.ts — used by the proxy route
+// and the /v1/models listing so they always agree on provider config.
 
-/**
- * Resolve the upstream (base URL + API key) for a requested model.
- * EG_PROXY_ROUTES is a JSON map of model-prefix → provider name:
- *   { "deepseek/": "nous", "": "local" }  — longest prefix wins; the empty
- *   prefix is the default route. Providers: "local" (llama-swap / the
- *   legacy EG_OPENAI_* config), "openrouter", "nous", or any custom name
- *   N → env EG_N_BASE_URL / EG_N_API_KEY. Falls back to the legacy
- *   EG_UPSTREAM_LLM_URL → EG_OPENAI_BASE_URL + key (current behaviour).
- */
-function resolveUpstream(model: string): { url: string; key: string } {
-  const def = {
-    url: process.env.EG_UPSTREAM_LLM_URL || env.openai_base_url || "",
-    key: process.env.EG_UPSTREAM_LLM_API_KEY || env.openai_key || "",
-  };
-  const routesRaw = process.env.EG_PROXY_ROUTES || "";
-  if (!routesRaw) return def;
-  let routes: Record<string, string>;
-  try {
-    routes = JSON.parse(routesRaw);
-  } catch {
-    return def;
-  }
-  const prefix =
-    Object.keys(routes)
-      .filter((p) => p && model.startsWith(p))
-      .sort((a, b) => b.length - a.length)[0] || "";
-  const provider = (routes[prefix] || routes[""] || "").trim();
-  if (provider === "openrouter") {
-    return {
-      url: process.env.EG_OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
-      key: process.env.EG_OPENROUTER_API_KEY || "",
-    };
-  }
-  if (provider === "nous") {
-    return {
-      url: process.env.EG_NOUS_BASE_URL || "https://inference-api.nousresearch.com/v1",
-      key: process.env.EG_NOUS_API_KEY || "",
-    };
-  }
-  if (provider && provider !== "local") {
-    const up = provider.toUpperCase().replace(/[^A-Z0-9]/g, "_");
-    const url = process.env[`EG_${up}_BASE_URL`] || "";
-    const key = process.env[`EG_${up}_API_KEY`] || "";
-    if (url) return { url, key };
-  }
-  return def;
-}
+import { resolveUpstream } from "../../../../services/upstreams";
 
 // ── Route ───────────────────────────────────────────────────────────────
 
