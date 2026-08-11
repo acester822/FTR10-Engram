@@ -328,6 +328,10 @@ export async function indexRepo(source: string): Promise<IndexResult> {
     // Git history (commits, mutations, reverts)
     let commits: GitCommit[] = [];
     let reverts: GitRevert[] = [];
+    // v4.7.10: commit memory ids + superseded ids, used by the edge pass
+    // (commit→anchor part_of, commit→parent derives_from) outside this block.
+    const commitIdBySha = new Map<string, string>();
+    const supersededCommitIds: string[] = [];
     if (isGit) {
       setProgress({ phase: "git", total: 1, done: 0, current: "mining git history…" });
       const git = mineGitHistory(root, maxCommits());
@@ -335,19 +339,30 @@ export async function indexRepo(source: string): Promise<IndexResult> {
       reverts = git.reverts;
 
       // Commit memories (capped, one per commit — supersede by sha).
+      // v4.7.10: capture memory ids + superseded ids so the edge pass can
+      // link commits to the repo anchor (part_of) and to their parents
+      // (derives_from) — previously commits had ZERO edges and floated
+      // unconnected on the mind map despite being one repo's history DAG.
       for (const c of commits.slice(0, maxCommits())) {
         const relPaths = c.files.slice(0, 20).map((f) => f.path);
         const content = `[repo ${name}] commit ${c.short} (${c.date.slice(0, 10)}): ${c.subject}. Files touched: ${relPaths.slice(0, 12).join(", ") || "—"}.`;
         const shaKey = `commit:${c.sha}`;
         const existingC = await findExistingFileMemory(repoId, shaKey, "repo_commit");
-        if (existingC) await supersedeExisting([existingC]);
-        await insertMemory({
+        if (existingC) {
+          await supersedeExisting([existingC]);
+          supersededCommitIds.push(existingC);
+        }
+        const commitId = await insertMemory({
           repoId,
           repoName: name,
           content: redactSecrets(content),
           metadata: { kind: "repo_commit", file: shaKey, commit_sha: c.sha, commit_date: c.date, commit_subject: c.subject },
           actor: "repo-index",
-        }).then(() => { stored++; });
+        });
+        if (commitId) {
+          commitIdBySha.set(c.sha, commitId);
+          stored++;
+        }
       }
 
       // Revert memories — the "remembers what broke" goal. Bi-temporal:
@@ -396,6 +411,38 @@ export async function indexRepo(source: string): Promise<IndexResult> {
              ON CONFLICT DO NOTHING`,
             [crypto.randomUUID(), fid, anchorId, JSON.stringify({ source: "repo_index" })],
           ).then(() => { edges++; }).catch(() => {});
+        }
+        // v4.7.10: commit DAG — every commit part_of the anchor, and
+        // derives_from its parent(s). Git history IS a DAG; previously
+        // commits had zero edges and floated unconnected on the mind map
+        // even though the whole repo is one lineage.
+        for (const c of commits.slice(0, maxCommits())) {
+          const cid = commitIdBySha.get(c.sha);
+          if (!cid) continue;
+          await pg_run(
+            `INSERT INTO public.edges (id, source_memory_id, target_memory_id, edge_type, weight, confidence, metadata)
+             VALUES ($1, $2, $3, 'part_of', 1, 1, $4::jsonb)
+             ON CONFLICT DO NOTHING`,
+            [crypto.randomUUID(), cid, anchorId, JSON.stringify({ source: "repo_index" })],
+          ).then(() => { edges++; }).catch(() => {});
+          for (const p of c.parents) {
+            const pid = commitIdBySha.get(p);
+            if (!pid) continue;
+            await pg_run(
+              `INSERT INTO public.edges (id, source_memory_id, target_memory_id, edge_type, weight, confidence, metadata)
+               VALUES ($1, $2, $3, 'derives_from', 1, 1, $4::jsonb)
+               ON CONFLICT DO NOTHING`,
+              [crypto.randomUUID(), cid, pid, JSON.stringify({ source: "repo_index" })],
+            ).then(() => { edges++; }).catch(() => {});
+          }
+        }
+        // Stale edges from superseded commit memories (re-index) — clean now
+        // instead of leaving them for the broken_links integrity repair.
+        if (supersededCommitIds.length) {
+          await pg_run(
+            `DELETE FROM public.edges WHERE source_memory_id = ANY($1::uuid[]) OR target_memory_id = ANY($1::uuid[])`,
+            [supersededCommitIds],
+          ).catch(() => {});
         }
       }
     } catch (e: any) {

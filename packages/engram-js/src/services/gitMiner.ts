@@ -19,6 +19,7 @@ export interface GitCommit {
   author: string;
   date: string;
   subject: string;
+  parents: string[]; // parent SHAs (%P) — the commit DAG for derives_from edges
   files: { path: string; status: "A" | "M" | "D" | "R" }[];
 }
 
@@ -62,7 +63,7 @@ export function mineGitHistory(root: string, maxCommits = MAX_COMMITS_DEFAULT): 
     // commit's header line, so split("\x1e") yields one record per commit
     // ("header\nfile-status lines") even though name-status lines follow
     // the pretty-format header on subsequent lines.
-    const fmt = `\x1e%H%x1f%an%x1f%aI%x1f%s`;
+    const fmt = `\x1e%H%x1f%P%x1f%an%x1f%aI%x1f%s`;
     const out = execSync(
       `git -C ${shellQuote(root)} -c safe.directory='*' log -${maxCommits} --name-status --pretty=format:${fmt}`,
       { maxBuffer: 64 * 1024 * 1024, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
@@ -74,7 +75,8 @@ export function mineGitHistory(root: string, maxCommits = MAX_COMMITS_DEFAULT): 
       const lines = rec.split("\n").filter(Boolean);
       const header = lines[0]?.split("\x1f");
       if (!header || header.length < 4) continue;
-      const [sha, author, date, subject] = header;
+      const [sha, parentsRaw = "", author = "", date = "", subject = ""] = header;
+      const parents = parentsRaw ? parentsRaw.split(" ").filter(Boolean) : [];
       const files: GitCommit["files"] = [];
       for (let i = 1; i < lines.length; i++) {
         const parts = lines[i].split("\t");
@@ -92,7 +94,7 @@ export function mineGitHistory(root: string, maxCommits = MAX_COMMITS_DEFAULT): 
         else m.mods++;
         m.lastCommit = m.lastCommit || sha.slice(0, 7);
       }
-      commits.push({ sha, short: sha.slice(0, 7), author, date, subject, files });
+      commits.push({ sha, short: sha.slice(0, 7), author, date, subject, parents, files });
     }
 
     // Revert detection: "Revert \"X\"" (git revert / cherry-pick) or
