@@ -188,7 +188,7 @@ Return ONLY valid JSON with this shape:
 - "context" is the frame this conversation belongs to (which project/module/file/topic was being discussed). Empty strings when unknown. Attached to every fact.
 - "facts": each fact is ATOMIC and SELF-CONTAINED — it must make complete sense with no reference to this conversation. 15–400 chars, third person, no timestamps, no diffs, no paths unless the path IS the fact.
 - SINGLE CLAUSE (hard rule, added after a compound-dilution review): a fact must be ONE clause about ONE specific thing. NEVER emit a compound paragraph that bundles multiple facts (e.g. do NOT write one memory that merges "hierarchy is workspace→repo→session", "uses a trust ladder", AND "recall_gap enforces one-proposal-per-memory" — emit each as its OWN fact). A long sentence containing several independent claims MUST be split into separate facts.
-- QUOTE (hard rule, verbatim anchoring v4.7.7): every fact MUST include "quote" — the exact verbatim sentence or substring of the CONVERSATION that the fact was extracted from (10-120 chars, copied word-for-word from the input). A fact whose specifics (names, numbers, paths, values) cannot be found in its quote is NOT grounded — do NOT guess or invent details; omit the fact instead. If the only quote you can produce does not contain a specific you want to write, that specific was NOT in the conversation — drop it from the fact.
+- QUOTE (hard rule, verbatim anchoring v4.7.7, hardened v4.7.10): every fact MUST include "quote" — the EXACT verbatim sentence or substring of the CONVERSATION that the fact was extracted from, copied WORD-FOR-WORD from the input. Do NOT paraphrase, elide, merge, summarize, or "clean up" the quote — a paraphrased or composite quote will be REJECTED and the fact discarded. If the exact sentence is longer than 120 chars, copy exactly its first 120 chars (a clean verbatim prefix). If the only quote you can produce does not contain a specific you want to write, that specific was NOT in the conversation — drop it from the fact. WRONG: "Devices with HVCI/VBS have been shown to have increa..." (elided). RIGHT: "Devices with HVCI/VBS enabled have been shown to have increased boot times, shutdown times, app launch times" (verbatim).
 - SPECIFICS OR NOTHING (hard rule): a fact that would be meaningless without this conversation is NOT a fact. A decision/conclusion MUST include the concrete what, where, and why (component, file, rationale). Vague announcements like "Important decision: restructure X" are REJECTED — either include the specifics or do not extract.
 - "links": connect facts about the same topic into a cluster — the overview/decision fact is the anchor; satellites use "part_of" (detail of the anchor), "derives_from" (follows from another fact), or "related_to" (loose association). Links are OPTIONAL. If a fact cannot be linked with these three types, leave it unlinked — NEVER drop a memory because it cannot be linked.
 Do NOT invent other fields. If nothing meets the bar, return {"context": {}, "facts": [], "links": []}.
@@ -227,7 +227,10 @@ AI Response: ${truncatedResponse}
     );
 
    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+   // v4.7.10: 60s → 180s. Extraction must survive queueing behind a
+   // consolidation batch on the shared generative slot (verified: consolidation
+   // holds the slot for minutes; 60s aborts produced the empty-store collapses).
+   const timeoutId = setTimeout(() => controller.abort(), 180_000);
 
     try {
       let rawResponse: string | null = null;
@@ -279,7 +282,7 @@ AI Response: ${truncatedResponse}
             ],
             stream: false,
             temperature: 0.2,
-            max_tokens: 1000,
+            max_tokens: 2048,
           }),
           signal: controller.signal,
         });
@@ -322,6 +325,11 @@ AI Response: ${truncatedResponse}
         let cleanJson = rawResponse
           .replace(/```json\s*([\s\S]*?)\s*```/gi, "$1")
           .replace(/```\s*([\s\S]*?)\s*```/g, "$1")
+          // v4.7.10: models write Windows paths with raw backslashes
+          // (%programdata%\Dell\TrustedDevice\services.log) — invalid JSON
+          // escapes that killed the whole extraction. Repair single
+          // backslashes that are not part of a valid escape sequence.
+          .replace(/(?<!\\)\\(?![\\"/bfnrtu])/g, "\\\\")
           .trim();
         try {
           parsed = JSON.parse(cleanJson);
@@ -449,8 +457,53 @@ AI Response: ${truncatedResponse}
         }
         const normQuote = normalizeVerbatim(quote.toLowerCase());
         if (normQuote.length < 10 || !normConv.includes(normQuote)) {
-          groundingRejected++; // quote itself is not verbatim from the conversation
-          return false;
+          // v4.7.10: tolerate light paraphrase. Qwen3-VL quotes are ~95%
+          // verbatim with small elisions (verified live: 3/5 good facts
+          // rejected on wording alone). A grounded paraphrase still has all
+          // its words in ORDER within a bounded window of the conversation
+          // (greedy subsequence, ≤24-token gap). The hallucination defense is
+          // carried by the hard-specifics-in-conversation check below —
+          // invented names/numbers/paths cannot appear in the conversation at
+          // all, so fabricated text fails BOTH this subsequence and that check.
+          const tokMatch = (a: string, b: string): boolean => {
+            if (a === b) return true;
+            const [s, l] = a.length <= b.length ? [a, b] : [b, a];
+            if (l.startsWith(s) && /^[^a-z0-9]*$/.test(l.slice(s.length))) return true; // punctuation suffix
+            return l.includes(s) && l.length <= s.length * 1.5; // light containment, no long-id matches
+          };
+          const isSubsequence = (q: string, c: string): boolean => {
+            const qt = q.split(/\s+/).filter(Boolean);
+            const ct = c.split(/\s+/).filter(Boolean);
+            const GAP = 24;
+            // Backtracking subsequence: greedy can dead-end on the FIRST
+            // occurrence of a repeated phrase (e.g. "dell secure bios" in the
+            // user prompt vs the real sentence in the response). On failure at
+            // token k, advance the previous token's match and retry.
+            const pos = new Array(qt.length).fill(-1);
+            let k = 0, steps = 0;
+            while (k >= 0 && steps++ < 5000) {
+              if (k === qt.length) return true;
+              const minPos = k === 0 ? 0 : pos[k - 1] + 1;
+              const maxPos = Math.min(ct.length, minPos + GAP);
+              let found = -1;
+              for (let i = Math.max(minPos, pos[k] + 1); i < maxPos; i++) {
+                if (tokMatch(ct[i], qt[k])) { found = i; break; }
+              }
+              if (found === -1) {
+                if (k === 0) return false;
+                pos[k] = -1;
+                k--;
+                continue;
+              }
+              pos[k] = found;
+              k++;
+            }
+            return false;
+          };
+          if (!isSubsequence(normQuote, normConv)) {
+            groundingRejected++; // quote is neither verbatim nor a grounded paraphrase
+            return false;
+          }
         }
         if (hard.length >= 1) {
           // v4.7.9: ground HARD specifics against the CONVERSATION (the ground

@@ -81,7 +81,13 @@ function extractOuterJson(s: string, open: string, close: string): string | null
 }
 
 function parseConsolidationJson(raw: string): ConsolidationAction[] | null {
-  const cleaned = raw.replace(/```(?:json)?\s*([\s\S]*?)```/g, "$1").trim();
+  const cleaned = raw
+    .replace(/```(?:json)?\s*([\s\S]*?)```/g, "$1")
+    // v4.7.10: models write Windows paths with raw backslashes (\Dell\...),
+    // invalid JSON escapes — repair single backslashes not part of a valid
+    // escape sequence before parsing (same fix as memoryLogger extraction).
+    .replace(/(?<!\\)\\(?![\\"/bfnrtu])/g, "\\\\")
+    .trim();
   if (!cleaned) return null;
 
   let parsed: any = null;
