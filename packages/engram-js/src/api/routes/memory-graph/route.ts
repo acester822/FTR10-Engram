@@ -41,10 +41,14 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
       // ── 0) Edge-connected endpoint bias ──────────────────────────────────
       //    Reserve up to 35% of the node budget for memories that participate
       //    in LIVE typed edges (both endpoints active), highest degree first.
-      //    This is what makes solid relationship lines actually visible.
+      //    v2.2: the repo_commit DAG dominates by degree (every commit has
+      //    part_of + derives_from) and the OLD repo class cap picked newest
+      //    repo_* (commits, right after a re-index) — the map became the git
+      //    log. So the endpoint pool is now MIXED: anchors + files first, and
+      //    commits capped at ~30% of the pool.
       const edgeBudget = Math.max(10, Math.floor(limit * 0.35));
       const edgeEndpoints = await ctx.db.query(
-        `SELECT id, count(*) AS deg FROM (
+        `SELECT id, metadata->>'kind' AS kind, count(*) AS deg FROM (
            SELECT e.source_memory_id AS id FROM edges e
              JOIN memories a ON e.source_memory_id = a.id
              JOIN memories b ON e.target_memory_id = b.id
@@ -54,70 +58,77 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
              JOIN memories a ON e.source_memory_id = a.id
              JOIN memories b ON e.target_memory_id = b.id
              WHERE e.edge_type = ANY($1) AND a.superseded_at IS NULL AND b.superseded_at IS NULL
-         ) t GROUP BY id ORDER BY deg DESC LIMIT $2`,
-        [EDGE_TYPES, edgeBudget],
+         ) t GROUP BY id, metadata->>'kind' ORDER BY deg DESC LIMIT 200`,
+        [EDGE_TYPES],
       );
-      const edgeIds = edgeEndpoints.rows.map((r: any) => r.id as string);
+      const edgePool: string[] = [];
+      let commitInPool = 0;
+      const commitPoolCap = Math.max(4, Math.floor(edgeBudget * 0.3));
+      for (const r of edgeEndpoints.rows as any[]) {
+        if (edgePool.length >= edgeBudget) break;
+        const kind: string = r.kind || "";
+        if (kind === "repo_commit") {
+          if (commitInPool >= commitPoolCap) continue;
+          commitInPool++;
+        }
+        edgePool.push(r.id as string);
+      }
+      const edgeIds = edgePool;
       const edgeIdSet = new Set(edgeIds);
 
-      // ── 1) Stratified sector sampling over conversation memories ──
-      const convBudget = Math.max(10, limit - edgeIds.length - Math.floor(limit * 0.15));
-      const sectorRows = await ctx.db.query(
-        `SELECT sector, count(*) AS n
-         FROM memories
-         WHERE embedding IS NOT NULL AND is_genome = false AND superseded_at IS NULL
-           AND (metadata->>'kind' IS NULL OR left(metadata->>'kind', 5) <> 'repo_')
-         GROUP BY sector ORDER BY n DESC`,
-      );
-      const total = sectorRows.rows.reduce((acc: number, r: any) => acc + Number(r.n), 0) || 1;
-      const perSector = Math.max(3, Math.floor(convBudget / Math.max(1, sectorRows.rows.length)));
-      const nodeRows: any[] = [];
-      const reserved = new Set(edgeIds);
-      for (const s of sectorRows.rows) {
-        const share = Math.max(3, Math.min(Number(s.n), Math.floor((Number(s.n) / total) * convBudget), perSector * 2));
-        const rows = await ctx.db.query(
-          `SELECT id, content, sector, importance_tier, importance_score,
-                  metadata->>'kind' AS kind,
-                  CASE WHEN superseded_at IS NOT NULL THEN true ELSE false END AS superseded
-           FROM memories
-           WHERE embedding IS NOT NULL AND is_genome = false AND superseded_at IS NULL
-             AND sector = $1
-             AND (metadata->>'kind' IS NULL OR left(metadata->>'kind', 5) <> 'repo_')
-             AND NOT (id = ANY($2::uuid[]))
-           ORDER BY importance_score DESC, recorded_at DESC
-           LIMIT $3`,
-          [s.sector, [...reserved], share],
-        );
-        nodeRows.push(...rows.rows);
-      }
-      // Top-up if stratification under-filled.
-      if (nodeRows.length < convBudget) {
-        const have = [...reserved, ...nodeRows.map((r: any) => r.id)];
-        const fill = await ctx.db.query(
-          `SELECT id, content, sector, importance_tier, importance_score,
-                  metadata->>'kind' AS kind, false AS superseded
-           FROM memories
-           WHERE embedding IS NOT NULL AND is_genome = false AND superseded_at IS NULL
-             AND (metadata->>'kind' IS NULL OR left(metadata->>'kind', 5) <> 'repo_')
-             AND NOT (id = ANY($1::uuid[]))
-           ORDER BY importance_score DESC, recorded_at DESC
-           LIMIT $2`,
-          [have, convBudget - nodeRows.length],
-        );
-        nodeRows.push(...fill.rows);
-      }
-
-      // ── 2) Repo structural memories: capped class (≤15%), newest first ──
-      const repoRows = await ctx.db.query(
+      // ── 1) Conversation memories: guaranteed floor (all of them when few) ──
+      //    v2.2: stratification by sector was a no-op — every memory is
+      //    sector 'semantic' — so the conversation pool under-filled and the
+      //    map became 94% repo. Stratify by KIND-GROUP instead.
+      const convBudget = Math.max(8, Math.floor(limit / 3));
+      const convRows = await ctx.db.query(
         `SELECT id, content, sector, importance_tier, importance_score,
                 metadata->>'kind' AS kind, false AS superseded
          FROM memories
          WHERE embedding IS NOT NULL AND is_genome = false AND superseded_at IS NULL
-           AND left(metadata->>'kind', 5) = 'repo_'
+           AND (metadata->>'kind' IS NULL OR left(metadata->>'kind', 5) <> 'repo_')
+         ORDER BY importance_score DESC, recorded_at DESC
+         LIMIT $1`,
+        [Math.min(convBudget, 50)],
+      );
+      const nodeRows: any[] = convRows.rows;
+
+      // ── 2a) Repo files: capped class (≤35%), by importance then recency ──
+      const fileBudget = Math.max(8, Math.floor(limit * 0.35));
+      const fileRows = await ctx.db.query(
+        `SELECT id, content, sector, importance_tier, importance_score,
+                metadata->>'kind' AS kind, false AS superseded
+         FROM memories
+         WHERE embedding IS NOT NULL AND is_genome = false AND superseded_at IS NULL
+           AND metadata->>'kind' = 'repo_index'
+           AND NOT (id = ANY($1::uuid[]))
+         ORDER BY importance_score DESC, recorded_at DESC
+         LIMIT $2`,
+        [[...edgeIdSet], fileBudget],
+      );
+
+      // ── 2b) Commits: thinned DAG (≤18%), newest first — NOT the whole history ──
+      const commitBudget = Math.max(5, Math.floor(limit * 0.18));
+      const commitRows = await ctx.db.query(
+        `SELECT id, content, sector, importance_tier, importance_score,
+                metadata->>'kind' AS kind, false AS superseded
+         FROM memories
+         WHERE embedding IS NOT NULL AND is_genome = false AND superseded_at IS NULL
+           AND metadata->>'kind' = 'repo_commit'
            AND NOT (id = ANY($1::uuid[]))
          ORDER BY recorded_at DESC
          LIMIT $2`,
-        [[...edgeIdSet], Math.max(5, Math.floor(limit * 0.15))],
+        [[...edgeIdSet], commitBudget],
+      );
+
+      // ── 2c) Repo anchors: always present (they tie the repo together) ──
+      const anchorRows = await ctx.db.query(
+        `SELECT id, content, sector, importance_tier, importance_score,
+                metadata->>'kind' AS kind, false AS superseded
+         FROM memories
+         WHERE embedding IS NOT NULL AND is_genome = false AND superseded_at IS NULL
+           AND metadata->>'kind' = 'repo_anchor'
+         LIMIT 3`,
       );
 
       // ── 3) A few superseded memories as faded nodes (state, not edges) ──
@@ -157,7 +168,9 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
         addNodes(edgeRows.rows, false);
       }
       addNodes(nodeRows, false);
-      addNodes(repoRows.rows, false);
+      addNodes(fileRows.rows, false);
+      addNodes(commitRows.rows, false);
+      addNodes(anchorRows.rows, false);
       addNodes(superRows.rows, true);
 
       if (nodes.length === 0) {
