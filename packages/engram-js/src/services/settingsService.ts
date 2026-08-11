@@ -38,6 +38,14 @@ export const SETTING_KEYS = {
   judgeProviderPort: "judge.provider.port",
   judgeModel: "judge.model",
   judgeApiKey: "judge.api_key",
+  // Proxy / Upstreams — the /v1/chat/completions smart-proxy forward targets
+  proxyUpstreamUrl: "proxy.upstream_url",
+  proxyUpstreamApiKey: "proxy.upstream_api_key",
+  proxyOpenRouterBaseUrl: "proxy.openrouter_base_url",
+  proxyOpenRouterApiKey: "proxy.openrouter_api_key",
+  proxyNousBaseUrl: "proxy.nous_base_url",
+  proxyNousApiKey: "proxy.nous_api_key",
+  proxyRoutes: "proxy.routes",
 } as const;
 
 export const GENERATIVE_TASK_KEYS = {
@@ -162,6 +170,16 @@ export const ADVANCED_SETTINGS: GeneralSettingDef[] = [
   { key: "advanced.redis_url", env: "EG_REDIS_URL", type: "string", label: "Redis URL", section: "Database" },
   // Provider keys (dormant providers / integrations)
   { key: "advanced.openai_api_key", env: "EG_OPENAI_API_KEY", type: "string", label: "OpenAI API Key", section: "Provider Keys" },
+  // Proxy / Upstreams — /v1/chat/completions smart-proxy forward targets.
+  // GUI-editable (Settings → Proxy / Upstreams); mirrored into process.env
+  // at boot and live on save; the proxy route reads them per request.
+  { key: "proxy.upstream_url", env: "EG_UPSTREAM_LLM_URL", type: "string", label: "Default Upstream Base URL", section: "Proxy / Upstreams" },
+  { key: "proxy.upstream_api_key", env: "EG_UPSTREAM_LLM_API_KEY", type: "string", label: "Default Upstream API Key", section: "Proxy / Upstreams" },
+  { key: "proxy.openrouter_base_url", env: "EG_OPENROUTER_BASE_URL", type: "string", label: "OpenRouter Base URL", section: "Proxy / Upstreams" },
+  { key: "proxy.openrouter_api_key", env: "EG_OPENROUTER_API_KEY", type: "string", label: "OpenRouter API Key", section: "Proxy / Upstreams" },
+  { key: "proxy.nous_base_url", env: "EG_NOUS_BASE_URL", type: "string", label: "NOUS Base URL", section: "Proxy / Upstreams" },
+  { key: "proxy.nous_api_key", env: "EG_NOUS_API_KEY", type: "string", label: "NOUS Access Token", section: "Proxy / Upstreams" },
+  { key: "proxy.routes", env: "EG_PROXY_ROUTES", type: "string", label: "Model Routes (JSON: prefix → provider)", section: "Proxy / Upstreams" },
   { key: "advanced.gemini_key", env: "EG_GEMINI_API_KEY", type: "string", label: "Gemini API Key", section: "Provider Keys" },
   { key: "advanced.aws_region", env: "EG_AWS_REGION", type: "string", label: "AWS Region", section: "Provider Keys" },
   { key: "advanced.aws_access_key_id", env: "EG_AWS_ACCESS_KEY_ID", type: "string", label: "AWS Access Key ID", section: "Provider Keys" },

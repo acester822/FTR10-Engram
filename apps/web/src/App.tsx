@@ -4173,6 +4173,75 @@ function SettingsView() {
         <SettingsResultBadge result={testResult && testResult.section === "judge" ? testResult : null} />
       </div>
 
+      {/* Proxy / Upstreams */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-slate-800">Proxy / Upstreams</h3>
+          <button
+            onClick={saveAll}
+            disabled={saving}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            <Save size={16} /> {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mb-4">
+          Upstreams for the <code>/v1/chat/completions</code> smart proxy. <b>Routes</b> maps a model
+          prefix to a provider (<code>{"{\"deepseek/\": \"nous\"}"}</code>); empty prefix is the default.
+          Providers: <code>local</code> (llama-swap), <code>openrouter</code>, <code>nous</code>, or any
+          name N → env <code>EG_N_BASE_URL</code> / <code>EG_N_API_KEY</code>. Saved keys are live-applied.
+        </p>
+        <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+          <SettingsField
+            label="Default Upstream Base URL"
+            value={form.proxy?.upstream_url || ""}
+            onChange={(v: string) => set(["proxy", "upstream_url"], v)}
+            placeholder="http://10.10.10.41:8080/v1"
+          />
+          <SettingsField
+            label="Default Upstream API Key"
+            value={form.proxy?.upstream_api_key || ""}
+            onChange={(v: string) => set(["proxy", "upstream_api_key"], v)}
+            placeholder="sk-..."
+          />
+          <SettingsField
+            label="OpenRouter Base URL"
+            value={form.proxy?.openrouter_base_url || ""}
+            onChange={(v: string) => set(["proxy", "openrouter_base_url"], v)}
+            placeholder="https://openrouter.ai/api/v1"
+          />
+          <SettingsField
+            label="OpenRouter API Key"
+            value={form.proxy?.openrouter_api_key || ""}
+            onChange={(v: string) => set(["proxy", "openrouter_api_key"], v)}
+            placeholder="sk-or-..."
+          />
+          <SettingsField
+            label="NOUS Base URL"
+            value={form.proxy?.nous_base_url || ""}
+            onChange={(v: string) => set(["proxy", "nous_base_url"], v)}
+            placeholder="https://inference-api.nousresearch.com/v1"
+          />
+          <SettingsField
+            label="NOUS Access Token"
+            value={form.proxy?.nous_api_key || ""}
+            onChange={(v: string) => set(["proxy", "nous_api_key"], v)}
+            placeholder="Bearer token from hermes auth"
+          />
+        </div>
+        <div className="mt-4">
+          <label className={settingsLabelCls}>Model Routes (JSON)</label>
+          <textarea
+            className={settingsInputCls}
+            rows={3}
+            value={form.proxy?.routes || ""}
+            onChange={(e: any) => set(["proxy", "routes"], e.target.value)}
+            placeholder={'{"deepseek/": "nous", "": "local"}'}
+          />
+        </div>
+        <SettingsResultBadge result={testResult && testResult.section === "proxy" ? testResult : null} />
+      </div>
+
       {/* General Settings */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
         <div className="flex justify-between items-center mb-2">

@@ -85,6 +85,14 @@ function flattenSettings(body: any): Record<string, string | undefined> {
     const short = def.key.replace(/^advanced\./, "");
     if (advanced[short] !== undefined) out[def.key] = String(advanced[short]).trim();
   }
+
+  // Proxy / Upstreams: { proxy: { <short>: value } } → "proxy.<short>"
+  const proxy = body.proxy || {};
+  for (const def of ADVANCED_SETTINGS) {
+    if (!def.key.startsWith("proxy.")) continue;
+    const short = def.key.replace(/^proxy\./, "");
+    if (proxy[short] !== undefined) out[def.key] = String(proxy[short]).trim();
+  }
   return out;
 }
 
@@ -129,7 +137,18 @@ function settingsView() {
     },
     general: generalSettingsView(),
     advanced: advancedSettingsView(),
+    proxy: proxySettingsView(),
   };
+}
+
+function proxySettingsView() {
+  const s = getSettings();
+  const out: Record<string, string> = {};
+  for (const def of ADVANCED_SETTINGS) {
+    if (!def.key.startsWith("proxy.")) continue;
+    out[def.key.replace(/^proxy\./, "")] = s[def.key] || "";
+  }
+  return out;
 }
 
 function resolvedView() {
