@@ -48,17 +48,17 @@ export const memory_graph_route = (app: any, ctx: route_ctx) => {
       //    commits capped at ~30% of the pool.
       const edgeBudget = Math.max(10, Math.floor(limit * 0.35));
       const edgeEndpoints = await ctx.db.query(
-        `SELECT id, metadata->>'kind' AS kind, count(*) AS deg FROM (
-           SELECT e.source_memory_id AS id FROM edges e
+        `SELECT id, kind, count(*) AS deg FROM (
+           SELECT e.source_memory_id AS id, a.metadata->>'kind' AS kind FROM edges e
              JOIN memories a ON e.source_memory_id = a.id
              JOIN memories b ON e.target_memory_id = b.id
              WHERE e.edge_type = ANY($1) AND a.superseded_at IS NULL AND b.superseded_at IS NULL
            UNION ALL
-           SELECT e.target_memory_id AS id FROM edges e
+           SELECT e.target_memory_id AS id, b.metadata->>'kind' AS kind FROM edges e
              JOIN memories a ON e.source_memory_id = a.id
              JOIN memories b ON e.target_memory_id = b.id
              WHERE e.edge_type = ANY($1) AND a.superseded_at IS NULL AND b.superseded_at IS NULL
-         ) t GROUP BY id, metadata->>'kind' ORDER BY deg DESC LIMIT 200`,
+         ) t GROUP BY id, kind ORDER BY deg DESC LIMIT 200`,
         [EDGE_TYPES],
       );
       const edgePool: string[] = [];
