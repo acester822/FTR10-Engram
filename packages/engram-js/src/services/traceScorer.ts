@@ -18,6 +18,7 @@ import { run_async as pg_run, all_async as pg_all } from "../database/connection
 import { logger } from "../utils/logger";
 import { traceAutoScoreRate } from "./traceStore";
 import { isKnowledgeQuery } from "./traceStore";
+import { isEngramStatus } from "./engramStatus";
 
 export type TraceDimension = "recall_relevance" | "extraction_fidelity" | "answer_quality";
 export const TRACE_DIMENSIONS: TraceDimension[] = [
@@ -77,10 +78,18 @@ function sseAssistantText(raw: unknown): string {
     try {
       const obj = JSON.parse(payload);
       const delta = obj?.choices?.[0]?.delta;
-      if (typeof delta?.content === "string") out += delta.content;
-    } catch {
-      /* non-JSON SSE status line — skip */
-    }
+      if (!delta) continue;
+      // v4.7.10: some providers (deepseek-reasoner-style, NOUS/Novita) put the
+      // real answer in `reasoning` / `reasoning_content`, not `content`. Concat
+      // both so the judge (and extraction) see the actual response, not just
+      // the status chunk. Skip Engram's own transparent-proxy status lines.
+      const pieces = [delta.content, delta.reasoning, delta.reasoning_content].filter(
+        (p): p is string => typeof p === "string" && p.length > 0,
+      );
+      for (const p of pieces) {
+        if (!isEngramStatus(p)) out += p;
+      }
+    } catch { /* non-JSON SSE status line — skip */ }
   }
   return out.slice(0, 4000);
 }
@@ -123,17 +132,65 @@ const RUBRICS: Record<TraceDimension, { system: string; user: (ctx: any) => stri
   },
 };
 
+/** Extract a clean {user, assistant} pair from a captured chat/completions
+ *  body (which may be a {raw: "<stringified JSON or SSE>"} envelope). The
+ *  judge scores answer QUALITY, so it needs the actual user prompt and the
+ *  actual assistant answer — NOT the serialized request/response envelopes.
+ *  Bodies may be truncated mid-JSON (EG_TRACE_MAX_BODY_CHARS), so we fall
+ *  back to a tolerant regex extraction when JSON.parse fails. */
+function extractChatTurn(body: unknown): { user: string; assistant: string } {
+  const raw = typeof body === "string"
+    ? body
+    : (body as any)?.raw ?? (typeof body === "object" ? JSON.stringify(body) : "");
+  const text = typeof raw === "string" ? raw : String(raw ?? "");
+
+  // SSE stream (assistant answer)
+  const assistant = text.includes("data:") ? sseAssistantText(text) : "";
+
+  // Try structured parse (full JSON, or JSON inside a raw envelope)
+  let messages: any[] = [];
+  try {
+    const parsed = typeof text === "string" ? JSON.parse(text) : text;
+    if (parsed && Array.isArray(parsed.messages)) messages = parsed.messages;
+    else if (parsed && typeof parsed.raw === "string") {
+      const inner = JSON.parse(parsed.raw);
+      if (inner && Array.isArray(inner.messages)) messages = inner.messages;
+    }
+  } catch { /* truncated/escaped — fall through to regex */ }
+
+  if (messages.length === 0) {
+    // Tolerant fallback: find the LAST "role":"user" block and its content
+    const m = [...text.matchAll(/"role"\s*:\s*"user"\s*,\s*"content"\s*:\s*("(?:[^"\\]|\\.)*"|\[[\s\S]*?\])/g)];
+    if (m.length) {
+      let c = m[m.length - 1][1];
+      try { c = JSON.parse(c); } catch { /* leave as string */ }
+      const userMsg = Array.isArray(c) ? c.map((x: any) => (typeof x === "string" ? x : JSON.stringify(x))).join("\n") : String(c);
+      return { user: userMsg.trim() || "(no user message found)", assistant: assistant || "(no assistant answer found)" };
+    }
+    return { user: "(no user message found)", assistant: assistant || "(no assistant answer found)" };
+  }
+
+  const userMsg = messages
+    .filter((m) => m?.role === "user")
+    .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "")))
+    .join("\n")
+    .trim();
+
+  return { user: userMsg || "(no user message found)", assistant: assistant || "(no assistant answer found)" };
+}
+
 async function buildRubric(dimension: TraceDimension, trace: any): Promise<{ system: string; user: string }> {
   // v4.7.10: trim request/response to a safe budget BEFORE building the rubric.
   // Engram captures full Hermes transcripts (multi-KB system prompt + tool I/O),
   // which blow past the judge box's 16K context window (REAP20) → 400 on every
   // chat/ingest trace. The judge grades quality, not transcript fidelity, so a
   // hard cap (~6000 chars ≈ ~1500 tokens) is plenty and leaves headroom.
-  const request = trimForJudge(bodyText(trace.request_body));
-  let response = trimForJudge(bodyText(trace.response_body));
+  const chat = extractChatTurn(trace.request_body);
+  const request = trimForJudge(chat.user);
+  let response = trimForJudge(chat.assistant);
   if (dimension === "answer_quality" && typeof trace.response_body === "object") {
     const raw = (trace.response_body as any)?.raw;
-    if (typeof raw === "string" && raw.includes("data:")) response = sseAssistantText(raw);
+    if (typeof raw === "string" && raw.includes("data:")) response = trimForJudge(sseAssistantText(raw));
   }
   const injection = trace.injection ? JSON.stringify(trace.injection) : "n/a";
   // True extraction-fidelity (v4.7.0): grade the STORED output, not the receipt.

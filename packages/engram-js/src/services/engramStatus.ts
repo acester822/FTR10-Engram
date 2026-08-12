@@ -96,6 +96,9 @@ export function stripEngramStatus(text: string): string {
  * Check if a string contains an Engram status message.
  */
 export function isEngramStatus(text: string): boolean {
+  if (!text) return false;
+  // Live transparent-proxy status chunks (route.ts buildInjectionStatus / initialStatus)
+  if (/🧠\s*(Injected|No memories injected|Extraction)/.test(text)) return true;
   return text.includes(`${ENGRAM_EMOJI} *Engram:`) ||
          text.includes("🧠 *Engram:");
 }
