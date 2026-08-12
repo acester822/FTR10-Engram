@@ -57,7 +57,10 @@ function sanitizeMemoryContent(content: string): string {
 
 /** Build cognitive context from genome + phenotype memories + optional web results */
 function buildCognitiveContext(genome: GenomeMemory[], phenotype: PhenotypeMemory[], webResults?: string): string {
-  let ctx = "[ENGRAM COGNITIVE CONTEXT]\n";
+  // v4.7.10: no header here — the injection wrapper below adds the single
+  // [ENGRAM COGNITIVE CONTEXT] marker. It used to emit it too, doubling the
+  // header in every proxied system prompt.
+  let ctx = "";
 
   if (genome.length > 0) {
     ctx += "--- CORE DIRECTIVES (GENOME) ---\n";

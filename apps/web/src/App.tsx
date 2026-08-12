@@ -1855,7 +1855,17 @@ function TracesView() {
     if (v === null || v === undefined) return <span className="text-xs text-slate-400">—</span>;
     let text: string;
     try {
-      text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+      if (v && typeof v === "object" && typeof v.raw === "string") {
+        // Trace fallback storage: { raw: "<body text>" } — parse as JSON when
+        // possible, otherwise show the text itself (e.g. SSE streams).
+        try {
+          text = JSON.stringify(JSON.parse(v.raw), null, 2);
+        } catch {
+          text = v.raw;
+        }
+      } else {
+        text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+      }
     } catch {
       text = String(v);
     }
@@ -2548,7 +2558,17 @@ function GovernanceView() {
     if (v === null || v === undefined) return <span className="text-xs text-slate-400">—</span>;
     let text: string;
     try {
-      text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+      if (v && typeof v === "object" && typeof v.raw === "string") {
+        // Trace fallback storage: { raw: "<body text>" } — parse as JSON when
+        // possible, otherwise show the text itself (e.g. SSE streams).
+        try {
+          text = JSON.stringify(JSON.parse(v.raw), null, 2);
+        } catch {
+          text = v.raw;
+        }
+      } else {
+        text = typeof v === "string" ? v : JSON.stringify(v, null, 2);
+      }
     } catch {
       text = String(v);
     }
