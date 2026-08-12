@@ -412,6 +412,24 @@ export function eligibleForScoring(t: {
     const q = (t.request_body as any)?.query;
     if (!isKnowledgeQuery(typeof q === "string" ? q : "")) return null;
   }
+  if (dim === "answer_quality") {
+    // v4.7.10: skip traces that aren't a genuine user↔assistant exchange.
+    // The proxy also captures Hermes system/engine prompts, recall probes, and
+    // "reply exactly: X" test turns as label=chat — grading answer_quality on
+    // those produces uniform 0s that look like a broken pipeline. Require a
+    // real user message that isn't itself a system/engine block.
+    const turn = extractChatTurn(t.request_body);
+    const u = turn.user.trim();
+    if (
+      !u ||
+      u === "(no user message found)" ||
+      u.startsWith("[ENGRAM COGNITIVE CONTEXT]") ||
+      u.startsWith("[ENGram".toLowerCase()) ||
+      /reply (with|exactly)|PROXY (HEALTHY|OK)|PORTAL KEY OK|test/i.test(u.slice(0, 60))
+    ) {
+      return null;
+    }
+  }
   return dim;
 }
 
