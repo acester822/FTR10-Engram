@@ -85,6 +85,19 @@ function sseAssistantText(raw: unknown): string {
   return out.slice(0, 4000);
 }
 
+/** Hard-cap text sent to the judge model. Engram captures full Hermes
+ *  transcripts (multi-KB system prompt + tool I/O) that exceed the judge
+ *  box's 16K context window. The judge grades quality, not transcript
+ *  fidelity, so ~6000 chars (~1500 tokens) with head+tail preserved is
+ *  plenty and leaves room for the rubric + system prompt. */
+function trimForJudge(s: string, max = 6000): string {
+  if (!s) return "";
+  if (s.length <= max) return s;
+  const head = Math.floor(max * 0.6);
+  const tail = max - head;
+  return s.slice(0, head) + `\n…[${s.length - max} chars trimmed]…\n` + s.slice(s.length - tail);
+}
+
 // ── Rubrics ─────────────────────────────────────────────────────────────
 
 const RUBRICS: Record<TraceDimension, { system: string; user: (ctx: any) => string }> = {
@@ -111,8 +124,13 @@ const RUBRICS: Record<TraceDimension, { system: string; user: (ctx: any) => stri
 };
 
 async function buildRubric(dimension: TraceDimension, trace: any): Promise<{ system: string; user: string }> {
-  const request = bodyText(trace.request_body);
-  let response = bodyText(trace.response_body);
+  // v4.7.10: trim request/response to a safe budget BEFORE building the rubric.
+  // Engram captures full Hermes transcripts (multi-KB system prompt + tool I/O),
+  // which blow past the judge box's 16K context window (REAP20) → 400 on every
+  // chat/ingest trace. The judge grades quality, not transcript fidelity, so a
+  // hard cap (~6000 chars ≈ ~1500 tokens) is plenty and leaves headroom.
+  const request = trimForJudge(bodyText(trace.request_body));
+  let response = trimForJudge(bodyText(trace.response_body));
   if (dimension === "answer_quality" && typeof trace.response_body === "object") {
     const raw = (trace.response_body as any)?.raw;
     if (typeof raw === "string" && raw.includes("data:")) response = sseAssistantText(raw);
@@ -195,8 +213,8 @@ export async function callJudge(
   }
   const ms = Date.now() - started;
   if (!res.ok) {
-    const text = (await res.text().catch(() => "")).substring(0, 300);
-    logger.warn({ module: "traceScorer", status: res.status, ms }, `judge HTTP ${res.status}`);
+    const text = (await res.text().catch(() => "")).substring(0, 500);
+    logger.warn({ module: "traceScorer", status: res.status, ms, url: `${baseUrl}/chat/completions`, model }, `judge HTTP ${res.status}: ${text}`);
     return { ok: false, error: `judge HTTP ${res.status}: ${text}` };
   }
   const data: any = await res.json().catch(() => null);
