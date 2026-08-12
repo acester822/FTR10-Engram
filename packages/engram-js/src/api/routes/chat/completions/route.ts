@@ -258,12 +258,19 @@ export const chat_completions_route = (app: any) => {
         // ILIKE matches almost nothing for a full question sentence).
         const queryEmbedding = await embed(userPrompt).catch(() => undefined);
         const recallResult = await recallDurableMemories(db, { query: userPrompt, limit: 5, embedding: queryEmbedding });
-        phenotypeMemories = recallResult.results.slice(0, 5).map((r: any) => ({
-          id: r.id,
-          content: r.content,
-          sector: r.sector || (r.metadata as any)?.sector || "semantic",
-          score: r.score,
-        }));
+        // v4.7.10: only inject CONVERSATION memories — the repo baseline
+        // index dominates the store (thousands of file/commit memories), so
+        // unfiltered recall injects irrelevant repo structure into every
+        // turn and makes responses feel off.
+        phenotypeMemories = recallResult.results
+          .filter((r: any) => !String((r.metadata as any)?.kind || "").startsWith("repo_"))
+          .slice(0, 5)
+          .map((r: any) => ({
+            id: r.id,
+            content: r.content,
+            sector: r.sector || (r.metadata as any)?.sector || "semantic",
+            score: r.score,
+          }));
       } catch (err: any) { logger.warn({ module: 'chatRoute', err: err.message }, 'Phenotype recall failed'); }
 
       logger.debug({ module: 'chatRoute', model: body.model || "default", action: 'memory_recall', genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length }, 'Memory recall completed');
