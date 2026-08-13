@@ -149,14 +149,23 @@ export function createApp() {
          const kind = clsT?.kind || (isChat ? "chat" : "action");
          const label = clsT?.label || (isChat ? "chat" : "action");
          const injection =
-           respJson &&
+           // v4.7.10: the proxy sets X-Engram-Injection with the REAL recall
+           // stats (SSE responses can't carry genome_count in the JSON body).
+           (() => {
+             try {
+               const h = (res as any).getHeader?.("X-Engram-Injection");
+               if (typeof h === "string" && h.length) return JSON.parse(h);
+             } catch { /* ignore */ }
+             return undefined;
+           })() ||
+           (respJson &&
            (typeof respJson.genome_count === "number" || typeof respJson.phenotype_count === "number")
              ? {
                  genome: Number(respJson.genome_count) || 0,
                  phenotype: Number(respJson.phenotype_count) || 0,
                  web_used: !!respJson.web_used,
                }
-             : undefined;
+             : undefined);
          const traceRec = {
            id: crypto.randomUUID(),
            ts: Date.now(),

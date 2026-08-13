@@ -307,7 +307,67 @@ export async function getTrace(id: string): Promise<any | null> {
      FROM public.traces WHERE id = $1`,
     [id],
   );
-  return rows[0] || null;
+  const row = rows[0] || null;
+  if (!row) return null;
+  // v4.7.10: derive human-readable user/assistant text so the GUI shows
+  // what was ACTUALLY said, not the raw SSE/JSON envelope. For chat traces
+  // the response_body is a captured SSE stream; the answer is in the
+  // delta.reasoning/content fields. (Scorer-side helpers live in traceScorer;
+  // duplicate the small extraction here to avoid a circular import.)
+  try {
+    const rq = row.request_body as any;
+    const rb = row.response_body as any;
+    const reqRaw = typeof rq === "string" ? rq : rq?.raw ?? (typeof rq === "object" ? JSON.stringify(rq) : "");
+    const respRaw = typeof rb === "string" ? rb : rb?.raw ?? (typeof rb === "object" ? JSON.stringify(rb) : "");
+    const userMsg = extractUserText(String(reqRaw ?? ""));
+    const assistantText = extractAssistantText(String(respRaw ?? ""));
+    if (userMsg) row._user_text = userMsg;
+    if (assistantText) row._assistant_text = assistantText;
+  } catch { /* derived fields are best-effort */ }
+  return row;
+}
+
+/** Pull the last user message out of a captured chat request body
+ *  (truncation-tolerant). */
+function extractUserText(text: string): string {
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed && Array.isArray(parsed.messages)) {
+      const users = parsed.messages.filter((m: any) => m?.role === "user");
+      if (users.length) {
+        const c = users[users.length - 1].content;
+        if (typeof c === "string") return c.slice(0, 2000);
+      }
+    }
+  } catch { /* truncated — fall through */ }
+  const m = [...text.matchAll(/"role"\s*:\s*"user"\s*,\s*"content"\s*:\s*("(?:[^"\\]|\\.)*")/g)];
+  if (m.length) {
+    try { return JSON.parse(m[m.length - 1][1]).slice(0, 2000); } catch { return m[m.length - 1][1].slice(0, 2000); }
+  }
+  return "";
+}
+
+/** Extract the assistant's answer from a captured SSE chat stream. */
+function extractAssistantText(raw: string): string {
+  if (!raw.includes("data:")) return "";
+  let out = "";
+  for (const line of raw.split("\n")) {
+    const m = line.match(/^data: (.*)$/);
+    if (!m) continue;
+    const payload = m[1].trim();
+    if (payload === "[DONE]") continue;
+    try {
+      const obj = JSON.parse(payload);
+      const delta = obj?.choices?.[0]?.delta;
+      if (!delta) continue;
+      for (const p of [delta.content, delta.reasoning, delta.reasoning_content]) {
+        if (typeof p === "string" && p.length && !/🧠\s*(Injected|No memories injected|Extraction)/.test(p)) {
+          out += p;
+        }
+      }
+    } catch { /* non-JSON line */ }
+  }
+  return out.slice(0, 4000);
 }
 
 export async function deleteAllTraces(): Promise<number> {

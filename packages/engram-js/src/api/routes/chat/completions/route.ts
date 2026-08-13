@@ -18,6 +18,7 @@ import { make_db as kit_make_db, run_async, all_async } from "../../_kit";
 import { logInteractionAsync } from "../../../../services/memoryLogger";
 import { autoSearch } from "../../../../services/autoSearch";
 import { getLangfuse } from "../../../../services/langfuseClient";
+import { persistTrace } from "../../../../services/traceStore";
 import * as crypto from "crypto";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -279,6 +280,47 @@ export const chat_completions_route = (app: any) => {
       logger.debug({ module: 'chatRoute', model: body.model || "default", action: 'memory_recall', genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length }, 'Memory recall completed');
       memoryRecallSpan?.end({ output: { genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length } });
 
+      // v4.7.10: emit a RECALL trace so recall_relevance can be scored on
+      // proxy traffic. The middleware only records one chat trace per HTTP
+      // request, so the recall phase (which lives inside this handler) was
+      // invisible to the trace store → recall_relevance never scored.
+      persistTrace({
+        id: crypto.randomUUID(),
+        ts: Date.now(),
+        route: '/v1/chat/completions/recall',
+        method: 'POST',
+        status: 200,
+        ms: 0,
+        direction: 'out',
+        kind: 'read',
+        label: 'recall',
+        sessionId: typeof body.session_id === 'string' ? body.session_id : undefined,
+        projectId: typeof body.project_id === 'string' ? body.project_id : undefined,
+        userId: typeof body.user_id === 'string' ? body.user_id : undefined,
+        model: body.model || undefined,
+        requestBody: { query: userPrompt, limit: 5 },
+        responseBody: {
+          results: phenotypeMemories.map((m: any) => ({
+            id: m.id,
+            content: m.content,
+            sector: m.sector,
+            score: m.score,
+          })),
+          genome_count: genomeMemories.length,
+          phenotype_count: phenotypeMemories.length,
+        },
+        breakdown: {
+          genome: genomeMemories.length,
+          phenotype: phenotypeMemories.length,
+        },
+        injection: {
+          genome: genomeMemories.length,
+          phenotype: phenotypeMemories.length,
+        },
+      });
+      // recall traces are scored by the catch-up pass (label=recall + query)
+
+
       // Create abort signal tied to client disconnect (must be before auto-search which references it)
       const abortController = new AbortController();
       req.on('close', () => {
@@ -447,6 +489,16 @@ export const chat_completions_route = (app: any) => {
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache");
         res.setHeader("Connection", "keep-alive");
+        // v4.7.10: pass the REAL injection stats to the trace middleware via
+        // response header — the middleware can't read genome/phenotype from an
+        // SSE stream, so without this the chat trace's injection column is NULL
+        // and the answer_quality judge thinks no context was injected. Must be
+        // set here, BEFORE the first stream write (headers lock on write).
+        res.setHeader("X-Engram-Injection", JSON.stringify({
+          genome: genomeMemories.length,
+          phenotype: phenotypeMemories.length,
+          web_used: autoSearchCount > 0,
+        }));
         (res as any)._streaming = true;
 
         // INITIAL STATUS: Tell the user what memory was injected BEFORE the LLM starts
@@ -519,7 +571,39 @@ if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
         lf?.flushAsync().catch(() => {});
 
         // 5. LOG & EXTRACT: Fire-and-forget — don't block the SSE stream closing
-        logInteractionAsync(userPrompt, fullLlmResponseText, sessionId, body.project_id).catch((err: any) => {
+        logInteractionAsync(userPrompt, fullLlmResponseText, sessionId, body.project_id).then((extractResult) => {
+          // v4.7.10: emit an EXTRACTION trace so extraction_fidelity can be
+          // scored on proxy traffic. The middleware records only the chat
+          // trace; the stored-memory ids (the thing extraction_fidelity
+          // grades) lived only in this async result, which was discarded.
+          persistTrace({
+            id: crypto.randomUUID(),
+            ts: Date.now(),
+            route: '/v1/chat/completions/extract',
+            method: 'POST',
+            status: 200,
+            ms: 0,
+            direction: 'in',
+            kind: 'write',
+            label: 'ingest',
+            sessionId: typeof body.session_id === 'string' ? body.session_id : undefined,
+            projectId: typeof body.project_id === 'string' ? body.project_id : undefined,
+            userId: typeof body.user_id === 'string' ? body.user_id : undefined,
+            model: body.model || undefined,
+            requestBody: {
+              conversation: [
+                { role: 'user', content: userPrompt },
+                { role: 'assistant', content: fullLlmResponseText.slice(0, 3000) },
+              ],
+            },
+            responseBody: {
+              stored_count: extractResult.storedCount,
+              stored_memory_ids: extractResult.storedMemoryIds,
+              sectors: extractResult.sectors,
+            },
+            breakdown: { stored_count: extractResult.storedCount },
+          });
+        }).catch((err: any) => {
           logger.error({ module: 'chatRoute', err }, 'Background extraction failed');
         });
 
@@ -600,7 +684,35 @@ if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
 
         // ASYNC log
         const cleanResponse = parsedResponse?.choices?.[0]?.message?.content || "";
-        logInteractionAsync(userPrompt, cleanResponse, sessionId, body.project_id).catch(() => {});
+        logInteractionAsync(userPrompt, cleanResponse, sessionId, body.project_id).then((extractResult) => {
+          persistTrace({
+            id: crypto.randomUUID(),
+            ts: Date.now(),
+            route: '/v1/chat/completions/extract',
+            method: 'POST',
+            status: 200,
+            ms: 0,
+            direction: 'in',
+            kind: 'write',
+            label: 'ingest',
+            sessionId: typeof body.session_id === 'string' ? body.session_id : undefined,
+            projectId: typeof body.project_id === 'string' ? body.project_id : undefined,
+            userId: typeof body.user_id === 'string' ? body.user_id : undefined,
+            model: body.model || undefined,
+            requestBody: {
+              conversation: [
+                { role: 'user', content: userPrompt },
+                { role: 'assistant', content: cleanResponse.slice(0, 3000) },
+              ],
+            },
+            responseBody: {
+              stored_count: extractResult.storedCount,
+              stored_memory_ids: extractResult.storedMemoryIds,
+              sectors: extractResult.sectors,
+            },
+            breakdown: { stored_count: extractResult.storedCount },
+          });
+        }).catch(() => {});
       }
 
    } catch (error: unknown) {

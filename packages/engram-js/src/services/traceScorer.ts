@@ -193,6 +193,21 @@ async function buildRubric(dimension: TraceDimension, trace: any): Promise<{ sys
     if (typeof raw === "string" && raw.includes("data:")) response = trimForJudge(sseAssistantText(raw));
   }
   const injection = trace.injection ? JSON.stringify(trace.injection) : "n/a";
+  // v4.7.10: recall_relevance traces have a DIFFERENT shape than chat turns —
+  // request_body is {query}, response_body is {results:[{content,score}]}.
+  // Feed those to the judge instead of the chat-turn extraction.
+  if (dimension === "recall_relevance") {
+    const q = (trace.request_body as any)?.query ?? chat.user;
+    const results = (trace.response_body as any)?.results;
+    const retrieved = Array.isArray(results) && results.length
+      ? results.map((r: any) => `[score ${Number(r.score).toFixed(2)}] ${r.content ?? ""}`).join("\n")
+      : "(none)";
+    const r = RUBRICS[dimension];
+    return {
+      system: r.system,
+      user: r.user({ request: trimForJudge(String(q)), response: trimForJudge(retrieved), injection }),
+    };
+  }
   // True extraction-fidelity (v4.7.0): grade the STORED output, not the receipt.
   let stored: string | null = null;
   if (dimension === "extraction_fidelity") {

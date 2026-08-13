@@ -2490,6 +2490,23 @@ function TracesView() {
               {jsonBlock(selected.response_body)}
             </div>
           </div>
+          {(selected._user_text || selected._assistant_text) && (
+            <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+              <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase">What was actually said</h4>
+              {selected._user_text && (
+                <div className="mb-2">
+                  <span className="text-[11px] font-semibold text-blue-600 uppercase">User</span>
+                  <pre className="whitespace-pre-wrap text-sm text-slate-800 mt-1">{selected._user_text}</pre>
+                </div>
+              )}
+              {selected._assistant_text && (
+                <div>
+                  <span className="text-[11px] font-semibold text-green-600 uppercase">Assistant</span>
+                  <pre className="whitespace-pre-wrap text-sm text-slate-800 mt-1">{selected._assistant_text}</pre>
+                </div>
+              )}
+            </div>
+          )}
           {selected.breakdown && (
             <div>
               <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Breakdown</h4>
@@ -3078,6 +3095,23 @@ function GovernanceView() {
               {jsonBlock(expandedTrace.response_body)}
             </div>
           </div>
+          {(expandedTrace._user_text || expandedTrace._assistant_text) && (
+            <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
+              <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase">What was actually said</h4>
+              {expandedTrace._user_text && (
+                <div className="mb-2">
+                  <span className="text-[11px] font-semibold text-blue-600 uppercase">User</span>
+                  <pre className="whitespace-pre-wrap text-sm text-slate-800 mt-1">{expandedTrace._user_text}</pre>
+                </div>
+              )}
+              {expandedTrace._assistant_text && (
+                <div>
+                  <span className="text-[11px] font-semibold text-green-600 uppercase">Assistant</span>
+                  <pre className="whitespace-pre-wrap text-sm text-slate-800 mt-1">{expandedTrace._assistant_text}</pre>
+                </div>
+              )}
+            </div>
+          )}
           {expandedTrace.breakdown && (
             <div>
               <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Breakdown</h4>
