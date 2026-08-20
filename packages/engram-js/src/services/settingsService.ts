@@ -152,6 +152,27 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.repos_auto_refresh", env: "EG_REPO_AUTO_REFRESH", type: "bool", label: "Auto-Refresh Changed Repos", section: "repos" },
   { key: "general.repos_refresh_interval_ms", env: "EG_REPO_REFRESH_INTERVAL_MS", type: "number", label: "Auto-Refresh Interval (ms)", section: "repos" },
   { key: "general.repos_tip_enabled", env: "EG_REPO_TIP_ENABLED", type: "bool", label: "Working-Location Tip Enabled", section: "repos" },
+  // Living model — learning loop (v5.0.0): judge scores -> hyperparameter proposals
+  { key: "general.learning_enabled", env: "EG_LEARNING_ENABLED", type: "bool", label: "Learning Loop Enabled", section: "learning" },
+  { key: "general.learning_interval_ms", env: "EG_LEARNING_INTERVAL_MS", type: "number", label: "Learning Interval (ms)", section: "learning" },
+  { key: "general.learning_window_days", env: "EG_LEARNING_WINDOW_DAYS", type: "number", label: "Score Window (days)", section: "learning" },
+  { key: "general.learning_auto_apply", env: "EG_LEARNING_AUTO_APPLY", type: "bool", label: "Auto-Apply Small Deltas", section: "learning" },
+  { key: "general.learning_max_delta", env: "EG_LEARNING_MAX_DELTA", type: "number", label: "Max Auto-Apply Delta", section: "learning" },
+  { key: "general.learning_min_traces", env: "EG_LEARNING_MIN_TRACES", type: "number", label: "Min Traces to Evaluate", section: "learning" },
+  { key: "general.hybrid_vector_floor", env: "EG_HYBRID_VECTOR_FLOOR", type: "number", label: "Vector Probability Floor", section: "learning" },
+  { key: "general.hybrid_keyword_scale", env: "EG_HYBRID_KEYWORD_SCALE", type: "number", label: "Keyword Probability Scale", section: "learning" },
+  // Living model — outcome-aware memory (v5.0.0): salience driven by measured usefulness
+  { key: "general.outcome_tracking_enabled", env: "EG_OUTCOME_TRACKING_ENABLED", type: "bool", label: "Outcome Tracking Enabled", section: "learning" },
+  { key: "general.outcome_decay_penalty", env: "EG_OUTCOME_DECAY_PENALTY", type: "number", label: "Bad-Outcome Decay Penalty", section: "learning" },
+  { key: "general.outcome_decay_boost", env: "EG_OUTCOME_DECAY_BOOST", type: "number", label: "Good-Outcome Decay Boost", section: "learning" },
+  { key: "general.outcome_recall_penalty", env: "EG_OUTCOME_RECALL_PENALTY", type: "number", label: "Bad-Outcome Recall Penalty", section: "learning" },
+  { key: "general.outcome_recall_boost", env: "EG_OUTCOME_RECALL_BOOST", type: "number", label: "Good-Outcome Recall Boost", section: "learning" },
+  { key: "general.outcome_min_recalls", env: "EG_OUTCOME_MIN_RECALS", type: "number", label: "Min Recalls for Outcome Signal", section: "learning" },
+  // Living model — curriculum engine (v5.0.0): self-directed gap probing
+  { key: "general.curriculum_enabled", env: "EG_CURRICULUM_ENABLED", type: "bool", label: "Curriculum Engine Enabled", section: "learning" },
+  { key: "general.curriculum_interval_ms", env: "EG_CURRICULUM_INTERVAL_MS", type: "number", label: "Curriculum Interval (ms)", section: "learning" },
+  { key: "general.curriculum_max_probes", env: "EG_CURRICULUM_MAX_PROBES", type: "number", label: "Max Probes Per Run", section: "learning" },
+  { key: "general.curriculum_min_sector_size", env: "EG_CURRICULUM_MIN_SECTOR_SIZE", type: "number", label: "Min Memories Per Sector", section: "learning" },
 ];
 
 // ── Advanced (infra / secrets / misc) settings — shown in a warning-labeled table.

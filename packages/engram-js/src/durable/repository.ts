@@ -13,6 +13,8 @@ import { computeLexicalScore } from "../utilities/keyword";
 import { isSyntheticEmbedding } from "../embeddings/embed";
 import { chunkBoost } from "./chunks";
 import { logger } from "../utils/logger";
+import { outcomeBatch } from "../services/outcomeTracker";
+import { policyThresholds } from "../services/traceStore";
 
 const importanceCalculator = new ImportanceCalculator();
 
@@ -1493,6 +1495,20 @@ export async function recallDurableMemories(
     if (boosted > 0) results = results.sort((a: any, b: any) => b.score - a.score).slice(0, limit);
   }
 
+  // OUTCOME-AWARE RANKING (v5.0.0-living-model): boost or penalize based on
+  // whether recalling this memory historically helped answer quality.
+  if (results.length > 0 && (process.env.EG_OUTCOME_TRACKING_ENABLED ?? "true").toLowerCase() !== "false") {
+    try {
+      const ids = results.map((r) => r.id);
+      const outcomes = await outcomeBatch(ids);
+      results = results.map((r) => {
+        const sig = outcomes.get(r.id);
+        if (!sig) return r;
+        return { ...r, score: Math.max(0, Math.min(1, r.score * sig.recallMultiplier)) };
+      }).sort((a, b) => b.score - a.score).slice(0, limit);
+    } catch { /* noop — outcome ranking is best-effort */ }
+  }
+
   return {
     query: input.query,
     mode,
@@ -2601,6 +2617,34 @@ export async function runDurableDecayJob(
     params,
   )) as { rows?: any[] };
   const rows = selected.rows || [];
+  // OUTCOME-AWARE DECAY (v5.0.0-living-model): batch-load outcome signals for
+  // the memories being decayed so we can adjust the decay rate.
+  const outcomeSignals = new Map<string, number>();
+  if (rows.length > 0 && (process.env.EG_OUTCOME_TRACKING_ENABLED ?? "true").toLowerCase() !== "false") {
+    try {
+      const ids = rows.map((r) => r.id);
+      const outcomeTable = table(schema, "memories_outcome_stats");
+      const { all_async } = require("../database/connection");
+      const outcomeRows: any[] = await all_async(
+        `SELECT memory_id, avg_answer_quality, recall_count
+         FROM ${outcomeTable}
+         WHERE memory_id = ANY($1::uuid[]) AND window_days = 7`,
+        [ids],
+      ).catch(() => []);
+      const { good, bad } = policyThresholds();
+      const penaltyRate = Number(process.env.EG_OUTCOME_DECAY_PENALTY) || 2.0;
+      const boostRate = Number(process.env.EG_OUTCOME_DECAY_BOOST) || 0.5;
+      const minRecalls = Number(process.env.EG_OUTCOME_MIN_RECALS) || 3;
+      for (const or of outcomeRows || []) {
+        const avg = or.avg_answer_quality !== null ? Number(or.avg_answer_quality) : null;
+        const count = Number(or.recall_count) || 0;
+        if (avg === null || count < minRecalls) continue;
+        if (avg < bad) outcomeSignals.set(or.memory_id, penaltyRate);
+        else if (avg > good) outcomeSignals.set(or.memory_id, boostRate);
+      }
+    } catch { /* noop */ }
+  }
+
   const changes = rows
     .map((row) => {
       const tier = (row.memory_tier || "active") as DurableMemoryTier;
@@ -2609,11 +2653,21 @@ export async function runDurableDecayJob(
         now,
         row.observed_at || row.valid_from || row.recorded_at,
       );
+      // Apply outcome multiplier: >1 = decay faster (bad), <1 = slower (good)
+      const outcomeMult = outcomeSignals.get(row.id) || 1.0;
+      const decayed = decaySalience(before, tier, age);
+      // Blend: outcome-aware salience shifts toward 0 (if penalty) or holds (if boost)
+      const after = outcomeMult > 1
+        ? Math.max(0, before - (before - decayed) * outcomeMult)
+        : outcomeMult < 1
+          ? before - (before - decayed) * outcomeMult
+          : decayed;
       return {
         row,
         tier,
         before,
-        after: decaySalience(before, tier, age),
+        after: Math.max(0, Math.min(1, Number(after.toFixed(6)))),
+        outcomeMult,
       };
     })
     .filter((change) => Math.abs(change.before - change.after) >= 0.001);

@@ -172,10 +172,12 @@ export function computeDecaySalience(
   isGenome: boolean,
   effectiveAgeDays: number,
   config: DecayConfig = DEFAULT_DECAY_CONFIG,
+  outcomePenalty = 1.0,
 ): number {
-  const rate = isGenome ? config.baseRate * config.genomeMultiplier : config.baseRate;
+  const baseRate = isGenome ? config.baseRate * config.genomeMultiplier : config.baseRate;
   // Exponential decay with salience-dependent lambda (faster decay for lower salience)
-  const lambda = rate / (currentSalience + 0.1);
+  // Outcome multiplier: >1 means decay faster (bad outcome), <1 slower (good outcome)
+  const lambda = (baseRate * outcomePenalty) / (currentSalience + 0.1);
   const next = currentSalience * Math.exp(-lambda * effectiveAgeDays);
   return Math.max(0, Math.min(1, Number(next.toFixed(6))));
 }

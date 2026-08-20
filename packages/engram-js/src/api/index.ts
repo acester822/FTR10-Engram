@@ -16,6 +16,8 @@ import { integrityEngine } from "../services/integrityEngine";
 import { enrichmentEngine } from "../services/enrichmentEngine";
 import { candidateProcessor } from "../services/candidateProcessor";
 import { recallGapEngine } from "../services/recallGapEngine";
+import { learningEngine } from "../services/learningPolicy";
+import { curriculumEngine } from "../services/curriculumEngine";
 import { startRepoAutoRefresh } from "../services/repoIndexer";
 import { runCatchupScoring } from "../services/traceScorer";
 import { loadSettings, seedSettingsFromEnv } from "../services/settingsService";
@@ -24,6 +26,7 @@ import { logger } from "../utils/logger";
 import { classifyActivity, recordActivity, deriveBreakdown } from "./activity";
 import { persistTrace, isTraceableRoute } from "../services/traceStore";
 import { maybeAutoScore } from "../services/traceScorer";
+import { ingestOutcomeFromTrace } from "../services/outcomeTracker";
 import * as crypto from "crypto";
 
 export function createApp() {
@@ -188,6 +191,7 @@ export function createApp() {
          };
          persistTrace(traceRec);
          maybeAutoScore(traceRec);
+         ingestOutcomeFromTrace(traceRec.id).catch(() => {});
        }
 
        return origEnd(...args);
@@ -253,6 +257,10 @@ export async function startServer() {
   setTimeout(() => { recallGapEngine.start?.(); }, 60000);
   // 📦 START REPO AUTO-REFRESH — rescan changed repos (respects EG_REPO_AUTO_REFRESH)
   setTimeout(() => { startRepoAutoRefresh(); }, 30 * 1000);
+  // 🧠 LEARNING ENGINE — judge scores → hyperparameter proposals
+  setTimeout(() => { learningEngine.start?.(); }, 120 * 1000);
+  // 🎓 CURRICULUM ENGINE — self-directed gap probing (weekly)
+  setTimeout(() => { curriculumEngine.start?.(); }, 240 * 1000);
   // 🩹 CATCH-UP SCORER — retry judge-failed auto-scores (5 min in, every 15 min)
   setTimeout(() => { runCatchupScoring().catch(() => {}); }, 5 * 60 * 1000);
   setInterval(() => { runCatchupScoring().catch(() => {}); }, 15 * 60 * 1000);

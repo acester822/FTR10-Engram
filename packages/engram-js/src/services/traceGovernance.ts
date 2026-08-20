@@ -132,6 +132,7 @@ export async function deleteCalibration(id: string): Promise<boolean> {
 
 export async function runCalibration(
   tolerance = 0.15,
+  onEntry?: (entry: any, index: number, total: number) => void,
 ): Promise<{
   checked: number;
   agree: number;
@@ -151,9 +152,16 @@ export async function runCalibration(
 }> {
   const entries = await listCalibration();
   const results: any[] = [];
+  const total = entries.length;
   let agree = 0;
   let absErrSum = 0;
   let unscorable = 0;
+  const push = (entry: any) => {
+    results.push(entry);
+    // v4.7.11: live-progress hook — the GUI streams each verdict as it lands
+    // (llama-swap activity-style) instead of waiting for the whole run.
+    onEntry?.(entry, results.length - 1, total);
+  };
   for (const e of entries) {
     // Honesty filter (v4.7.5): some traces cannot produce a MEANINGFUL score
     // for their dimension. The one systematic artifact class: extraction_fidelity
@@ -177,7 +185,7 @@ export async function runCalibration(
     }
     if (!scorable) {
       unscorable++;
-      results.push({
+      push({
         id: e.id,
         trace_id: e.trace_id,
         route: e.route ?? null,
@@ -195,7 +203,7 @@ export async function runCalibration(
     const match = actual !== null ? Math.abs(actual - e.expected_score) <= tolerance : null;
     if (match === true) agree++;
     if (actual !== null) absErrSum += Math.abs(actual - e.expected_score);
-    results.push({
+    push({
       id: e.id,
       trace_id: e.trace_id,
       route: e.route ?? null,

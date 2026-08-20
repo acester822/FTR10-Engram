@@ -56,6 +56,37 @@ function sanitizeMemoryContent(content: string): string {
   return content.replace(/\[END?\s*ENGRAM[^\]]*\]/gi, '[ENGRAM CONTENT — REDACTED]');
 }
 
+/** TRUE user request — the LAST user message that is not an Engram injection
+ *  block and not a skill/tool dump. Hermes injects the cognitive context as a
+ *  user message (plugin Option #3) and loads skills as user-role content, so
+ *  `messages[last]` is frequently the injection or a skill dump, NOT the
+ *  question. Walk backwards and skip those; fall back to the last user msg. */
+function extractTrueUserRequest(messages: any[]): string {
+  const isInjection = (c: string) =>
+    c.includes("[ENGRAM COGNITIVE CONTEXT]") ||
+    c.includes("[CODECORTEX COGNITIVE CONTEXT]") ||
+    c.includes("[END ENGRAM CONTEXT]") ||
+    c.includes("## Engram core directives") ||
+    c.includes("## Recalled from Engram memory");
+  const isDump = (c: string) =>
+    c.length > 4000 && (/^---\s*\nname:/.test(c.trim()) || c.includes("```yaml") || c.includes("```yml"));
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== "user") continue;
+    const c = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+    if (!c.trim() || isInjection(c) || isDump(c)) continue;
+    return c.slice(0, 2000);
+  }
+  // Fallback: last user message (may be the injection — better than nothing)
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== "user") continue;
+    const c = typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "");
+    if (c.trim()) return c.slice(0, 2000);
+  }
+  return "";
+}
+
 /** Build cognitive context from genome + phenotype memories + optional web results */
 function buildCognitiveContext(genome: GenomeMemory[], phenotype: PhenotypeMemory[], webResults?: string): string {
   // v4.7.10: no header here — the injection wrapper below adds the single
@@ -234,6 +265,37 @@ export const chat_completions_route = (app: any) => {
       const userMessage = body.messages[body.messages.length - 1];
       const userPrompt = typeof userMessage.content === "string" ? userMessage.content : JSON.stringify(userMessage.content);
 
+      // v4.7.11 — turn linkage: ONE turn_id per request, stamped on all four
+      // traces (in / recall / out / extract) so the pieces of a turn are
+      // groupable. `trueUserRequest` is the ACTUAL question (skipping the
+      // Engram injection block + skill/tool dumps Hermes sends as user msgs).
+      const turnId = crypto.randomUUID();
+      const trueUserRequest = extractTrueUserRequest(body.messages) || userPrompt.slice(0, 2000);
+      const turnCtx = {
+        turnId,
+        userRequest: trueUserRequest,
+        sessionId: sessionId || undefined,
+        projectId: typeof body.project_id === "string" ? body.project_id : undefined,
+        userId: typeof body.user_id === "string" ? body.user_id : undefined,
+        model: body.model || undefined,
+      };
+      // 0. IN trace — the user's TRUE request. NEVER scored (label 'in' →
+      //    eligibleForScoring returns null; GUI shows NA/Not Scorable).
+      persistTrace({
+        id: crypto.randomUUID(),
+        ts: Date.now(),
+        route: '/v1/chat/completions/in',
+        method: 'POST',
+        status: 200,
+        ms: 0,
+        direction: 'in',
+        kind: 'chat',
+        label: 'in',
+        ...turnCtx,
+        requestBody: { question: trueUserRequest, model: body.model || undefined },
+        responseBody: { accepted: true },
+      });
+
       // 1. Build Cognitive Context (Genome + Phenotype) via MemoryInjector
       const injector = new MemoryInjector();
 
@@ -280,47 +342,6 @@ export const chat_completions_route = (app: any) => {
       logger.debug({ module: 'chatRoute', model: body.model || "default", action: 'memory_recall', genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length }, 'Memory recall completed');
       memoryRecallSpan?.end({ output: { genomeCount: genomeMemories.length, phenotypeCount: phenotypeMemories.length } });
 
-      // v4.7.10: emit a RECALL trace so recall_relevance can be scored on
-      // proxy traffic. The middleware only records one chat trace per HTTP
-      // request, so the recall phase (which lives inside this handler) was
-      // invisible to the trace store → recall_relevance never scored.
-      persistTrace({
-        id: crypto.randomUUID(),
-        ts: Date.now(),
-        route: '/v1/chat/completions/recall',
-        method: 'POST',
-        status: 200,
-        ms: 0,
-        direction: 'out',
-        kind: 'read',
-        label: 'recall',
-        sessionId: typeof body.session_id === 'string' ? body.session_id : undefined,
-        projectId: typeof body.project_id === 'string' ? body.project_id : undefined,
-        userId: typeof body.user_id === 'string' ? body.user_id : undefined,
-        model: body.model || undefined,
-        requestBody: { query: userPrompt, limit: 5 },
-        responseBody: {
-          results: phenotypeMemories.map((m: any) => ({
-            id: m.id,
-            content: m.content,
-            sector: m.sector,
-            score: m.score,
-          })),
-          genome_count: genomeMemories.length,
-          phenotype_count: phenotypeMemories.length,
-        },
-        breakdown: {
-          genome: genomeMemories.length,
-          phenotype: phenotypeMemories.length,
-        },
-        injection: {
-          genome: genomeMemories.length,
-          phenotype: phenotypeMemories.length,
-        },
-      });
-      // recall traces are scored by the catch-up pass (label=recall + query)
-
-
       // Create abort signal tied to client disconnect (must be before auto-search which references it)
       const abortController = new AbortController();
       req.on('close', () => {
@@ -357,6 +378,49 @@ export const chat_completions_route = (app: any) => {
       autoSearchSpan?.end({ output: { searchCount: autoSearchCount } });
 
       const cognitiveContext = buildCognitiveContext(genomeMemories, phenotypeMemories, webContextBlock);
+
+      // v4.7.10/11: emit a RECALL trace so recall_relevance can be scored on
+      // proxy traffic. The middleware only records one chat trace per HTTP
+      // request, so the recall phase (which lives inside this handler) was
+      // invisible to the trace store → recall_relevance never scored.
+      // v4.7.11: responseBody.context_block carries the ACTUAL injected
+      // [ENGRAM COGNITIVE CONTEXT] block — the recall rubric grades ONLY this
+      // (the Engram portion), never the raw results or the working notes.
+      persistTrace({
+        id: crypto.randomUUID(),
+        ts: Date.now(),
+        route: '/v1/chat/completions/recall',
+        method: 'POST',
+        status: 200,
+        ms: 0,
+        direction: 'out',
+        kind: 'read',
+        label: 'recall',
+        ...turnCtx,
+        requestBody: { query: trueUserRequest, limit: 5 },
+        responseBody: {
+          results: phenotypeMemories.map((m: any) => ({
+            id: m.id,
+            content: m.content,
+            sector: m.sector,
+            score: m.score,
+          })),
+          genome_count: genomeMemories.length,
+          phenotype_count: phenotypeMemories.length,
+          context_block: cognitiveContext,
+        },
+        breakdown: {
+          genome: genomeMemories.length,
+          phenotype: phenotypeMemories.length,
+        },
+        injection: {
+          genome: genomeMemories.length,
+          phenotype: phenotypeMemories.length,
+          genome_ids: genomeMemories.map((m: any) => m.id),
+          phenotype_ids: phenotypeMemories.map((m: any) => m.id),
+        },
+      });
+      // recall traces are scored by the catch-up pass (label=recall + query)
 
       // 1.5 Sanitize previous messages to remove Engram status artifacts
       const sanitizedMessages = body.messages
@@ -497,6 +561,8 @@ export const chat_completions_route = (app: any) => {
         res.setHeader("X-Engram-Injection", JSON.stringify({
           genome: genomeMemories.length,
           phenotype: phenotypeMemories.length,
+          genome_ids: genomeMemories.map((m: any) => m.id),
+          phenotype_ids: phenotypeMemories.map((m: any) => m.id),
           web_used: autoSearchCount > 0,
         }));
         (res as any)._streaming = true;
@@ -519,6 +585,8 @@ export const chat_completions_route = (app: any) => {
 
         const decoder = new TextDecoder();
         let fullLlmResponseText = ""; // Accumulate for async logging
+        let contentText = "";         // v4.7.11: the actual answer (delta.content)
+        let reasoningText = "";       // v4.7.11: the working notes (delta.reasoning*)
 
         while (true) {
           // Stop reading if client disconnected
@@ -549,6 +617,8 @@ export const chat_completions_route = (app: any) => {
               // 🛑 FILTER: Skip our own status chunks so they never enter the accumulated transcript
 if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
                 fullLlmResponseText += reasoningContent + regularContent;
+                if (regularContent) contentText += regularContent;
+                if (reasoningContent) reasoningText += reasoningContent;
               }
             } catch { /* ignore partial JSON */ }
           }
@@ -570,8 +640,34 @@ if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
         // Flush pending Langfuse events to ensure they persist before response ends
         lf?.flushAsync().catch(() => {});
 
+        // 4.5 OUT trace — the agent's actual response, scored ONLY against the
+        // original question (the IN trace). Answer = delta.content (fall back
+        // to reasoning for reasoning-streaming providers); working notes are
+        // carried separately and never graded.
+        const answerText = contentText.trim() || reasoningText.trim() || fullLlmResponseText.trim();
+        persistTrace({
+          id: crypto.randomUUID(),
+          ts: Date.now(),
+          route: '/v1/chat/completions/out',
+          method: 'POST',
+          status: 200,
+          ms: 0,
+          direction: 'out',
+          kind: 'chat',
+          label: 'out',
+          ...turnCtx,
+          requestBody: { question: trueUserRequest, model: body.model || undefined },
+          responseBody: {
+            answer: answerText.slice(0, 4000),
+            working_notes: reasoningText.slice(0, 4000),
+          },
+        });
+
         // 5. LOG & EXTRACT: Fire-and-forget — don't block the SSE stream closing
-        logInteractionAsync(userPrompt, fullLlmResponseText, sessionId, body.project_id).then((extractResult) => {
+        // v4.7.11: extraction runs against the TRUE user request + the response
+        // (the /extract trace's conversation must be the real Q&A, never the
+        // injection block / skill dump / working notes).
+        logInteractionAsync(trueUserRequest, answerText, sessionId, body.project_id).then((extractResult) => {
           // v4.7.10: emit an EXTRACTION trace so extraction_fidelity can be
           // scored on proxy traffic. The middleware records only the chat
           // trace; the stored-memory ids (the thing extraction_fidelity
@@ -585,15 +681,12 @@ if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
             ms: 0,
             direction: 'in',
             kind: 'write',
-            label: 'ingest',
-            sessionId: typeof body.session_id === 'string' ? body.session_id : undefined,
-            projectId: typeof body.project_id === 'string' ? body.project_id : undefined,
-            userId: typeof body.user_id === 'string' ? body.user_id : undefined,
-            model: body.model || undefined,
+            label: 'extract',
+            ...turnCtx,
             requestBody: {
               conversation: [
-                { role: 'user', content: userPrompt },
-                { role: 'assistant', content: fullLlmResponseText.slice(0, 3000) },
+                { role: 'user', content: trueUserRequest },
+                { role: 'assistant', content: answerText.slice(0, 3000) },
               ],
             },
             responseBody: {
@@ -684,7 +777,24 @@ if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
 
         // ASYNC log
         const cleanResponse = parsedResponse?.choices?.[0]?.message?.content || "";
-        logInteractionAsync(userPrompt, cleanResponse, sessionId, body.project_id).then((extractResult) => {
+        // v4.7.11: OUT trace for the non-streaming path + extraction against the
+        // TRUE user request (the actual answer, not the injection block).
+        const answerText = cleanResponse.trim() || "";
+        persistTrace({
+          id: crypto.randomUUID(),
+          ts: Date.now(),
+          route: '/v1/chat/completions/out',
+          method: 'POST',
+          status: 200,
+          ms: 0,
+          direction: 'out',
+          kind: 'chat',
+          label: 'out',
+          ...turnCtx,
+          requestBody: { question: trueUserRequest, model: body.model || undefined },
+          responseBody: { answer: answerText.slice(0, 4000) },
+        });
+        logInteractionAsync(trueUserRequest, answerText, sessionId, body.project_id).then((extractResult) => {
           persistTrace({
             id: crypto.randomUUID(),
             ts: Date.now(),
@@ -694,15 +804,12 @@ if (!isEngramStatus(regularContent) && !isEngramStatus(reasoningContent)) {
             ms: 0,
             direction: 'in',
             kind: 'write',
-            label: 'ingest',
-            sessionId: typeof body.session_id === 'string' ? body.session_id : undefined,
-            projectId: typeof body.project_id === 'string' ? body.project_id : undefined,
-            userId: typeof body.user_id === 'string' ? body.user_id : undefined,
-            model: body.model || undefined,
+            label: 'extract',
+            ...turnCtx,
             requestBody: {
               conversation: [
-                { role: 'user', content: userPrompt },
-                { role: 'assistant', content: cleanResponse.slice(0, 3000) },
+                { role: 'user', content: trueUserRequest },
+                { role: 'assistant', content: answerText.slice(0, 3000) },
               ],
             },
             responseBody: {

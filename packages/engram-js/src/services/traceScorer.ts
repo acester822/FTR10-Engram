@@ -152,9 +152,12 @@ function extractChatTurn(body: unknown): { user: string; assistant: string } {
   try {
     const parsed = typeof text === "string" ? JSON.parse(text) : text;
     if (parsed && Array.isArray(parsed.messages)) messages = parsed.messages;
+    // v4.7.11: /v1/chat/completions/extract sends {conversation:[{role,content}...]}
+    else if (parsed && Array.isArray(parsed.conversation)) messages = parsed.conversation;
     else if (parsed && typeof parsed.raw === "string") {
       const inner = JSON.parse(parsed.raw);
       if (inner && Array.isArray(inner.messages)) messages = inner.messages;
+      else if (inner && Array.isArray(inner.conversation)) messages = inner.conversation;
     }
   } catch { /* truncated/escaped — fall through to regex */ }
 
@@ -176,7 +179,18 @@ function extractChatTurn(body: unknown): { user: string; assistant: string } {
     .join("\n")
     .trim();
 
-  return { user: userMsg || "(no user message found)", assistant: assistant || "(no assistant answer found)" };
+  // v4.7.11: for {conversation:[...]} bodies the assistant answer is IN the
+  // array (the /extract route's response is just the storage receipt) — pull
+  // the LAST assistant entry when no SSE answer was found.
+  let asst = assistant;
+  if (!asst) {
+    const asstMsgs = messages
+      .filter((m) => m?.role === "assistant")
+      .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content ?? "")));
+    if (asstMsgs.length) asst = asstMsgs[asstMsgs.length - 1].trim();
+  }
+
+  return { user: userMsg || "(no user message found)", assistant: asst || "(no assistant answer found)" };
 }
 
 async function buildRubric(dimension: TraceDimension, trace: any): Promise<{ system: string; user: string }> {
@@ -196,16 +210,39 @@ async function buildRubric(dimension: TraceDimension, trace: any): Promise<{ sys
   // v4.7.10: recall_relevance traces have a DIFFERENT shape than chat turns —
   // request_body is {query}, response_body is {results:[{content,score}]}.
   // Feed those to the judge instead of the chat-turn extraction.
+  // v4.7.11: grade ONLY the injected Engram portion — response_body.context_block
+  // (the actual [ENGRAM COGNITIVE CONTEXT] block). The raw results list is a
+  // fallback for legacy traces; the user's spec: "recall only scores the
+  // Engram portion, aka what is in between the context markers".
   if (dimension === "recall_relevance") {
     const q = (trace.request_body as any)?.query ?? chat.user;
+    const block = (trace.response_body as any)?.context_block;
     const results = (trace.response_body as any)?.results;
-    const retrieved = Array.isArray(results) && results.length
-      ? results.map((r: any) => `[score ${Number(r.score).toFixed(2)}] ${r.content ?? ""}`).join("\n")
-      : "(none)";
+    const retrieved = typeof block === "string" && block.trim().length
+      ? block
+      : Array.isArray(results) && results.length
+        ? results.map((r: any) => `[score ${Number(r.score).toFixed(2)}] ${r.content ?? ""}`).join("\n")
+        : "(none)";
     const r = RUBRICS[dimension];
     return {
       system: r.system,
       user: r.user({ request: trimForJudge(String(q)), response: trimForJudge(retrieved), injection }),
+    };
+  }
+  // v4.7.11: OUT traces (label 'out') are the agent's RESPONSE scored ONLY
+  // against the original question. request_body = {question}, response_body =
+  // {answer}. Never grade working notes or the raw SSE envelope.
+  if (dimension === "answer_quality" && (trace.label === "out" || (trace.request_body as any)?.question)) {
+    const q = (trace as any).user_request || (trace.request_body as any)?.question || chat.user;
+    const ans = (trace.response_body as any)?.answer;
+    const r = RUBRICS[dimension];
+    return {
+      system: r.system,
+      user: r.user({
+        request: trimForJudge(String(q)),
+        response: trimForJudge(typeof ans === "string" && ans.trim() ? ans : "(no answer captured)"),
+        injection,
+      }),
     };
   }
   // True extraction-fidelity (v4.7.0): grade the STORED output, not the receipt.
@@ -305,6 +342,10 @@ export async function scoreTrace(
     const rows = await pg_all(`SELECT * FROM public.traces WHERE id = $1`, [id]);
     const trace = rows[0];
     if (!trace) return { ok: false, error: "trace_not_found" };
+    // v4.7.11: the IN trace is the user's question — NEVER scoreable, even via
+    // an explicit dimension call (the GUI hides the button, the catch-up pass
+    // skips it, but a direct API/calibration call must also be refused).
+    if (trace.label === "in") return { ok: false, error: "in_trace_not_scorable" };
 
     const model = resolveJudgeModel();
     const { system, user } = await buildRubric(dimension, trace);
@@ -363,7 +404,7 @@ export async function runCatchupScoring(
       `SELECT id, label, request_body, response_body FROM public.traces
        WHERE (scores IS NULL OR jsonb_array_length(scores) = 0)
          AND status < 400
-         AND label IN ('chat', 'ingest', 'remember', 'recall')
+         AND label IN ('chat', 'out', 'ingest', 'extract', 'remember', 'recall')
        ORDER BY ts ASC LIMIT ${Math.min(Math.max(Number(max) || 10, 1), 50)}`,
       [],
     );
@@ -397,8 +438,10 @@ let autoScoreCounter = 0;
 
 export function autoScoreDimensionFor(trace: { label?: string }): TraceDimension | null {
   const label = trace.label || "";
-  if (label === "chat") return "answer_quality";
-  if (label === "ingest" || label === "remember") return "extraction_fidelity";
+  // v4.7.11: the IN trace is the user's question — NEVER scored (NA).
+  if (label === "in") return null;
+  if (label === "chat" || label === "out") return "answer_quality";
+  if (label === "ingest" || label === "extract" || label === "remember") return "extraction_fidelity";
   if (label === "recall") return "recall_relevance";
   return null;
 }
@@ -433,6 +476,15 @@ export function eligibleForScoring(t: {
     // "reply exactly: X" test turns as label=chat — grading answer_quality on
     // those produces uniform 0s that look like a broken pipeline. Require a
     // real user message that isn't itself a system/engine block.
+    // v4.7.11: OUT traces carry the question in request_body.question and the
+    // answer in response_body.answer — accept them directly.
+    if (t.label === "out") {
+      const q = (t.request_body as any)?.question;
+      const a = (t.response_body as any)?.answer;
+      if (typeof q !== "string" || !q.trim()) return null;
+      if (typeof a !== "string" || !a.trim()) return null;
+      return dim;
+    }
     const turn = extractChatTurn(t.request_body);
     const u = turn.user.trim();
     if (
@@ -468,9 +520,16 @@ export function maybeAutoScore(trace: { id: string; label?: string; status?: num
       if (!t) return;
       if (!eligibleForScoring({ label: trace.label, request_body: t.request_body, response_body: t.response_body })) return;
       return scoreTrace(trace.id, dimension as TraceDimension)
-        .then((r) => {
+        .then(async (r) => {
           if (r.ok) {
             logger.info({ module: "traceScorer", id: trace.id, dimension, score: r.score }, `auto-scored trace`);
+            // After scoring, feed the outcome signal (if answer_quality)
+            if (dimension === "answer_quality") {
+              try {
+                const { ingestOutcomeFromTrace } = await import("./outcomeTracker");
+                await ingestOutcomeFromTrace(trace.id);
+              } catch { /* noop */ }
+            }
           } else if (/no judge/i.test(r.error || "")) {
             logger.debug({ module: "traceScorer", id: trace.id, error: r.error }, "auto-score skipped (judge unconfigured)");
           } else {
@@ -501,6 +560,22 @@ export async function scoreAllUnscored(
   for (const row of rows) {
     const dim = autoScoreDimensionFor(row);
     if (!dim) {
+      skipped++;
+      continue;
+    }
+    // v4.7.12: apply the SAME shape-eligibility gate as auto-score and the
+    // catch-up pass. scoreAllUnscored was the THIRD path missed by the v4.7.10
+    // bogus-zero fix — it scored every labeled trace (health probes, system
+    // notices, receipt-era extracts, empty-answer outs), producing artifact 0s.
+    const persisted = await pg_all(
+      `SELECT request_body, response_body FROM public.traces WHERE id = $1`,
+      [row.id],
+    );
+    if (!persisted[0]) {
+      skipped++;
+      continue;
+    }
+    if (!eligibleForScoring({ label: row.label, request_body: persisted[0].request_body, response_body: persisted[0].response_body })) {
       skipped++;
       continue;
     }

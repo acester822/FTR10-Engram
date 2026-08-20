@@ -41,6 +41,8 @@ export const DURABLE_TABLES = [
   "integrity_findings",
   "judge_evals",
   "repos",
+  "learning_proposals",
+  "memories_outcome_stats",
 ] as const;
 
 export interface DurableSchemaOptions {
@@ -78,6 +80,8 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
   const integrityFindings = table(schema, "integrity_findings");
   const judgeEvals = table(schema, "judge_evals");
   const repos = table(schema, "repos");
+  const learningProposals = table(schema, "learning_proposals");
+  const memoriesOutcomeStats = table(schema, "memories_outcome_stats");
   const edgeTypeCheck = DURABLE_EDGE_TYPES.map((type) => `'${type}'`).join(",");
 
   return [
@@ -382,6 +386,14 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
     `create index if not exists durable_traces_route_idx on ${traces} (route)`,
     // Review loop (v4.3.0-governance): when a trace was reviewed/acknowledged.
     `alter table ${traces} add column if not exists reviewed_at timestamptz`,
+    // v4.7.11 turn linkage: every trace of ONE user turn shares a turn_id and
+    // carries the TRUE user request text, so the four traces of a turn
+    // (in / recall / out / extract) are groupable and scoreable against the
+    // right reference — never against skill dumps, injection blocks, or
+    // working notes.
+    `alter table ${traces} add column if not exists turn_id uuid`,
+    `alter table ${traces} add column if not exists user_request text`,
+    `create index if not exists durable_traces_turn_idx on ${traces} (turn_id)`,
     // Judge governance: curated traces with HUMAN-LABELED expected scores used
     // to calibrate the LLM judge (agreement rate) — the "trust the judge"
     // checkpoint. Rows hard-delete with their trace.
@@ -448,6 +460,43 @@ export function buildDurableSchemaSql(options: DurableSchemaOptions = {}) {
       unique (source)
     )`,
     `create index if not exists durable_repos_status_idx on ${repos} (status)`,
+    // ── Learning proposals (v5.0.0-living-model) — judge scores → hyperparameters ──
+    // When judge scores trend down, the learningPolicy engine proposes a knob
+    // adjustment. Flag-first: proposals land here for human review before apply.
+    `create table if not exists ${learningProposals} (
+      id uuid primary key default gen_random_uuid(),
+      created_at timestamptz not null default now(),
+      dimension text not null check (dimension in ('recall_relevance', 'extraction_fidelity', 'answer_quality')),
+      metric text not null check (metric in ('avg', 'trend_slope', 'count_below_bad')),
+      observed_value double precision not null,
+      threshold_breached double precision not null,
+      target_knob text not null,
+      current_value text not null,
+      proposed_value text not null,
+      rationale text not null,
+      status text not null default 'open' check (status in ('open', 'applied', 'dismissed', 'reverted')),
+      applied_at timestamptz,
+      applied_by text,
+      reverted_at timestamptz,
+      revert_reason text,
+      audit_log_id uuid
+    )`,
+    `create index if not exists durable_learning_proposals_status_idx on ${learningProposals} (status, created_at desc)`,
+    // Per-memory outcome stats: did recalling this memory HELP answer quality?
+    // Populated from traces where this memory was injected; drives outcome-aware
+    // decay and recall ranking (v5.0.0-living-model).
+    `create table if not exists ${memoriesOutcomeStats} (
+      memory_id uuid not null references ${memories}(id) on delete cascade,
+      window_days int not null default 7,
+      recall_count integer not null default 0,
+      answer_quality_sum double precision not null default 0,
+      answer_quality_count integer not null default 0,
+      avg_answer_quality double precision generated always as
+        (case when answer_quality_count > 0 then answer_quality_sum / answer_quality_count else null end) stored,
+      last_calculated_at timestamptz not null default now(),
+      primary key (memory_id, window_days)
+    )`,
+    `create index if not exists durable_memories_outcome_stats_avg_idx on ${memoriesOutcomeStats} (avg_answer_quality)`,
     // Auto-refresh fingerprint (v4.7.0): last-known git HEAD so a pull/fetch
     // (which can rewrite mtimes of unchanged files) is still detected.
     `alter table ${repos} add column if not exists head_sha text`,
