@@ -279,7 +279,15 @@ async function buildRubric(dimension: TraceDimension, trace: any): Promise<{ sys
     }
   }
   const r = RUBRICS[dimension];
-  return { system: r.system, user: r.user({ request, response, injection, stored }) };
+  // v5.0.1: the fidelity rubric judges extraction "vs. the conversation", so
+  // the judge must see BOTH sides — assistant-elaborated facts (extraction
+  // pulls from llm_response too) were flagged as hallucinations because the
+  // assistant half never reached the judge prompt.
+  const convoRequest =
+    dimension === "extraction_fidelity" && chat.assistant.trim()
+      ? trimForJudge(`${chat.user}\n\nASSISTANT: ${chat.assistant}`)
+      : request;
+  return { system: r.system, user: r.user({ request: convoRequest, response, injection, stored }) };
 }
 
 // ── Tolerant JSON parse (fences anywhere, outermost object, log raw) ──
