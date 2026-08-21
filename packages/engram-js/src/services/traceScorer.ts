@@ -154,10 +154,27 @@ function extractChatTurn(body: unknown): { user: string; assistant: string } {
     if (parsed && Array.isArray(parsed.messages)) messages = parsed.messages;
     // v4.7.11: /v1/chat/completions/extract sends {conversation:[{role,content}...]}
     else if (parsed && Array.isArray(parsed.conversation)) messages = parsed.conversation;
-    else if (parsed && typeof parsed.raw === "string") {
+    // v5.0.1: /ingest/conversation bodies are {user_prompt, llm_response, ...}
+    // — not a messages array, and the tolerant regex below can't see that
+    // shape. extractChatTurn returned "(no user message found)", so the judge
+    // graded an empty turn and produced artifact 0.0 extraction_fidelity on
+    // every Hermes-sidecar ingest.
+    else if (parsed && (typeof parsed.user_prompt === "string" || typeof parsed.llm_response === "string")) {
+      messages = [
+        { role: "user", content: parsed.user_prompt || "" },
+        { role: "assistant", content: parsed.llm_response || "" },
+      ];
+    } else if (parsed && typeof parsed.raw === "string") {
       const inner = JSON.parse(parsed.raw);
       if (inner && Array.isArray(inner.messages)) messages = inner.messages;
       else if (inner && Array.isArray(inner.conversation)) messages = inner.conversation;
+      // v5.0.1: raw-envelope variant of the same shape.
+      else if (typeof inner.user_prompt === "string" || typeof inner.llm_response === "string") {
+        messages = [
+          { role: "user", content: inner.user_prompt || "" },
+          { role: "assistant", content: inner.llm_response || "" },
+        ];
+      }
     }
   } catch { /* truncated/escaped — fall through to regex */ }
 
@@ -216,7 +233,12 @@ async function buildRubric(dimension: TraceDimension, trace: any): Promise<{ sys
   // Engram portion, aka what is in between the context markers".
   if (dimension === "recall_relevance") {
     const q = (trace.request_body as any)?.query ?? chat.user;
-    const block = (trace.response_body as any)?.context_block;
+    // v5.0.1: /api/cognitive-context responses carry the injected block in
+    // `context` (NOT context_block — that's the /v1/chat/completions proxy
+    // shape). The scorer only knew context_block, so sidecar recalls were
+    // judged on "(none)" → guaranteed 0.0 recall_relevance.
+    const block = (trace.response_body as any)?.context_block
+      ?? (trace.response_body as any)?.context;
     const results = (trace.response_body as any)?.results;
     const retrieved = typeof block === "string" && block.trim().length
       ? block
@@ -400,12 +422,19 @@ export async function runCatchupScoring(
   if (catchupRunning) return { attempted: 0, scored: 0, failed: 0, skipped_ineligible: 0, skipped_running: true };
   catchupRunning = true;
   try {
+    // v5.0.1: this pass has been head-of-line blocked since Aug 6 — the
+    // oldest-first LIMIT N window was entirely filled with receipt-era
+    // ingests / conversational recalls that fail eligibleForScoring, so
+    // `attempted` stayed 0 forever and every post-Aug-6 raced or judge-failed
+    // trace never got retried. Over-fetch a wide window, apply eligibility
+    // FIRST, and spend the attempt budget only on scoreable traces.
+    const WINDOW = Math.max(Number(max) || 10, 50) * 20;
     const rows = await pg_all(
       `SELECT id, label, request_body, response_body FROM public.traces
        WHERE (scores IS NULL OR jsonb_array_length(scores) = 0)
          AND status < 400
          AND label IN ('chat', 'out', 'ingest', 'extract', 'remember', 'recall')
-       ORDER BY ts ASC LIMIT ${Math.min(Math.max(Number(max) || 10, 1), 50)}`,
+       ORDER BY ts ASC LIMIT ${Math.min(WINDOW, 1000)}`,
       [],
     );
     let attempted = 0;
@@ -418,6 +447,7 @@ export async function runCatchupScoring(
         skipped++;
         continue;
       }
+      if (attempted >= Math.min(Math.max(Number(max) || 10, 1), 50)) break;
       attempted++;
       const r = await scoreTrace(t.id, dim, { persist: true });
       if (r.ok) scored++;
@@ -517,26 +547,49 @@ export function maybeAutoScore(trace: { id: string; label?: string; status?: num
   pg_all(`SELECT request_body, response_body FROM public.traces WHERE id = $1`, [trace.id])
     .then((rows) => {
       const t = rows[0];
-      if (!t) return;
+      // v5.0.1: persistTrace fires its INSERT without awaiting; when this
+      // SELECT wins the race the trace was silently never scored (no log —
+      // the interleaved scored/unscored afternoon pattern). One delayed
+      // retry, then give up — the catch-up pass covers stragglers.
+      if (!t) {
+        return new Promise((resolve) => setTimeout(resolve, 2000))
+          .then(() => pg_all(`SELECT request_body, response_body FROM public.traces WHERE id = $1`, [trace.id]))
+          .then((retryRows) => {
+            const rt = retryRows[0];
+            if (!rt) return;
+            if (!eligibleForScoring({ label: trace.label, request_body: rt.request_body, response_body: rt.response_body })) return;
+            return doScore(trace, dimension as TraceDimension);
+          })
+          .catch(() => {});
+      }
       if (!eligibleForScoring({ label: trace.label, request_body: t.request_body, response_body: t.response_body })) return;
-      return scoreTrace(trace.id, dimension as TraceDimension)
-        .then(async (r) => {
-          if (r.ok) {
-            logger.info({ module: "traceScorer", id: trace.id, dimension, score: r.score }, `auto-scored trace`);
-            // After scoring, feed the outcome signal (if answer_quality)
-            if (dimension === "answer_quality") {
-              try {
-                const { ingestOutcomeFromTrace } = await import("./outcomeTracker");
-                await ingestOutcomeFromTrace(trace.id);
-              } catch { /* noop */ }
-            }
-          } else if (/no judge/i.test(r.error || "")) {
-            logger.debug({ module: "traceScorer", id: trace.id, error: r.error }, "auto-score skipped (judge unconfigured)");
-          } else {
-            logger.warn({ module: "traceScorer", id: trace.id, error: r.error }, "auto-score failed");
-          }
-        })
-        .catch(() => {});
+      return doScore(trace, dimension as TraceDimension);
+    })
+    .catch(() => {});
+}
+
+/** v5.0.1: shared tail of the auto-score path (judge call + outcome feed +
+ *  logging), extracted so the INSERT/SELECT race retry can reuse it. */
+function doScore(
+  trace: { id: string; label?: string },
+  dimension: TraceDimension,
+): Promise<void> | undefined {
+  return scoreTrace(trace.id, dimension)
+    .then(async (r) => {
+      if (r.ok) {
+        logger.info({ module: "traceScorer", id: trace.id, dimension, score: r.score }, `auto-scored trace`);
+        // After scoring, feed the outcome signal (if answer_quality)
+        if (dimension === "answer_quality") {
+          try {
+            const { ingestOutcomeFromTrace } = await import("./outcomeTracker");
+            await ingestOutcomeFromTrace(trace.id);
+          } catch { /* noop */ }
+        }
+      } else if (/no judge/i.test(r.error || "")) {
+        logger.debug({ module: "traceScorer", id: trace.id, error: r.error }, "auto-score skipped (judge unconfigured)");
+      } else {
+        logger.warn({ module: "traceScorer", id: trace.id, error: r.error }, "auto-score failed");
+      }
     })
     .catch(() => {});
 }
