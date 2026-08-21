@@ -80,6 +80,31 @@ export const dashboard_judge_route = (app: any) => {
     }
   });
 
+  // v4.7.11: SSE variant of run-calibration — streams one `entry` event per
+  // calibration verdict as it lands, then a `done` event with the full summary.
+  // The GUI renders a live run feed (llama-swap activity-style) instead of a
+  // blank spinner while the judge re-scores each entry serially.
+  app.post("/api/dashboard/judge/run-calibration/stream", async (req: any, res: any) => {
+    const tolerance = Number(req.body?.tolerance) || 0.15;
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.write("retry: 2000\n\n");
+    try {
+      const result = await runCalibration(tolerance, (entry, index, total) => {
+        res.write(`event: entry\ndata: ${JSON.stringify({ index, total, ...entry })}\n\n`);
+      });
+      res.write(`event: done\ndata: ${JSON.stringify(result)}\n\n`);
+    } catch (e: any) {
+      res.write(`event: error\ndata: ${JSON.stringify({ error: e?.message || String(e) })}\n\n`);
+    } finally {
+      res.end();
+    }
+  });
+
   // Re-score a random sample N times (non-persisting) and report variance.
   app.post("/api/dashboard/judge/consistency", async (req: any, res: any) => {
     try {

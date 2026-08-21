@@ -1510,6 +1510,66 @@ function ScorePill({ score, label, good = 0.7, bad = 0.4 }: any) {
   return <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${cls}`}>{label !== undefined ? label : score}</span>;
 }
 
+// v4.7.11: compact tabbed trace-body viewer — "Formatted" shows what was
+// actually said (user + assistant), "Raw" shows the captured JSON envelopes.
+// Replaces the old side-by-side Request/Response panels + separate
+// "What was actually said" block (which hid the response for /extract traces).
+function TraceBodyTabs({ trace, jsonBlock }: any) {
+  const [tab, setTab] = useState("formatted");
+  const hasFormatted = !!(trace?._user_text || trace?._assistant_text);
+  const tabBtn = (key: "formatted" | "raw", label: string) => (
+    <button
+      onClick={() => setTab(key)}
+      className={`px-3 py-1.5 text-xs font-medium rounded-t-lg border-b-2 -mb-px ${
+        tab === key
+          ? "border-blue-600 text-blue-700 bg-slate-50"
+          : "border-transparent text-slate-500 hover:text-slate-700"
+      }`}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div className="rounded-lg border border-slate-200">
+      <div className="flex items-center gap-1 px-3 pt-2 border-b border-slate-200 bg-slate-50 rounded-t-lg">
+        {tabBtn("formatted", "Formatted")}
+        {tabBtn("raw", "Raw")}
+      </div>
+      {tab === "formatted" ? (
+        hasFormatted ? (
+          <div className="p-3 space-y-3">
+            {trace?._user_text && (
+              <div>
+                <span className="text-[11px] font-semibold text-blue-600 uppercase">User</span>
+                <pre className="whitespace-pre-wrap text-sm text-slate-800 mt-1">{trace._user_text}</pre>
+              </div>
+            )}
+            {trace?._assistant_text && (
+              <div>
+                <span className="text-[11px] font-semibold text-green-600 uppercase">Assistant</span>
+                <pre className="whitespace-pre-wrap text-sm text-slate-800 mt-1">{trace._assistant_text}</pre>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="p-3 text-xs text-slate-400">No readable conversation — see the Raw tab for the captured bodies.</div>
+        )
+      ) : (
+        <div className="grid grid-cols-2 gap-4 p-3">
+          <div>
+            <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Request</h4>
+            {jsonBlock(trace?.request_body)}
+          </div>
+          <div>
+            <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Response</h4>
+            {jsonBlock(trace?.response_body)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TracesView() {
   const [traces, setTraces] = useState([] as any[]);
   const [loading, setLoading] = useState(true);
@@ -1616,7 +1676,10 @@ function TracesView() {
   };
 
   const defaultDimFor = (t: any) =>
-    t?.label === "chat" ? "answer_quality" : t?.label === "ingest" || t?.label === "remember" ? "extraction_fidelity" : "recall_relevance";
+    t?.label === "in" ? null :
+    t?.label === "chat" || t?.label === "out" ? "answer_quality" :
+    t?.label === "ingest" || t?.label === "extract" || t?.label === "remember" ? "extraction_fidelity" :
+    "recall_relevance";
 
   const openCalForm = () => {
     if (!selected) return;
@@ -1837,7 +1900,9 @@ function TracesView() {
     }
   };
 
-  const scoreBadge = (s: any[]) => {
+  const scoreBadge = (s: any[], label?: string) => {
+    if (label === "in")
+      return <span className="text-xs font-medium text-slate-400" title="The IN trace is the user's question — it is never scored (no rubric applies)">NA · not scorable</span>;
     if (!s || !s.length) return <span className="text-xs text-slate-400">unscored</span>;
     return (
       <span className="inline-flex flex-wrap gap-1">
@@ -1846,6 +1911,16 @@ function TracesView() {
         ))}
       </span>
     );
+  };
+
+  const labelBadge = (label: string) => {
+    const cls =
+      label === "in" ? "bg-slate-200 text-slate-600" :
+      label === "recall" ? "bg-blue-100 text-blue-700" :
+      label === "out" ? "bg-emerald-100 text-emerald-700" :
+      label === "extract" ? "bg-purple-100 text-purple-700" :
+      "bg-gray-100 text-gray-600";
+    return <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${cls}`}>{label}</span>;
   };
 
   const dirBadge = (d: string) =>
@@ -2340,7 +2415,7 @@ function TracesView() {
                   <td className="py-2 pr-3 text-xs text-slate-500 whitespace-nowrap">{fmtTs(t.ts)}</td>
                   <td className="py-2 pr-3">
                     <span className="font-mono text-xs text-blue-600">{t.route}</span>
-                    <span className="ml-2 text-xs text-slate-400">{t.label}</span>
+                    {labelBadge(t.label)}
                   </td>
                   <td className="py-2 pr-3">
                     <span className={`px-1.5 py-0.5 rounded text-xs ${dirBadge(t.direction)}`}>{t.direction.toUpperCase()}</span>
@@ -2361,7 +2436,7 @@ function TracesView() {
                       : "—"}
                   </td>
                   <td className="py-2">
-                    {scoreBadge(t.scores)}
+                    {scoreBadge(t.scores, t.label)}
                     {t.needs_review && (
                       <span className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-xs font-semibold">
                         <Flag size={10} /> needs review
@@ -2393,22 +2468,30 @@ function TracesView() {
               <span className="text-sm font-normal text-slate-400">({fmtTs(selected.ts)})</span>
             </h3>
             <div className="flex items-center gap-3">
-              <select
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                value={dimension}
-                onChange={(e: any) => setDimension(e.target.value)}
-              >
-                <option value="recall_relevance">recall_relevance</option>
-                <option value="extraction_fidelity">extraction_fidelity</option>
-                <option value="answer_quality">answer_quality</option>
-              </select>
-              <button
-                onClick={doScore}
-                disabled={scoring}
-                className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
-              >
-                {scoring ? "Scoring..." : "Score now"}
-              </button>
+              {selected?.label === "in" ? (
+                <span className="px-3 py-2 rounded-lg text-sm bg-slate-100 text-slate-500" title="The IN trace is the user's question — it is never scored (no rubric applies)">
+                  NA · not scorable
+                </span>
+              ) : (
+                <>
+                  <select
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={dimension}
+                    onChange={(e: any) => setDimension(e.target.value)}
+                  >
+                    <option value="recall_relevance">recall_relevance</option>
+                    <option value="extraction_fidelity">extraction_fidelity</option>
+                    <option value="answer_quality">answer_quality</option>
+                  </select>
+                  <button
+                    onClick={doScore}
+                    disabled={scoring}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {scoring ? "Scoring..." : "Score now"}
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => setSelected(null)}
                 className="px-3 py-2 bg-gray-100 text-gray-600 border border-gray-300 rounded-lg text-sm hover:bg-gray-200"
@@ -2424,6 +2507,21 @@ function TracesView() {
             <button onClick={copyId} className="px-2 py-1 bg-white border border-gray-300 rounded text-xs text-slate-600 hover:bg-gray-100">
               Copy id
             </button>
+            {selected.turn_id && (
+              <span className="text-[10px] font-mono text-slate-400" title="turn_id — groups the 4 traces (in / recall / out / extract) of one user turn">
+                turn {String(selected.turn_id).slice(0, 8)}
+              </span>
+            )}
+            {selected.session_id && (
+              <span className="text-[10px] font-mono text-slate-400" title="session_id">
+                sess {String(selected.session_id).slice(0, 8)}
+              </span>
+            )}
+            {selected.user_request && (
+              <span className="max-w-xs truncate text-[10px] text-slate-500 italic" title={`True user request: ${selected.user_request}`}>
+                “{selected.user_request.slice(0, 90)}”
+              </span>
+            )}
             <button
               onClick={openCalForm}
               className={`px-2 py-1 rounded text-xs border ${
@@ -2482,62 +2580,38 @@ function TracesView() {
           )}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Request</h4>
-              {jsonBlock(selected.request_body)}
-            </div>
-            <div>
-              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Response</h4>
-              {jsonBlock(selected.response_body)}
-            </div>
-          </div>
-          {(selected._user_text || selected._assistant_text) && (
-            <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
-              <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase">What was actually said</h4>
-              {selected._user_text && (
-                <div className="mb-2">
-                  <span className="text-[11px] font-semibold text-blue-600 uppercase">User</span>
-                  <pre className="whitespace-pre-wrap text-sm text-slate-800 mt-1">{selected._user_text}</pre>
+              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Scores</h4>
+              {selected.scores && selected.scores.length > 0 ? (
+                <div className="space-y-2">
+                  {selected.scores.map((x: any, i: number) => (
+                    <div key={i} className="flex items-start gap-3 bg-slate-50 border border-gray-200 rounded-lg p-3 text-xs">
+                      <ScorePill score={x.score} good={facets.policy.good} bad={facets.policy.bad} />
+                      <div>
+                        <span className="font-semibold text-slate-700">{x.dimension}</span>
+                        <span className="text-slate-400 ml-2">
+                          {x.judge_model} · {fmtTs(x.ts)}
+                        </span>
+                        <p className="text-slate-600 mt-0.5">{x.reason}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              )}
-              {selected._assistant_text && (
-                <div>
-                  <span className="text-[11px] font-semibold text-green-600 uppercase">Assistant</span>
-                  <pre className="whitespace-pre-wrap text-sm text-slate-800 mt-1">{selected._assistant_text}</pre>
-                </div>
+              ) : (
+                <span className="text-xs text-slate-400">No stored scores — use Score now.</span>
               )}
             </div>
-          )}
-          {selected.breakdown && (
             <div>
               <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Breakdown</h4>
-              {jsonBlock(selected.breakdown)}
+              {selected.breakdown ? jsonBlock(selected.breakdown) : <span className="text-xs text-slate-400">—</span>}
+              {selected.injection && (
+                <div className="mt-3">
+                  <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Injection</h4>
+                  {jsonBlock(selected.injection)}
+                </div>
+              )}
             </div>
-          )}
-          {selected.injection && (
-            <div>
-              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Injection</h4>
-              {jsonBlock(selected.injection)}
-            </div>
-          )}
-          {selected.scores && selected.scores.length > 0 && (
-            <div>
-              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Scores</h4>
-              <div className="space-y-2">
-                {selected.scores.map((x: any, i: number) => (
-                  <div key={i} className="flex items-start gap-3 bg-slate-50 border border-gray-200 rounded-lg p-3 text-xs">
-                    <ScorePill score={x.score} good={facets.policy.good} bad={facets.policy.bad} />
-                    <div>
-                      <span className="font-semibold text-slate-700">{x.dimension}</span>
-                      <span className="text-slate-400 ml-2">
-                        {x.judge_model} · {fmtTs(x.ts)}
-                      </span>
-                      <p className="text-slate-600 mt-0.5">{x.reason}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          </div>
+          <TraceBodyTabs trace={selected} jsonBlock={jsonBlock} />
           {selected.error && (
             <div>
               <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Error</h4>
@@ -2697,20 +2771,57 @@ function GovernanceView() {
     }
   };
 
+  // v4.7.11: run calibration over the SSE stream endpoint so the user WATCHES
+  // each verdict land (llama-swap activity-style) instead of a blank spinner.
+  const [calLive, setCalLive] = useState([] as any[]);
+  const [calLiveTotal, setCalLiveTotal] = useState(0);
+
   const runCal = async () => {
     setCalRunning(true);
     setCalResult(null);
+    setCalLive([]);
+    setCalLiveTotal(0);
     try {
-      const res = await fetch("/api/dashboard/judge/run-calibration", {
+      const res = await fetch("/api/dashboard/judge/run-calibration/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tolerance: 0.15 }),
       });
-      if (res.ok) setCalResult(await res.json());
-    } catch {
-      // ignore
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx: number;
+        while ((idx = buf.indexOf("\n\n")) !== -1) {
+          const raw = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const dataLine = raw.split("\n").find((l) => l.startsWith("data:"));
+          if (!dataLine) continue;
+          try {
+            const obj = JSON.parse(dataLine.slice(5).trim());
+            if (obj && obj.trace_id) {
+              setCalLive((prev: any[]) => [...prev, obj]);
+              setCalLiveTotal(obj.total ?? 0);
+            } else if (obj && obj.entries) {
+              setCalResult(obj);
+            } else if (obj && obj.error) {
+              setCalMsg({ ok: false, text: obj.error });
+            }
+          } catch {
+            // partial frame — ignore
+          }
+        }
+      }
+    } catch (e: any) {
+      setCalMsg({ ok: false, text: `Calibration run failed: ${e?.message || String(e)}` });
     } finally {
       setCalRunning(false);
+      loadCalibration();
     }
   };
 
@@ -2767,13 +2878,47 @@ function GovernanceView() {
             disabled={calRunning || calEntries.length === 0}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {calRunning ? "Scoring..." : "Run calibration"}
+            {calRunning
+              ? `Scoring ${calLive.length}/${calLiveTotal || calEntries.length}…`
+              : "Run calibration"}
           </button>
         </div>
         <p className="text-xs text-slate-400">
           Curated traces with HUMAN-LABELED expected scores. Running calibration re-scores each entry (fresh judge
-          call, not persisted) and reports agreement within a 0.15 tolerance.
+          call, not persisted) and reports agreement within a 0.15 tolerance. Verdicts stream in live below.
         </p>
+
+        {/* Live run feed (v4.7.11) — each verdict appears as the judge lands it */}
+        {(calRunning || calLive.length > 0) && (
+          <div className="border border-slate-200 rounded-lg overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+              <span className="text-xs font-semibold text-slate-600 uppercase">Live run</span>
+              {calRunning && (
+                <span className="flex items-center gap-1.5 text-xs text-blue-600">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                  judge scoring…
+                </span>
+              )}
+            </div>
+            <div className="divide-y divide-slate-100 max-h-64 overflow-auto">
+              {calLive.length === 0 && calRunning ? (
+                <div className="px-3 py-3 text-xs text-slate-400">Waiting for the first verdict…</div>
+              ) : (
+                calLive.map((x: any, i: number) => (
+                  <div key={x.id ?? i} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                    <span className={`font-bold ${x.match === true ? "text-emerald-600" : x.match === false ? "text-red-600" : "text-slate-400"}`}>
+                      {x.match === true ? "✓" : x.match === false ? "✗" : "–"}
+                    </span>
+                    <span className="font-mono text-slate-500 w-40 truncate">{x.dimension}</span>
+                    <span className="text-slate-600">exp {x.expected}</span>
+                    <span className="text-slate-400">vs judge {x.actual ?? "…"}</span>
+                    {x.note && <span className="text-yellow-600 italic truncate">{x.note}</span>}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
 
         {calResult && (
           <div className="space-y-2">
@@ -2797,21 +2942,6 @@ function GovernanceView() {
                 </div>
               )}
             </div>
-            {(calResult.entries || []).length > 0 && (
-              <div className="bg-slate-50 border border-gray-200 rounded-lg p-2 space-y-1">
-                {calResult.entries.map((x: any) => (
-                  <div key={x.id} className="flex items-center gap-2 text-xs">
-                    <span className={`font-bold ${x.match === true ? "text-emerald-600" : x.match === false ? "text-red-600" : "text-slate-400"}`}>
-                      {x.match === true ? "✓" : x.match === false ? "✗" : "–"}
-                    </span>
-                    <span className="font-mono text-slate-500 w-36 truncate">{x.dimension}</span>
-                    <span className="text-slate-600">exp {x.expected}</span>
-                    <span className="text-slate-400">vs judge {x.actual ?? "—"}</span>
-                    {x.note && <span className="text-yellow-600 italic truncate">{x.note}</span>}
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
 
@@ -3085,33 +3215,7 @@ function GovernanceView() {
             <code className="font-mono">{expandedTrace.id}</code> · {fmtTs(expandedTrace.ts)} · {expandedTrace.label} ·
             status {expandedTrace.status} · {expandedTrace.ms}ms
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Request</h4>
-              {jsonBlock(expandedTrace.request_body)}
-            </div>
-            <div>
-              <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Response</h4>
-              {jsonBlock(expandedTrace.response_body)}
-            </div>
-          </div>
-          {(expandedTrace._user_text || expandedTrace._assistant_text) && (
-            <div className="rounded-lg border border-slate-200 p-3 bg-slate-50">
-              <h4 className="text-xs font-semibold text-slate-500 mb-2 uppercase">What was actually said</h4>
-              {expandedTrace._user_text && (
-                <div className="mb-2">
-                  <span className="text-[11px] font-semibold text-blue-600 uppercase">User</span>
-                  <pre className="whitespace-pre-wrap text-sm text-slate-800 mt-1">{expandedTrace._user_text}</pre>
-                </div>
-              )}
-              {expandedTrace._assistant_text && (
-                <div>
-                  <span className="text-[11px] font-semibold text-green-600 uppercase">Assistant</span>
-                  <pre className="whitespace-pre-wrap text-sm text-slate-800 mt-1">{expandedTrace._assistant_text}</pre>
-                </div>
-              )}
-            </div>
-          )}
+          <TraceBodyTabs trace={expandedTrace} jsonBlock={jsonBlock} />
           {expandedTrace.breakdown && (
             <div>
               <h4 className="text-xs font-semibold text-slate-500 mb-1 uppercase">Breakdown</h4>

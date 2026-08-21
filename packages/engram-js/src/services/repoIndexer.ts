@@ -57,7 +57,7 @@ function refreshIntervalMs(): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 30 * 60 * 1000;
 }
 
-const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".nuxt", "vendor", ".venv", "venv", "__pycache__", ".cache", "coverage", ".engram", ".hermes", "target", ".idea", ".vscode"]);
+const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".next", ".nuxt", "vendor", ".venv", "venv", "__pycache__", ".cache", "coverage", ".engram", ".hermes", "target", ".idea", ".vscode", "repos", "logs", "working_files"]);
 const SKIP_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".pdf", ".zip", ".gz", ".tar", ".lock", ".map", ".min.js", ".wasm", ".exe", ".dll", ".so", ".dylib", ".class", ".pyc", ".db", ".sqlite", ".mp4", ".mp3", ".webp"]);
 
 // ── Progress ──────────────────────────────────────────────────────────────

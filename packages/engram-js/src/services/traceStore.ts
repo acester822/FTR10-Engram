@@ -59,8 +59,13 @@ export function isTraceableRoute(method: string, url: string): boolean {
   // Writes: explicit remember + native extraction paths
   if (method === "POST" && (u === "/memories" || u === "/ingest" || u === "/ingest/conversation" || u === "/ingest/document" || u === "/ingest/event")) return true;
   if (method === "DELETE" && u.startsWith("/memories/")) return true;
-  // Chat proxy: full SSE stream captured (capped)
-  if (u === "/v1/chat/completions") return true;
+  // Chat proxy: v4.7.11 — the handler emits its OWN four traces per turn
+  // (in / recall / out / extract) with turn_id + user_request linkage. The
+  // middleware's single generic "chat" trace was the source of the
+  // everything-lumped-together breakdown (full raw request incl. skill dumps
+  // + SSE envelope, no session id, scored against the wrong reference).
+  // Keep it OUT of the middleware so exactly four traces land per turn.
+  if (u === "/v1/chat/completions") return false;
   // Explicit maintenance actions
   if (method === "POST" && u === "/api/dashboard/consolidate") return true;
   if (method === "PUT" && u === "/api/settings") return true;
@@ -148,6 +153,8 @@ export interface TraceRecord {
   projectId?: string;
   userId?: string;
   model?: string;
+  turnId?: string;
+  userRequest?: string;
   requestBody?: unknown;
   responseBody?: unknown;
   breakdown?: unknown;
@@ -158,8 +165,8 @@ export interface TraceRecord {
 /** Fire-and-forget insert — never awaited in the hot path. */
 export function persistTrace(rec: TraceRecord): void {
   const sql = `INSERT INTO public.traces
-    (id, ts, route, method, status, ms, direction, kind, label, session_id, project_id, user_id, model, request_body, response_body, breakdown, injection, error)
-    VALUES ($1, to_timestamp($2 / 1000.0), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb, $15::jsonb, $16::jsonb, $17::jsonb, $18)`;
+    (id, ts, route, method, status, ms, direction, kind, label, session_id, project_id, user_id, model, turn_id, user_request, request_body, response_body, breakdown, injection, error)
+    VALUES ($1, to_timestamp($2 / 1000.0), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17::jsonb, $18::jsonb, $19::jsonb, $20)`;
   pg_run(sql, [
     rec.id,
     rec.ts,
@@ -174,6 +181,8 @@ export function persistTrace(rec: TraceRecord): void {
     rec.projectId ?? null,
     rec.userId ?? null,
     rec.model ?? null,
+    rec.turnId ?? null,
+    rec.userRequest ?? null,
     JSON.stringify(encodeBody(rec.requestBody)),
     JSON.stringify(encodeBody(rec.responseBody)),
     rec.breakdown ? JSON.stringify(rec.breakdown) : null,
@@ -284,11 +293,11 @@ export async function listTraces(f: TraceFilter = {}): Promise<any[]> {
   const offset = Math.max(Number(f.offset) || 0, 0);
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
   return pg_all(
-    `SELECT id, ts, route, method, status, ms, direction, kind, label, model, breakdown, injection, scores, error, reviewed_at,
+    `SELECT id, ts, route, method, status, ms, direction, kind, label, model, turn_id, user_request, breakdown, injection, scores, error, reviewed_at,
        response_body->'stored_memory_ids' AS stored_memory_ids,
        (${needsReviewSql(policy.bad)}) AS needs_review
-     FROM public.traces ${whereSql}
-     ORDER BY ts DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    FROM public.traces ${whereSql}
+    ORDER BY ts DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, limit, offset],
   );
 }
@@ -319,12 +328,88 @@ export async function getTrace(id: string): Promise<any | null> {
     const rb = row.response_body as any;
     const reqRaw = typeof rq === "string" ? rq : rq?.raw ?? (typeof rq === "object" ? JSON.stringify(rq) : "");
     const respRaw = typeof rb === "string" ? rb : rb?.raw ?? (typeof rb === "object" ? JSON.stringify(rb) : "");
-    const userMsg = extractUserText(String(reqRaw ?? ""));
-    const assistantText = extractAssistantText(String(respRaw ?? ""));
-    if (userMsg) row._user_text = userMsg;
-    if (assistantText) row._assistant_text = assistantText;
+    // v4.7.11: the turn-linked traces (in/recall/out/extract) carry the TRUE
+    // user request in the user_request column — the authoritative source.
+    // The unified extractor handles ALL request shapes — chat proxy
+    // {messages}, /extract {conversation:[{role,content}...]} (assistant answer
+    // lives in the REQUEST array; the response is just the extraction receipt),
+    // and /ingest/conversation {user_prompt, llm_response}.
+    const { user, assistant } = extractConversationText(String(reqRaw ?? ""), String(respRaw ?? ""));
+    if (typeof row.user_request === "string" && row.user_request.trim()) row._user_text = row.user_request;
+    else if (user) row._user_text = user;
+    if (assistant) row._assistant_text = assistant;
+    // OUT traces: answer lives in response_body.answer (working notes separate).
+    else if (rb && typeof rb.answer === "string" && rb.answer.trim()) row._assistant_text = rb.answer;
   } catch { /* derived fields are best-effort */ }
   return row;
+}
+
+/** Best-effort {user, assistant} from a trace's request + response bodies.
+ *  Handles the real capture shapes:
+ *   - chat/completions proxy: request {messages:[...]}, response = SSE stream
+ *     (answer in delta.content / delta.reasoning)
+ *   - /v1/chat/completions/extract: request {conversation:[{role,content}...]},
+ *     response = extraction receipt ({sectors, stored_count, stored_memory_ids})
+ *     → the assistant answer is the LAST assistant entry in the REQUEST array
+ *   - /ingest/conversation: request {user_prompt, llm_response}, response = receipt
+ *  Truncation-tolerant (regex fallbacks for cut-off JSON). */
+function extractConversationText(reqText: string, respText: string): { user: string; assistant: string } {
+  let reqObj: any = null;
+  try { reqObj = JSON.parse(reqText); } catch { /* truncated — fall through */ }
+  let respObj: any = null;
+  try { respObj = JSON.parse(respText); } catch { /* truncated — fall through */ }
+
+  let user = "";
+  let assistant = "";
+
+  // 1) Message arrays: chat/completions {messages} or /extract {conversation}
+  const msgs = reqObj && (Array.isArray(reqObj.messages) ? reqObj.messages
+    : Array.isArray(reqObj.conversation) ? reqObj.conversation : null);
+  if (Array.isArray(msgs)) {
+    const lastOf = (role: string) => {
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (m?.role === role) {
+          const c = m.content;
+          if (typeof c === "string") return c;
+          if (c !== undefined) return JSON.stringify(c);
+        }
+      }
+      return "";
+    };
+    user = lastOf("user");
+    assistant = lastOf("assistant");
+  }
+
+  // 2) /ingest/conversation: {user_prompt, llm_response}
+  if (!user && reqObj && typeof reqObj.user_prompt === "string") user = reqObj.user_prompt;
+  if (!assistant && reqObj && typeof reqObj.llm_response === "string") assistant = reqObj.llm_response;
+
+  // 3) Response-side answers (chat proxy: streamed SSE or non-stream JSON)
+  if (!assistant) {
+    if (respText.includes("data:")) {
+      assistant = sseAssistantText(respText);
+    } else if (respObj) {
+      if (respObj.role === "assistant" && typeof respObj.content === "string") assistant = respObj.content;
+      else if (Array.isArray(respObj.choices) && respObj.choices[0]?.message && typeof respObj.choices[0].message.content === "string") {
+        assistant = respObj.choices[0].message.content;
+      }
+    }
+  }
+
+  // 4) Regex fallbacks (truncated / escaped bodies)
+  if (!user) user = extractUserText(reqText);
+  if (!assistant) {
+    const both = `${reqText}\n${respText}`;
+    const m = [...both.matchAll(/"role"\s*:\s*"assistant"\s*,\s*"content"\s*:\s*(\"(?:[^\"\\\\]|\\.)*\"|\[[\s\S]*?\])/g)];
+    if (m.length) {
+      let c = m[m.length - 1][1];
+      try { c = JSON.parse(c); } catch { /* keep raw string */ }
+      assistant = Array.isArray(c) ? c.map((x: any) => (typeof x === "string" ? x : JSON.stringify(x))).join("\n") : String(c);
+    }
+  }
+
+  return { user: user.trim().slice(0, 2000), assistant: assistant.trim().slice(0, 4000) };
 }
 
 /** Pull the last user message out of a captured chat request body
@@ -348,7 +433,7 @@ function extractUserText(text: string): string {
 }
 
 /** Extract the assistant's answer from a captured SSE chat stream. */
-function extractAssistantText(raw: string): string {
+function sseAssistantText(raw: string): string {
   if (!raw.includes("data:")) return "";
   let out = "";
   for (const line of raw.split("\n")) {
@@ -531,7 +616,7 @@ export async function traceReport(opts: TraceReportOptions = {}): Promise<TraceR
       //      pipeline stored 0.75 facts/turn).
       //   4. recall_relevance counts ONLY knowledge-query recalls —
       //      conversational messages ("yes please") aren't knowledge gaps.
-      const tDim = t.label === "chat" ? "answer_quality" : t.label === "ingest" || t.label === "remember" ? "extraction_fidelity" : t.label === "recall" ? "recall_relevance" : null;
+      const tDim = t.label === "chat" || t.label === "out" ? "answer_quality" : t.label === "ingest" || t.label === "extract" || t.label === "remember" ? "extraction_fidelity" : t.label === "recall" ? "recall_relevance" : null;
       const storedIds = (t.response_body as any)?.stored_memory_ids;
       const query = (t.request_body as any)?.query;
       if (typeof t.status === "number" && t.status >= 400) {
