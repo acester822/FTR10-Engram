@@ -1509,6 +1509,23 @@ export async function recallDurableMemories(
     } catch { /* noop — outcome ranking is best-effort */ }
   }
 
+  // ACCESS REINFORCEMENT (v5.0.2): record that these memories were actually
+  // recalled. memoryInjector.recordAccess() existed for this but had ZERO
+  // callers, so access_count stayed 0 forever and the enrichment engine's
+  // "used-most first" sampler degenerated to oldest-first — fresh facts sat
+  // unsampled at the tail of the pool. Fire-and-forget: never blocks or
+  // fails the recall itself.
+  if (results.length > 0) {
+    const accessedIds = results.map((r: any) => r.id).filter(Boolean);
+    if (accessedIds.length > 0) {
+      db.query(
+        `UPDATE ${memories} SET access_count = access_count + 1, last_accessed_at = $1
+         WHERE id = ANY($2::uuid[]) AND superseded_at IS NULL`,
+        [new Date().toISOString(), accessedIds],
+      ).catch(() => { /* best-effort reinforcement */ });
+    }
+  }
+
   return {
     query: input.query,
     mode,

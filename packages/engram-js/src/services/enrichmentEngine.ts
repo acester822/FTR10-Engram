@@ -227,6 +227,10 @@ async function doRun(): Promise<any> {
   // 1. Selection — used-most first, deterministic filter to bound judge cost.
   // Guardrails: genome (COLUMN or metadata.is_genome — the 2026-08-07 hole)
   // and intent/TODO/preference content are NEVER enrichment targets.
+  // v5.0.2: access_count was always 0 (recordAccess had no callers), so this
+  // ORDER BY degenerated to oldest-first and fresh facts never surfaced
+  // (the AutomationDirect backfill sat at positions ~1474/1476). Now:
+  // used-most first, then NEWEST-first among the unused, then oldest.
   const pool = await pg_all(
     `SELECT id, content, sector, access_count FROM public.memories
      WHERE superseded_at IS NULL AND memory_tier <> 'archived' AND embedding IS NOT NULL
@@ -238,7 +242,9 @@ async function doRun(): Promise<any> {
          SELECT 1 FROM public.integrity_findings f
          WHERE f.check_name = 'enrichment_candidate' AND f.memory_id = memories.id AND f.status = 'open'
        )
-     ORDER BY access_count DESC, decay_rate ASC, recorded_at ASC
+     ORDER BY access_count DESC,
+              CASE WHEN access_count = 0 THEN EXTRACT(EPOCH FROM recorded_at) END DESC NULLS LAST,
+              recorded_at ASC
      LIMIT $2`,
     [minUsage(), poolSize()],
   );

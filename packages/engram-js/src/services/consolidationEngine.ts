@@ -9,7 +9,7 @@ import { make_db as kit_make_db, run_async, all_async, transaction } from "../ap
 import { DEFAULT_GENOME_DECAY_RATE, DEFAULT_PHENOTYPE_DECAY_RATE, normalizeSector } from "./memoryInjector";
 import { logger } from "../utils/logger";
 import { resolveGenerativeModel } from "../database/modelRegistry";
-import { hardDeleteMemories, updateMemoryContent } from "../durable/mutations";
+import { hardDeleteMemories, supersedeMemories, updateMemoryContent } from "../durable/mutations";
 
 // ── Configuration ─────────────────────────────────────────────────────
 
@@ -181,14 +181,19 @@ export class ConsolidationEngine {
       SELECT id, content,
              COALESCE((metadata->>'sector')::text, 'semantic') as sector,
              (metadata->>'is_genome')::boolean as is_genome,
-             COALESCE((metadata->>'access_count')::int, 0) as access_count,
+             -- v5.0.2: access_count is a COLUMN (reinforced by recall since
+             -- v5.0.2). The old code read metadata->>'access_count', which is
+             -- never written — so this was always 0 and the DEEP tier's
+             -- access>=1 gate matched NOTHING, ever.
+             GREATEST(COALESCE(access_count, 0), COALESCE((metadata->>'access_count')::int, 0)) as access_count,
              recorded_at,
              consolidation_hash
       FROM "public"."memories"
       WHERE memory_tier != 'archived'
+        AND superseded_at IS NULL
         AND recorded_at > NOW() - INTERVAL '1 day' * ${maxAgeDays}
         AND recorded_at <= NOW() - INTERVAL '1 day' * ${minAgeDays}
-        AND COALESCE((metadata->>'access_count')::int, 0) >= ${minAccess}
+        AND GREATEST(COALESCE(access_count, 0), COALESCE((metadata->>'access_count')::int, 0)) >= ${minAccess}
       ORDER BY consolidation_hash ASC, recorded_at ASC
     `;
 
@@ -399,7 +404,32 @@ If no actions are needed, return: {"actions": []}
               logger.warn({ module: 'consolidationEngine', action: action.action }, 'DELETE skipped — no valid UUID targets');
               continue;
             }
-            await hardDeleteMemories(validIds, "consolidation", { action: "delete", reason: action.reason });
+            // v5.0.2 FRESHNESS GUARD: consolidation may never hard-delete a
+            // memory younger than 24h. The RECENT tier window starts at age 0,
+            // so brand-new facts were reaching the LLM and being judged
+            // "obsolete or trivial" within the hour (the 2026-08-21 incident:
+            // three just-backfilled AutomationDirect facts deleted ~1h after
+            // creation while meta-memories ABOUT the cleanup survived).
+            // Younger rows are downgraded to supersede (reversible); older
+            // rows delete as the LLM decided.
+            const MIN_AGE_MS = 24 * 60 * 60 * 1000;
+            const young = action.target_ids.filter((id) => {
+              const c = candidateMap.get(id);
+              return c?.recorded_at && (Date.now() - new Date(c.recorded_at).getTime()) < MIN_AGE_MS;
+            });
+            const deletable = validIds.filter((id) => !young.includes(id));
+            if (young.length > 0) {
+              logger.warn(
+                { module: 'consolidationEngine', protected_ids: young.length },
+                'DELETE downgraded to SUPERSEDE for memories younger than 24h (freshness guard)',
+              );
+            }
+            if (deletable.length > 0) {
+              await hardDeleteMemories(deletable, "consolidation", { action: "delete", reason: action.reason });
+            }
+            if (young.length > 0) {
+              await supersedeMemories(young, "consolidation", { action: "supersede", reason: `${action.reason} [freshness guard: <24h, reversible]` });
+            }
           }
           else if (action.action === "merge" || action.action === "update") {
             // For merge/update, new_content is REQUIRED. If LLM forgot it, synthesize from the source memories.
