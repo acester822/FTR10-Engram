@@ -22,6 +22,7 @@ import { callJudge, parseJudge } from "./traceScorer";
 import { enrichMemory } from "../durable/mutations";
 import { AutoSearchEngine } from "./autoSearch";
 import { logger } from "../utils/logger";
+import crypto from "node:crypto";
 
 // ── Config (GENERAL_SETTINGS → process.env, live at call time) ──
 
@@ -206,22 +207,36 @@ export function enrichmentLastRun(): any {
   return lastRun;
 }
 
-export async function runEnrichment(): Promise<any> {
+export async function runEnrichment(
+  opts: { batch?: number; sweep?: boolean } = {},
+): Promise<any> {
   if (running) return { skipped: true, reason: "enrichment run already in progress — skipped (manual + scheduled overlapped)" };
   running = true;
   try {
-    return await doRun();
+    return await doRun(opts);
   } finally {
     running = false;
   }
 }
 
-async function doRun(): Promise<any> {
+async function doRun(opts: { batch?: number; sweep?: boolean } = {}): Promise<any> {
   if (!enrichmentEnabled()) {
     return { skipped: true, reason: "EG_ENRICHMENT_ENABLED is false — enable in Settings → General → Enrichment" };
   }
   const action = enrichmentAction();
-  const stats = { sampled: 0, candidates: 0, enriched: 0, flagged: 0, failed: 0, noop: 0, skipped_no_sources: 0, skipped_intent: 0, access_requests: 0, grounding_rejected: 0 };
+  // v5.0.2: one-time BACKFILL SWEEP support — ?sweep=1&batch=N processes N
+  // candidates in a single run (cap 50) instead of the default 5, and marks
+  // swept-but-unactionable memories with a dismissed 'backfill' finding so
+  // successive sweeps ADVANCE through the store instead of re-judging the
+  // same head-of-pool rows. Scheduled behavior is untouched: dismissed
+  // findings do NOT exclude a memory from normal runs (only open ones do).
+  const SWEEP_NOTE = `backfill sweep ${new Date().toISOString().slice(0, 10)}`;
+  const sweep = opts.sweep === true;
+  const effBatch =
+    opts.batch && Number.isFinite(opts.batch) && opts.batch > 0
+      ? Math.min(Math.floor(opts.batch), 50)
+      : batchSize();
+  const stats = { sampled: 0, candidates: 0, enriched: 0, flagged: 0, failed: 0, noop: 0, skipped_no_sources: 0, skipped_intent: 0, access_requests: 0, grounding_rejected: 0, sweep_dismissed: 0 };
   const started = Date.now();
 
   // 1. Selection — used-most first, deterministic filter to bound judge cost.
@@ -256,7 +271,23 @@ async function doRun(): Promise<any> {
   }
 
   // 2. Completeness rubric — judge-sample the batch.
-  const batch = poolFacts.slice(0, batchSize());
+  // v5.0.2 sweep mode: exclude already-swept rows (dismissed 'backfill'
+  // finding) so repeated sweeps walk FORWARD through the store.
+  let batch = poolFacts.slice(0, effBatch);
+  if (sweep) {
+    const swept = new Set(
+      (
+        await pg_all(
+          `SELECT f.memory_id FROM public.integrity_findings f
+           WHERE f.check_name = 'enrichment_candidate' AND f.status = 'dismissed'
+             AND f.detail->>'resolution' LIKE 'backfill sweep%'
+             AND f.memory_id IS NOT NULL`,
+          [],
+        )
+      ).map((r: any) => r.memory_id),
+    );
+    batch = poolFacts.filter((m: any) => !swept.has(m.id)).slice(0, effBatch);
+  }
   const roots = searchRoots();
   const candidates: any[] = [];
   for (const mem of batch) {
@@ -495,6 +526,31 @@ async function doRun(): Promise<any> {
 
   lastRun = { at: new Date().toISOString(), action, stats, ms: Date.now() - started };
   logger.info({ module: "enrichmentEngine", action, stats }, "enrichment run complete");
+
+  // v5.0.2 SWEEP MARKER: in sweep mode, record which sampled memories were
+  // judged complete-enough (or otherwise not enrichable) so the NEXT sweep
+  // skips them and advances. Written as DISMISSED findings — they never
+  // appear as open work and do not block normal scheduled enrichment.
+  if (sweep && batch.length > 0) {
+    const actionable = new Set(candidates.map((c: any) => c.id));
+    const runId = crypto.randomUUID();
+    await pg_run(
+      `INSERT INTO public.integrity_runs (id, tier2_enabled, summary) VALUES ($1, false, $2::jsonb)`,
+      [runId, JSON.stringify({ kind: "enrichment_backfill_sweep", ...stats })],
+    ).catch(() => {});
+    for (const mem of batch) {
+      if (actionable.has(mem.id)) continue;
+      stats.sweep_dismissed++;
+      await pg_run(
+        `INSERT INTO public.integrity_findings
+           (run_id, check_name, memory_id, severity, action_taken, detail, status, resolved_at)
+         VALUES ($1, 'enrichment_candidate', $2, 'info', 'none',
+                 jsonb_build_object('resolution', $3::text), 'dismissed', now())`,
+        [runId, mem.id, `${SWEEP_NOTE}: judged complete-enough or not enrichable — no action needed`],
+      ).catch((e: any) => logger.warn({ module: "enrichmentEngine", err: e?.message }, "sweep marker failed"));
+    }
+  }
+
   return lastRun;
 }
 
