@@ -446,6 +446,36 @@ If no actions are needed, return: {"actions": []}
               }
             }
 
+            // v5.0.2 GROUNDING GUARD (2026-08-22 data-loss incident): a weak
+            // model once returned new_content that belonged to an UNRELATED
+            // memory — updateMemoryContent then overwrote a taskbar fact with
+            // dashboard-config text, silently destroying it. Before any
+            // merge/update overwrite, require the new content to share
+            // meaningful token overlap with the memories it replaces; on
+            // failure, skip the action instead of corrupting the store.
+            {
+              const targetContents = action.target_ids
+                .map(id => candidateMap.get(id)?.content || "")
+                .filter(Boolean);
+              const tokens = (s: string) => new Set(
+                s.toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length >= 5)
+              );
+              const newTokens = tokens(content);
+              const overlap = targetContents.some(tc => {
+                const tcTokens = tokens(tc);
+                if (tcTokens.size === 0) return true; // can't judge — allow
+                const shared = [...newTokens].filter(t => tcTokens.has(t)).length;
+                return shared / Math.max(1, Math.min(newTokens.size, 12)) >= 0.3;
+              });
+              if (!overlap) {
+                logger.error(
+                  { module: 'consolidationEngine', model: consolidationModel(), action: action.action, reason: action.reason },
+                  `${action.action.toUpperCase()} REJECTED by grounding guard — new_content shares no meaningful vocabulary with target memories (cross-topic overwrite risk)`,
+                );
+                continue;
+              }
+            }
+
             const newSector = normalizeSector(action.new_sector || candidateMap.get(action.target_ids[0])?.sector || "semantic");
             const isGenome = action.is_genome !== undefined ? action.is_genome : candidateMap.get(action.target_ids[0])?.is_genome || false;
             const decayRate = isGenome ? DEFAULT_GENOME_DECAY_RATE : DEFAULT_PHENOTYPE_DECAY_RATE;
