@@ -136,6 +136,38 @@ export async function logInteractionAsync(
 ): Promise<{ storedCount: number; sectors: Record<string, number>; storedMemoryIds: string[] }> {
   const empty = () => ({ storedCount: 0, sectors: {} as Record<string, number>, storedMemoryIds: [] as string[] });
   try {
+    // v5.0.2 PRE-EXTRACTION GATE: turns that CANNOT yield durable facts never
+    // reach the extraction LLM. Two recurring artifact classes (2026-08-22
+    // fidelity audit, scores 0.2–0.5):
+    //   1. Anaphoric user prompts — "Yes, get rid of them please" / "run the
+    //      entire sweep". Without conversation history the referent of
+    //      "them"/"it" is unresolvable, so the model invented facts or
+    //      re-stored stale ones.
+    //   2. Machine notifications — background-process completions,
+    //      [IMPORTANT: ...] harness blocks. Pure session state.
+    // Skipping here saves an LLM call AND keeps the fidelity judge honest.
+    {
+      const up = userPrompt.trim();
+      const machineNoise =
+        /^\[IMPORTANT:/i.test(up) ||
+        /^Background process \S+ (completed|exited|failed)/i.test(up) ||
+        /\bexit_code=\d+/.test(up) && up.length < 400;
+      if (machineNoise) {
+        logger.debug({ module: 'memoryLogger' }, 'Skipping extraction — machine/harness notification turn');
+        return empty();
+      }
+      const words = up.split(/\s+/).filter(Boolean);
+      if (
+        words.length > 0 && words.length <= 12 &&
+        !/[?]/.test(up) && up.length < 90 &&
+        /^(yes|no|ok|okay|sure|thanks|thank you|please|go ahead|do it|do that|sounds good|perfect|great|confirmed|approved|nope|nah)\b/i.test(up) &&
+        /\b(them|it|that|this|those|these)\b/i.test(up)
+      ) {
+        logger.debug({ module: 'memoryLogger' }, 'Skipping extraction — anaphoric acknowledgment turn (pronoun referent not in this turn)');
+        return empty();
+      }
+    }
+
     // Throttle: skip if extraction ran recently
     const now = Date.now();
     if (now - _lastExtractionTime < EXTRACTION_COOLDOWN_MS) {
