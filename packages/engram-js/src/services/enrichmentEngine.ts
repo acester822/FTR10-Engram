@@ -527,19 +527,32 @@ async function doRun(opts: { batch?: number; sweep?: boolean } = {}): Promise<an
   lastRun = { at: new Date().toISOString(), action, stats, ms: Date.now() - started };
   logger.info({ module: "enrichmentEngine", action, stats }, "enrichment run complete");
 
-  // v5.0.2 SWEEP MARKER: in sweep mode, record which sampled memories were
-  // judged complete-enough (or otherwise not enrichable) so the NEXT sweep
-  // skips them and advances. Written as DISMISSED findings — they never
-  // appear as open work and do not block normal scheduled enrichment.
+  // v5.0.2 SWEEP MARKER: in sweep mode, record every sampled memory that did
+  // NOT reach a terminal actionable state (open flag / enrich) so the NEXT
+  // sweep skips it and advances. This includes complete-enough rows AND
+  // dead-end candidates (skipped_no_sources, compose/validate failures,
+  // noops) — otherwise repeated sweeps re-judge the same head-of-pool rows
+  // forever. Written as DISMISSED findings — they never appear as open work
+  // and do not block normal scheduled enrichment (only open findings do).
   if (sweep && batch.length > 0) {
-    const actionable = new Set(candidates.map((c: any) => c.id));
+    const batchIds = batch.map((m: any) => m.id);
+    const stillOpen = new Set(
+      (
+        await pg_all(
+          `SELECT DISTINCT memory_id FROM public.integrity_findings
+           WHERE check_name = 'enrichment_candidate' AND status = 'open'
+             AND memory_id = ANY($1::uuid[])`,
+          [batchIds],
+        )
+      ).map((r: any) => r.memory_id),
+    );
     const runId = crypto.randomUUID();
     await pg_run(
       `INSERT INTO public.integrity_runs (id, tier2_enabled, summary) VALUES ($1, false, $2::jsonb)`,
       [runId, JSON.stringify({ kind: "enrichment_backfill_sweep", ...stats })],
     ).catch(() => {});
     for (const mem of batch) {
-      if (actionable.has(mem.id)) continue;
+      if (stillOpen.has(mem.id)) continue; // open flag = already terminal
       stats.sweep_dismissed++;
       await pg_run(
         `INSERT INTO public.integrity_findings
