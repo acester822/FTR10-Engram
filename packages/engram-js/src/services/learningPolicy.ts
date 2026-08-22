@@ -65,50 +65,45 @@ interface KnobMapping {
 
 const KNOB_MAPPINGS: Record<string, KnobMapping[]> = {
   recall_relevance: [
-    // Low recall → trust keyword evidence more (lower floor so weak vectors
-    // don't crowd out keyword matches)
+    // Low recall relevance → the store is missing answers the user asks for.
+    // The real, consumed lever is the recall-gap pass: raise how many gaps it
+    // fills per run so missing knowledge gets backfilled faster. (The old
+    // hybrid_vector_floor / hybrid_keyword_scale knobs were DEAD — nothing read
+    // them at recall time, so tuning them had zero effect. v5.0.3 removed them.)
     {
-      knob: "general.hybrid_vector_floor",
-      label: "Vector probability floor",
-      direction: "lower_is_better",
-      propose: (current, avg, good, bad) => {
-        // Nudge floor down by up to 0.05 to let more keyword results in
-        return Math.max(0.1, current - 0.05 * (bad - avg));
-      },
-      clamp: [0.05, 0.5],
-    },
-    {
-      knob: "general.hybrid_keyword_scale",
-      label: "Keyword probability scale",
+      knob: "general.recall_gap_max_per_run",
+      label: "Recall-gap max fills per run",
       direction: "raise_is_better",
       propose: (current, avg, good, bad) => {
-        return Math.min(3.0, current + 0.2 * (bad - avg));
+        // Raise the cap by ~5 per point of deficit (clamped below)
+        return current + Math.ceil(5 * (bad - avg));
       },
-      clamp: [1.0, 4.0],
+      clamp: [1, 50],
     },
   ],
   extraction_fidelity: [
-    // Low extraction → tighten DO-NOT-EXTRACT by lowering the floor? No, that's
-    // in the prompt. Instead raise the auto-search confidence so missing facts
-    // get fetched from the web.
+    // Low extraction fidelity → missing facts aren't captured. Lower the
+    // auto-search confidence threshold (stored as a PERCENT, e.g. 40 = 0.40;
+    // the reader divides by 100) so weak-confidence gaps get web-fetched.
     {
       knob: "general.auto_search_min_confidence",
-      label: "Auto-search confidence threshold",
+      label: "Auto-search min confidence (percent)",
       direction: "lower_is_better",
       propose: (current, avg, good, bad) => {
-        return Math.max(0.3, current - 0.05);
+        // current is a percent (0–100). Drop by up to 10 points.
+        return Math.max(10, current - 10 * (bad - avg));
       },
-      clamp: [0.1, 0.9],
+      clamp: [10, 90],
     },
   ],
   answer_quality: [
-    // Low answer quality with high injection → reduce injection count
+    // Low answer quality with high injection → trim injection pressure per turn
     {
       knob: "general.compact_trigger",
       label: "Compaction trigger (messages)",
       direction: "raise_is_better",
       propose: (current, avg, good, bad) => {
-        // Higher trigger = less context injection pressure per turn
+        // Higher trigger = less context churn per turn
         return Math.min(200, current + 10);
       },
       clamp: [20, 500],
@@ -475,6 +470,7 @@ export async function learningStatus(): Promise<{
   last_run: string | null;
   open_proposals: number;
   total_proposals: number;
+  gate_reasons: string[];
 }> {
   const openRows = await pg_all(
     `SELECT count(*)::int AS n FROM public.learning_proposals WHERE status = 'open'`,
@@ -485,12 +481,25 @@ export async function learningStatus(): Promise<{
     [],
   ).catch(() => [{ n: 0 }]);
 
+  // Recompute the real gate (don't hardcode false — that lied about health).
+  let gateOpen = false;
+  let gateReasons: string[] = [];
+  try {
+    const { integrityGate } = require("./integrityEngine");
+    const gate = await integrityGate();
+    gateOpen = gate.open;
+    gateReasons = gate.reasons || [];
+  } catch {
+    gateReasons = ["gate unavailable"];
+  }
+
   return {
     enabled: (process.env.EG_LEARNING_ENABLED ?? "true").toLowerCase() !== "false",
-    gate_open: false,  // status check doesn't need to compute the full gate
+    gate_open: gateOpen,
     last_run: null,
     open_proposals: openRows[0]?.n || 0,
     total_proposals: totalRows[0]?.n || 0,
+    gate_reasons: gateReasons,
   };
 }
 

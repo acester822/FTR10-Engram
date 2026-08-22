@@ -159,8 +159,10 @@ export const GENERAL_SETTINGS: GeneralSettingDef[] = [
   { key: "general.learning_auto_apply", env: "EG_LEARNING_AUTO_APPLY", type: "bool", label: "Auto-Apply Small Deltas", section: "learning" },
   { key: "general.learning_max_delta", env: "EG_LEARNING_MAX_DELTA", type: "number", label: "Max Auto-Apply Delta", section: "learning" },
   { key: "general.learning_min_traces", env: "EG_LEARNING_MIN_TRACES", type: "number", label: "Min Traces to Evaluate", section: "learning" },
-  { key: "general.hybrid_vector_floor", env: "EG_HYBRID_VECTOR_FLOOR", type: "number", label: "Vector Probability Floor", section: "learning" },
-  { key: "general.hybrid_keyword_scale", env: "EG_HYBRID_KEYWORD_SCALE", type: "number", label: "Keyword Probability Scale", section: "learning" },
+  // NOTE: hybrid_vector_floor / hybrid_keyword_scale were removed (v5.0.3) —
+  // they were DEAD knobs (nothing read them at recall time), so the learning
+  // loop must not propose changes to them. Recall quality is steered via
+  // general.recall_gap_max_per_run instead.
   // Living model — outcome-aware memory (v5.0.0): salience driven by measured usefulness
   { key: "general.outcome_tracking_enabled", env: "EG_OUTCOME_TRACKING_ENABLED", type: "bool", label: "Outcome Tracking Enabled", section: "learning" },
   { key: "general.outcome_decay_penalty", env: "EG_OUTCOME_DECAY_PENALTY", type: "number", label: "Bad-Outcome Decay Penalty", section: "learning" },
