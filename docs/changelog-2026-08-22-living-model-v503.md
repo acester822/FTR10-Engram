@@ -39,9 +39,26 @@ gap-fill cap when recall is weak). Removed the two dead settings definitions.
   Real chat turns now emit `genome_ids` (container restarted with the IDs
   code), so outcome stats populate automatically going forward.
 
+## Auto-apply activated (user request, same session)
+- `EG_LEARNING_AUTO_APPLY=true` and `EG_LEARNING_MAX_DELTA=10` pinned in
+  `.env` (gitignored; local persistence). Default `maxAutoDelta=0.1` was too
+  tight for integer/percent-scaled knobs, so normal deltas never self-applied;
+  10 lets reasonable adjustments through while still bounding any single change.
+- `EG_RECALL_GAP_MAX_PER_RUN` pinned in `.env` (=2 after auto-apply). NOTE:
+  `recallGapEngine` reads raw `process.env.EG_RECALL_GAP_MAX_PER_RUN`, NOT the
+  settings DB — so the applied value must be mirrored in `.env` or it reverts
+  to the code default (10) on container restart. `auto_search_min_confidence`
+  is read via the `liveSetting()` getter, so it survives via the settings DB
+  without an env pin.
+- Verified the full loop: `runLearning` now reports `proposals_created: 2,
+  auto_applied: 2`, and `audit_log` records `learning.apply` events. After a
+  clean `docker compose up -d` (re-reads `.env`), all values persist:
+  `recall_gap_max_per_run=2`, `auto_search_min_confidence=34.64`,
+  `gate_open=true`.
+
 ## Is it "being used" now?
-The loop is **live and correctly gated**. It runs on a daily schedule
-(`EG_LEARNING_INTERVAL_MS`, default 24h) and is **flag-first**: proposals are
-created but NOT applied unless `EG_LEARNING_AUTO_APPLY=true`. Outcome tracking
-populates per real chat turn. The system adapts its own hyperparameters from
-judge scores — but every change stays in `learning_proposals` for human review.
+The loop is **live, correctly gated, and self-applying small deltas**. It runs
+on a daily schedule (`EG_LEARNING_INTERVAL_MS`, default 24h), proposes from
+judge-score trends, and now auto-applies safe deltas (bounded by
+`EG_LEARNING_MAX_DELTA`), writing every change to `learning_proposals` +
+`audit_log` for review. Outcome tracking populates per real chat turn.
