@@ -30,7 +30,7 @@ WORKDIR /app
 # safe.directory: host-mounted repos are owned by the host user, not the
 # container user — git refuses them as "dubious ownership" without this.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates \
+ && apt-get install -y --no-install-recommends git ca-certificates ripgrep \
  && git config --system --add safe.directory '*' \
  && rm -rf /var/lib/apt/lists/*
 

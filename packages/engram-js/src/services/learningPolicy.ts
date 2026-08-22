@@ -241,7 +241,7 @@ async function createProposal(
     `INSERT INTO public.learning_proposals
        (id, dimension, metric, observed_value, threshold_breached,
         target_knob, current_value, proposed_value, rationale, status)
-     VALUES ($1, $2, $3, $4, $5, $6::text, $7::text, $8, 'open')`,
+     VALUES ($1, $2, $3, $4, $5, $6::text, $7::text, $8::text, $9, 'open')`,
     [id, dimension, metric, observedValue, thresholdBreached, knob, String(currentValue), String(proposedValue), rationale],
   ).catch((err: any) => {
     logger.warn({ module: "learningPolicy", err: err?.message }, "failed to write proposal");

@@ -55,6 +55,11 @@ services:
       - ./logs:/home/ftr/Apps/Engram/logs
       - ./repos:/data/repos
       - /home/ftr/Apps:/data/repos-local:ro
+      # v5.0.2: enrichment codebase-search roots — mounted at IDENTICAL
+      # container paths so Settings-granted roots resolve 1:1. Read-only.
+      - /home/ftr/Apps:/home/ftr/Apps:ro
+      - /home/ftr/Documents:/home/ftr/Documents:ro
+      - /mnt/Vault/Vault_of_Obscenities:/mnt/Vault/Vault_of_Obscenities:ro
     networks:
       - ftr10-engram
     depends_on:
