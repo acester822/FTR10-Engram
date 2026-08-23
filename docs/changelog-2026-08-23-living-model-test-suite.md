@@ -64,3 +64,17 @@ have thrown in production too). It now resolves to the same model as
 loop test. Live `app_settings` confirmed unchanged after the run
 (`recall_gap_max_per_run=2`, `auto_search_min_confidence=34.64`), 0 stray
 proposals/traces left behind.
+
+## Added: "Run Loop Test" button on the Settings tab (2026-08-23)
+
+- **Backend**: `src/services/livingModelVerify.ts` — `runLivingModelVerification()`
+  ports the integration test's logic into a server-side function that runs the
+  full loop against the LIVE store (seed → run → apply → outcome → report),
+  restores `app_settings` to a captured baseline, and cleans up. Never pollutes
+  data or leaves config altered.
+- **API**: `POST /api/dashboard/learning/verify` returns `{ ok, report, report_text }`.
+- **Frontend**: `apps/web/src/App.tsx` — a "Run Loop Test" button (upper right of
+  the Settings tab) calls the endpoint and renders the audit-style report inline
+  (PASS/FAIL badge + formatted report). Uses the existing `FlaskConical` icon.
+- Rebuilt + redeployed engram + web images; verified the endpoint live
+  (`ok:true`, all 6 stages pass) with no config pollution.

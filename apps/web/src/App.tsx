@@ -4005,6 +4005,9 @@ function SettingsView() {
   const [embOverride, setEmbOverride] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null as any);
+  const [verifyLoading, setVerifyLoading] = useState(false);
+  const [verifyReport, setVerifyReport] = useState(null as any);
+  const [verifyError, setVerifyError] = useState(null as any);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -4088,13 +4091,71 @@ function SettingsView() {
 
   if (loading) return <div className="text-slate-500">Loading settings...</div>;
 
+  const runLoopTest = async () => {
+    setVerifyLoading(true);
+    setVerifyError(null);
+    setVerifyReport(null);
+    try {
+      const res = await fetch(`${API_BASE}/learning/verify`, { method: "POST" });
+      const data = await res.json();
+      if (data.ok) setVerifyReport(data);
+      else setVerifyError(data.error || "verification failed");
+    } catch (e: any) {
+      setVerifyError(e?.message || String(e));
+    } finally {
+      setVerifyLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-slate-800">Settings</h2>
-      <p className="text-sm text-slate-500 -mt-3">
-        Single source of truth for providers and models — no defaults, no fallbacks, nothing hardcoded.
-        Test &amp; Save validates a section with a live request and applies changes immediately.
-      </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800">Settings</h2>
+          <p className="text-sm text-slate-500 -mt-1">
+            Single source of truth for providers and models — no defaults, no fallbacks, nothing hardcoded.
+            Test &amp; Save validates a section with a live request and applies changes immediately.
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={runLoopTest}
+            disabled={verifyLoading}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+          >
+            <FlaskConical size={16} className={verifyLoading ? "animate-spin" : ""} />
+            {verifyLoading ? "Running loop test..." : "Run Loop Test"}
+          </button>
+        </div>
+      </div>
+
+      {/* Loop verification report */}
+      {verifyLoading && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 text-sm text-slate-500">
+          Running the living-model loop end-to-end (extract → score → propose → apply → track) and generating the report...
+        </div>
+      )}
+      {verifyError && (
+        <div className="bg-red-50 p-6 rounded-xl shadow-sm border border-red-200">
+          <div className="flex items-center gap-2 text-red-700 font-semibold mb-2">
+            <AlertTriangle size={16} /> Loop test failed to run
+          </div>
+          <pre className="text-xs text-red-600 whitespace-pre-wrap">{String(verifyError)}</pre>
+        </div>
+      )}
+      {verifyReport && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+              <ClipboardCheck size={18} /> Living-Model Loop — Verification Report
+            </h3>
+            <span className={`px-3 py-1 rounded-full text-sm font-semibold ${verifyReport.ok ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+              {verifyReport.ok ? "PASS" : "FAIL"}
+            </span>
+          </div>
+          <pre className="text-xs text-slate-700 whitespace-pre-wrap bg-slate-50 p-4 rounded-lg overflow-auto max-h-96">{verifyReport.report_text}</pre>
+        </div>
+      )}
 
       {/* Provider Settings */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">

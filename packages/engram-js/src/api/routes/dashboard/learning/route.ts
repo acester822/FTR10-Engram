@@ -80,4 +80,16 @@ export const dashboard_learning_route = (app: any) => {
       fail(res, "learning_revert_failed", e);
     }
   });
+
+  // End-to-end loop verification (the "Run Loop Test" button on Settings).
+  // Runs the full closed loop against the live store, returns the audit report.
+  app.post("/api/dashboard/learning/verify", async (_req: any, res: any) => {
+    try {
+      const { runLivingModelVerification } = await import("../../../../services/livingModelVerify");
+      const result = await runLivingModelVerification();
+      res.json({ ok: result.ok, report: result.report, report_text: result.report_text, duration_ms: result.duration_ms });
+    } catch (e) {
+      fail(res, "learning_verify_failed", e);
+    }
+  });
 };
