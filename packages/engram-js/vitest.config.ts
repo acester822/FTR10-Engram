@@ -6,6 +6,7 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     exclude: ['dist/**', 'node_modules/**'],
+    setupFiles: ['tests/setup.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/services/compactionEngine.ts', 'src/durable/schema.ts', 'src/durable/repository.ts'],

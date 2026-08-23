@@ -10,6 +10,8 @@ import crypto from "node:crypto";
 import { all_async as pg_all, run_async as pg_run } from "../database/connection";
 import { policyThresholds } from "./traceStore";
 import { saveSettings } from "./settingsService";
+import { GENERAL_SETTINGS } from "./settingsService";
+import { integrityGate } from "./integrityEngine";
 import { logger } from "../utils/logger";
 
 // ── Configuration ─────────────────────────────────────────────────────
@@ -55,7 +57,7 @@ export interface ScoreWindow {
 // Each entry: the knob to adjust, and a function that produces the proposed
 // new value from the current value and the observed score.
 
-interface KnobMapping {
+export interface KnobMapping {
   knob: string;
   label: string;
   direction: "lower_is_better" | "raise_is_better";
@@ -63,7 +65,7 @@ interface KnobMapping {
   clamp: [number, number];
 }
 
-const KNOB_MAPPINGS: Record<string, KnobMapping[]> = {
+export const KNOB_MAPPINGS: Record<string, KnobMapping[]> = {
   recall_relevance: [
     // Low recall relevance → the store is missing answers the user asks for.
     // The real, consumed lever is the recall-gap pass: raise how many gaps it
@@ -214,7 +216,6 @@ function envKeyForKnob(knob: string): string {
   // knob is like "general.hybrid_vector_floor" → env EG_HYBRID_VECTOR_FLOOR
   const short = knob.replace(/^general\./, "").replace(/^hybrid_/, "HYBRID_").replace(/^auto_search_/, "AUTO_SEARCH_").toUpperCase();
   // Build the env key from the GENERAL_SETTINGS lookup instead
-  const { GENERAL_SETTINGS } = require("./settingsService");
   const def = GENERAL_SETTINGS.find((d: any) => d.key === knob);
   return def?.env || `EG_${short}`;
 }
@@ -363,7 +364,6 @@ export async function runLearning(): Promise<LearningRunResult> {
 
   // Gate: reuse integrity engine's judge gate (calibration + consistency + freshness)
   try {
-    const { integrityGate } = require("./integrityEngine");
     const gate = await integrityGate();
     if (!gate.open) {
       logger.info({ module: "learningPolicy", reasons: gate.reasons }, "skipped — judge gate closed");
@@ -485,7 +485,6 @@ export async function learningStatus(): Promise<{
   let gateOpen = false;
   let gateReasons: string[] = [];
   try {
-    const { integrityGate } = require("./integrityEngine");
     const gate = await integrityGate();
     gateOpen = gate.open;
     gateReasons = gate.reasons || [];
